@@ -1,0 +1,16 @@
+.venv/
+.local/
+node_modules/
+dist/
+__pycache__/
+.pytest_cache/
+*.py[cod]
+.env
+.env.*
+!.env.example
+*.gguf
+*.safetensors
+.DS_Store
+coverage/
+
+*.tsbuildinfo
