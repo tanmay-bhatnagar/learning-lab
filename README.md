@@ -11,7 +11,7 @@ make setup
 make dev
 ```
 
-Open http://127.0.0.1:5173. The API listens only on http://127.0.0.1:8765. Stop the launcher with Ctrl-C. It stops its two child services, leaving Ollama and other user processes alone.
+Open http://127.0.0.1:5173. The API uses loopback port 8765 when available, or automatically chooses a free loopback port. The launcher configures the frontend proxy accordingly. Stop the launcher with Ctrl-C. It stops its two child services, leaving Ollama and other user processes alone.
 
 Create/select a topic, upload a PDF in Files, choose MarkItDown or anydoc, inspect the converted Markdown/original, and select the file for chat. Select an installed model in Settings. Reasoning controls depend on that model's actual support. External-provider cards are inactive placeholders; no API credentials are collected.
 

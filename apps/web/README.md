@@ -9,7 +9,7 @@ npm run build
 node --test tests/stream.test.mjs
 ```
 
-Dev server: http://127.0.0.1:5173. Vite proxies `/api` to `http://127.0.0.1:8765`. Production deployments need an equivalent same-origin `/api` route. Build output is `dist/`.
+Dev server: http://127.0.0.1:5173. Vite proxies `/api` to `LEARNING_LAB_API_URL`, supplied by `make dev` when it chooses a free backend port; running Vite alone defaults to `http://127.0.0.1:8765`. Production deployments need an equivalent same-origin `/api` route. Build output is `dist/`.
 
 The interface supports one conversation per topic, explicit attachment selection, PDF upload with MarkItDown or AnyDoc, original PDF and safe Markdown inspection, NDJSON thinking/answer streaming, partial-response indicators (`incomplete`), context usage, and saved settings. Context defaults to 8192 and is capped at 32768. Thinking capabilities come from the live model API. Model preferences persist through backend settings; thinking preferences persist per model in browser storage. Cloud provider placeholders are disabled.
 
