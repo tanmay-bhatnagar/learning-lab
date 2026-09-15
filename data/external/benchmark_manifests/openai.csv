@@ -1,0 +1,21 @@
+filename,title,year,lab,source_url
+openai_2018_gpt1_generative_pretraining.pdf,Improving Language Understanding by Generative Pre-Training,2018,OpenAI,https://cdn.openai.com/research-covers/language-unsupervised/language_understanding_paper.pdf
+openai_2019_gpt2_unsupervised_multitask.pdf,Language Models are Unsupervised Multitask Learners,2019,OpenAI,https://cdn.openai.com/better-language-models/language_models_are_unsupervised_multitask_learners.pdf
+openai_2020_gpt3_few_shot_learners.pdf,Language Models are Few-Shot Learners,2020,OpenAI,https://arxiv.org/pdf/2005.14165
+openai_2020_scaling_laws_language_models.pdf,Scaling Laws for Neural Language Models,2020,OpenAI,https://arxiv.org/pdf/2001.08361
+openai_2021_clip_vision_language.pdf,Learning Transferable Visual Models From Natural Language Supervision,2021,OpenAI,https://cdn.openai.com/papers/Learning_Transferable_Visual_Models_From_Natural_Language_Supervision.pdf
+openai_2021_codex_code_models.pdf,Evaluating Large Language Models Trained on Code,2021,OpenAI,https://arxiv.org/pdf/2107.03374
+openai_2022_dalle2_clip_latents.pdf,Hierarchical Text-Conditional Image Generation with CLIP Latents,2022,OpenAI,https://cdn.openai.com/papers/dall-e-2.pdf
+openai_2022_evolution_through_large_models.pdf,Evolution through large models,2022,OpenAI,https://arxiv.org/pdf/2206.08896
+openai_2022_fill_in_the_middle.pdf,Efficient Training of Language Models to Fill in the Middle,2022,OpenAI,https://arxiv.org/pdf/2207.14255
+openai_2022_hazard_analysis_codex.pdf,A Hazard Analysis Framework for Code Synthesis Large Language Models,2022,OpenAI,https://arxiv.org/pdf/2207.14157
+openai_2022_instructgpt_rlhf.pdf,Training language models to follow instructions with human feedback,2022,OpenAI,https://cdn.openai.com/papers/Training_language_models_to_follow_instructions_with_human_feedback.pdf
+openai_2022_pointe_3d_generation.pdf,Point-E: A System for Generating 3D Point Clouds from Complex Prompts,2022,OpenAI,https://arxiv.org/pdf/2212.08751
+openai_2022_scaling_laws_reward_overoptimization.pdf,Scaling Laws for Reward Model Overoptimization,2022,OpenAI,https://arxiv.org/pdf/2210.10760
+openai_2022_video_pretraining_minecraft.pdf,Video PreTraining (VPT): Learning to Act by Watching Unlabeled Online Videos,2022,OpenAI,https://arxiv.org/pdf/2206.11795
+openai_2022_whisper_speech_recognition.pdf,Robust Speech Recognition via Large-Scale Weak Supervision,2022,OpenAI,https://cdn.openai.com/papers/whisper.pdf
+openai_2023_forecasting_lm_misuse_disinformation.pdf,Forecasting Potential Misuses of Language Models for Disinformation Campaigns and How to Reduce Risk,2023,OpenAI,https://arxiv.org/pdf/2301.04246
+openai_2023_gpt4_technical_report.pdf,GPT-4 Technical Report,2023,OpenAI,https://cdn.openai.com/papers/gpt-4.pdf
+openai_2023_gpt4v_system_card.pdf,GPT-4V(ision) System Card,2023,OpenAI,https://cdn.openai.com/papers/GPTV_System_Card.pdf
+openai_2023_gpts_labor_market_impact.pdf,GPTs are GPTs: An Early Look at the Labor Market Impact Potential of Large Language Models,2023,OpenAI,https://arxiv.org/pdf/2303.10130
+openai_2025_o3_o4_mini_system_card.pdf,OpenAI o3 and o4-mini System Card,2025,OpenAI,https://cdn.openai.com/pdf/2221c875-02dc-4789-800b-e7758f3722c1/o3-and-o4-mini-system-card.pdf

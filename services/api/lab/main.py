@@ -57,8 +57,8 @@ class TopicInput(BaseModel):
 
 class Settings(BaseModel):
     model: str = Field(default="", max_length=200)
-    context_limit: int = Field(default=8192, ge=1024, le=32768)
-    parser: Literal["markitdown", "anydoc"] = "markitdown"
+    context_limit: int = Field(default=32768, ge=1024, le=32768)
+    parser: Literal["markitdown", "anydoc"] = "anydoc"
 
 
 class ChatInput(BaseModel):
@@ -66,7 +66,7 @@ class ChatInput(BaseModel):
     file_ids: list[str] = Field(default_factory=list, max_length=100)
     model: str = Field(min_length=1, max_length=200)
     think: bool | str | None = None
-    context_limit: int = Field(default=8192, ge=1024, le=32768)
+    context_limit: int = Field(default=32768, ge=1024, le=32768)
 
 
 def create_app(root=None, settings_path=None, model_backend=None, converter=None, max_upload_bytes=None):
@@ -138,7 +138,7 @@ def create_app(root=None, settings_path=None, model_backend=None, converter=None
         return {"files": store.files(topic)}
 
     @app.post("/api/topics/{topic}/files", status_code=201)
-    async def upload(topic: str, file: UploadFile = File(...), parser: Literal["markitdown", "anydoc"] = Form(...)):
+    async def upload(topic: str, file: UploadFile = File(...), parser: Literal["markitdown", "anydoc"] = Form("anydoc")):
         try:
             async with lock(topic):
                 name = file.filename or "document.pdf"
@@ -232,7 +232,7 @@ def create_app(root=None, settings_path=None, model_backend=None, converter=None
             raise
 
         async def events():
-            assistant = {"role": "assistant", "content": "", "thinking": ""}
+            assistant = {"role": "assistant", "content": "", "thinking": "", "model": body.model}
             complete = False
             stream = None
             def line(event):
@@ -246,6 +246,8 @@ def create_app(root=None, settings_path=None, model_backend=None, converter=None
                         assistant["content" if kind == "token" else "thinking"] += text
                         yield line({"type": kind, "text": text})
                     elif kind == "done":
+                        assistant["model"] = event.get("model") or body.model
+                        event = {**event, "model": assistant["model"]}
                         session["context"] = event.get("context", {})
                         session["messages"].append(assistant)
                         store.save_session(topic, session)

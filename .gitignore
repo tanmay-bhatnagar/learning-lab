@@ -8,9 +8,26 @@ __pycache__/
 .env
 .env.*
 !.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.secret
+*.token
+credentials/
+secrets/
 *.gguf
 *.safetensors
 .DS_Store
 coverage/
 
 *.tsbuildinfo
+
+# Local-only data. The public parser-benchmark corpus in
+# data/external/benchmark_PDFs/ is intentionally tracked.
+data/external/modelweights/
+data/external/benchmark_PDFs/.fetch_tmp/
+data/external/benchmark_PDFs/.dl_venv/
+data/raw/
+data/interim/
+data/processed/

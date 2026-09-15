@@ -2,7 +2,7 @@
 from copy import deepcopy
 import json
 
-DEFAULT_CONTEXT_LIMIT = 8192
+DEFAULT_CONTEXT_LIMIT = 32768
 MAX_CONTEXT_LIMIT = 32768
 
 

@@ -14,6 +14,7 @@ sys.path.insert(0, str(ROOT / 'services/api'))
 
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument('--context', type=int, default=32768)
     parser.add_argument('--model', help='Also run a real Ollama response using this installed model')
     args = parser.parse_args()
     from reportlab.pdfgen import canvas
@@ -46,7 +47,7 @@ def main():
                 files.append(file_id)
                 print(f'PASS {converter}: extracted evidence and preserved original bytes')
             if args.model:
-                with client.stream('POST', f'/api/topics/{topic_id}/chat', json={'message': 'What is the calibration value in the attached document? Answer in one short sentence.', 'file_ids': files[:1], 'model': args.model, 'think': False, 'context_limit': 4096}) as response:
+                with client.stream('POST', f'/api/topics/{topic_id}/chat', json={'message': 'What is the calibration value in the attached document? Answer in one short sentence.', 'file_ids': files[:1], 'model': args.model, 'think': False, 'context_limit': args.context}) as response:
                     response.raise_for_status()
                     events = [json.loads(line) for line in response.iter_lines() if line]
                 errors = [e for e in events if e['type'] == 'error']

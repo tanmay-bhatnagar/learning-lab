@@ -2,6 +2,7 @@
 import asyncio
 import json
 import os
+import re
 
 import httpx
 
@@ -57,6 +58,23 @@ async def _show(client, model):
     return info
 
 
+def display_name(model: str, details: dict) -> str:
+    family, _, tag = model.rsplit('/', 1)[-1].partition(':')
+    title = {'qwen3.5': 'Qwen 3.5', 'qwen3': 'Qwen 3', 'gemma3': 'Gemma 3',
+             'deepseek-r1': 'DeepSeek R1', 'gpt-oss': 'GPT-OSS'}.get(family.lower(), family.replace('-', ' ').title())
+    parameters = re.search(r'(\d+(?:\.\d+)?)b(?:-|$)', tag.lower())
+    size = parameters.group(1) + 'B' if parameters else details.get('parameter_size', '')
+    quant = str(details.get('quantization_level', ''))
+    bits = re.match(r'Q(\d+)', quant.upper())
+    precision = f'{bits.group(1)}-bit' if bits else ('16-bit' if quant.upper() in {'F16', 'BF16'} else quant)
+    return ' · '.join(str(part) for part in [title, size, precision] if part)
+
+
+def context_capacity(_info: dict) -> int:
+    """App-wide context ceiling; independent of model-advertised native context."""
+    return DEFAULT_CONTEXT_LIMIT
+
+
 async def list_models() -> dict:
     result = {'models': []}
     try:
@@ -76,6 +94,8 @@ async def list_models() -> dict:
                 details = {**tag.get('details', {}), **info.get('details', {})}
                 result['models'].append({
                     'id': name, 'name': tag.get('name', name),
+                    'display_name': display_name(name, details),
+                    'max_context_length': context_capacity(info),
                     'size_bytes': tag.get('size', 0),
                     'quantization': details.get('quantization_level', ''),
                     'parameter_size': details.get('parameter_size', ''),
@@ -112,6 +132,10 @@ async def stream_chat(messages: list[dict], model: str,
                 if _is_remote(model, info):
                     raise ValueError('Remote/cloud models are not supported; select a local model')
                 thinking = _thinking(model, info)
+                if thinking['type'] == 'toggle' and think is not None and type(think) is not bool:
+                    raise ValueError('This model supports Thinking on/off, not low/medium/high effort levels')
+                if thinking['type'] == 'levels' and think is not None and think not in thinking['levels']:
+                    raise ValueError('Select a supported reasoning effort: low, medium, or high')
                 payload = {'model': model, 'messages': prompt, 'stream': True,
                            'keep_alive': 0,
                            'options': {'num_ctx': context_limit, 'num_predict': prediction}}
@@ -120,6 +144,7 @@ async def stream_chat(messages: list[dict], model: str,
                 elif thinking['type'] == 'levels' and think in thinking['levels']:
                     payload['think'] = think
                 generated = 0
+                response_model = model
                 async with client.stream('POST', '/api/chat', json=payload) as response:
                     response.raise_for_status()
                     async for line in response.aiter_lines():
@@ -131,6 +156,8 @@ async def stream_chat(messages: list[dict], model: str,
                         if chunk.get('error'):
                             yield {'type': 'error', 'message': str(chunk['error'])}
                             return
+                        if isinstance(chunk.get('model'), str) and chunk['model']:
+                            response_model = chunk['model']
                         message = chunk.get('message') or {}
                         if not isinstance(message, dict):
                             raise ValueError('Invalid Ollama stream message')
@@ -149,7 +176,7 @@ async def stream_chat(messages: list[dict], model: str,
                             actual = all(type(n) is int and n >= 0 for n in counts)
                             context = {**context, 'used': sum(counts) if actual else context['used'] + generated,
                                        'estimated': not actual}
-                            yield {'type': 'done', 'context': context}
+                            yield {'type': 'done', 'context': context, 'model': response_model}
                             return
                     yield {'type': 'error', 'message': 'Ollama stream ended before done'}
     except (httpx.HTTPError, ValueError, TypeError, KeyError) as exc:

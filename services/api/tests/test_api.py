@@ -170,7 +170,7 @@ def test_failed_chat_preserves_partial_history(setup):
     assert json.loads(response.text.splitlines()[-1])["type"] == "error"
     history = client.get(f"/api/topics/{topic}/messages").json()["messages"]
     assert len(history) == 2
-    assert history[1] == {"role": "assistant", "content": "answer", "thinking": "reasoning", "incomplete": True}
+    assert history[1] == {"role": "assistant", "content": "answer", "thinking": "reasoning", "incomplete": True, "model": "fake"}
 
 
 def test_env_roots(monkeypatch, tmp_path):
@@ -291,3 +291,33 @@ def test_concurrent_chat_rejected_without_losing_history(setup):
                 release.set()
             assert future.result(timeout=5).status_code == 200
         assert len(client.get(f'/api/topics/{topic}/messages').json()['messages']) == 2
+
+
+def test_new_defaults_and_response_model_persist(setup):
+    client, topic, *rest = setup
+    assert client.get('/api/settings').json() == {'model': '', 'context_limit': 32768, 'parser': 'anydoc'}
+    response = chat(client, topic)
+    done = json.loads(response.text.splitlines()[-1])
+    assert done['model'] == 'fake'
+    assert done['context']['limit'] == 32768
+    assert client.get(f'/api/topics/{topic}/messages').json()['messages'][-1]['model'] == 'fake'
+
+
+def test_upload_without_parser_defaults_to_anydoc(tmp_path):
+    root = tmp_path.resolve() / "Learning"
+    settings = tmp_path.resolve() / "state" / "settings.json"
+    parsers = []
+    client = TestClient(create_app(
+        root, settings,
+        converter=lambda data, parser: parsers.append(parser) or "# PDF\n",
+    ))
+    topic = client.post("/api/topics", json={"name": "Docs"}).json()["id"]
+    response = client.post(
+        f"/api/topics/{topic}/files",
+        files={"file": ("notes.pdf", b"%PDF-1.7\nexample", "application/pdf")},
+    )
+    record = response.json()
+    assert response.status_code == 201
+    assert record["status"] == "ready"
+    assert record["parser"] == "anydoc"
+    assert parsers == ["anydoc"]

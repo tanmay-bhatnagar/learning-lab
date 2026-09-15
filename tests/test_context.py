@@ -11,10 +11,10 @@ class ContextTests(unittest.TestCase):
         prompt, context, reserve = prepare_context(messages)
         self.assertEqual(prompt, messages)
         self.assertIsNot(prompt, messages)
-        self.assertEqual(context, {'used': estimate_messages(messages), 'limit': 8192,
+        self.assertEqual(context, {'used': estimate_messages(messages), 'limit': 32768,
                                   'estimated': True, 'truncated_messages': 0})
         self.assertEqual(reserve, 2048)
-        self.assertLessEqual(context['used'] + reserve, 8192)
+        self.assertLessEqual(context['used'] + reserve, 32768)
 
     def test_oldest_complete_turn_removed_and_system_kept_in_place(self):
         messages = [{'role': 'system', 'content': 'Rules'},

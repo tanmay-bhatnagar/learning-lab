@@ -65,7 +65,8 @@ class ModelTests(unittest.IsolatedAsyncioTestCase):
         result = await models.list_models()
         self.assertEqual(result, {'models': [{
             'id': 'qwen3.5:4b-q8_0', 'name': 'qwen3.5:4b-q8_0', 'size_bytes': 123,
-            'parameter_size': '4B', 'quantization': 'Q8_0', 'thinking': {'type': 'toggle'}}]})
+            'parameter_size': '4B', 'quantization': 'Q8_0', 'thinking': {'type': 'toggle'},
+            'display_name': 'Qwen 3.5 · 4B · 8-bit', 'max_context_length': 32768}]})
         self.tags.append({'name': 'deepseek-r1:14b'})
         self.assertEqual(len((await models.list_models())['models']), 2)
         self.assertEqual(self.requests[1], ('/api/show', {'model': 'qwen3.5:4b-q8_0'}))
@@ -89,28 +90,35 @@ class ModelTests(unittest.IsolatedAsyncioTestCase):
         events = await self.collect()
         self.assertEqual(events, [
             {'type': 'thinking', 'text': 'reason'}, {'type': 'token', 'text': 'answer'},
-            {'type': 'done', 'context': {'used': 80, 'limit': 8192, 'estimated': False,
+            {'type': 'done', 'model': 'qwen3.5:4b-q8_0', 'context': {'used': 80, 'limit': 32768, 'estimated': False,
                                          'truncated_messages': 0}}])
         payload = self.requests[-1][1]
         self.assertIs(payload['think'], False)
-        self.assertEqual(payload['options'], {'num_ctx': 8192, 'num_predict': 2048})
+        self.assertEqual(payload['options'], {'num_ctx': 32768, 'num_predict': 2048})
         self.assertEqual(payload['keep_alive'], 0)
         self.assertTrue(self.streams[-1].closed)
 
     async def test_think_only_for_supported_values_and_models(self):
         for name, think, expected in [
             ('deepseek-r1:14b', False, None), ('unknown:latest', True, None),
-            ('gpt-oss:20b', 'high', 'high'), ('gpt-oss:20b', False, None),
-            ('gpt-oss:20b', 'max', None), ('qwen3.5:4b', 'high', None),
-            ('qwen3.5:4b', True, True), ('qwen3.5:4b', None, None),
+            ('gpt-oss:20b', 'high', 'high'), ('qwen3.5:4b', True, True),
+            ('qwen3.5:4b', None, None),
         ]:
             self.tags = [{'name': name}]
-            await self.collect(name, think)
+            events = await self.collect(name, think)
+            self.assertEqual(events[-1]['type'], 'done')
+            self.assertEqual(self.requests[-1][0], '/api/chat')
             payload = self.requests[-1][1]
             if expected is None:
                 self.assertNotIn('think', payload)
             else:
                 self.assertEqual(payload['think'], expected)
+        for name, think in [('gpt-oss:20b', False), ('gpt-oss:20b', 'max'), ('qwen3.5:4b', 'high')]:
+            self.tags = [{'name': name}]
+            self.requests.clear()
+            events = await self.collect(name, think)
+            self.assertEqual(events[-1]['type'], 'error')
+            self.assertNotIn('/api/chat', [path for path, _ in self.requests])
         self.show_status = 500
         self.tags = [{'name': 'qwen3.5:4b-q8_0'}]
         self.requests.clear()
@@ -247,3 +255,18 @@ class ModelTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(events[-1]['type'], 'error')
         self.assertIn('token budget', events[-1]['message'])
         self.assertFalse(any(event['type'] == 'done' for event in events))
+
+    async def test_switching_models_changes_inference_payload_and_reported_model(self):
+        self.tags = [{'name': 'qwen3.5:4b-q8_0'}, {'name': 'qwen3.5:9b-q4_K_M'}]
+        for name in ['qwen3.5:4b-q8_0', 'qwen3.5:9b-q4_K_M']:
+            events = await self.collect(name)
+            self.assertEqual(events[-1]['model'], name)
+        payloads = [body for path, body in self.requests if path == '/api/chat']
+        self.assertEqual([p['model'] for p in payloads], [t['name'] for t in self.tags])
+
+    async def test_app_context_ceiling_ignores_model_native_context(self):
+        self.info['model_info'] = {'small.context_length': 4096, 'large.context_length': 262144}
+        self.assertEqual((await models.list_models())['models'][0]['max_context_length'], 32768)
+        events = await self.collect()
+        self.assertEqual(events[-1]['type'], 'done')
+        self.assertEqual(self.requests[-1][1]['options']['num_ctx'], 32768)

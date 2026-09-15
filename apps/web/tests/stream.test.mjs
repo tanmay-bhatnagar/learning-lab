@@ -23,3 +23,8 @@ test('HTTP errors surface API detail', async () => {
   globalThis.fetch = async () => new Response(JSON.stringify({ detail: 'Topic missing' }), { status: 404 });
   await assert.rejects(stream('/chat', {}, new AbortController().signal, () => {}), /Topic missing/);
 });
+test('done event preserves actual model metadata for assistant attribution', async () => {
+  globalThis.fetch = async () => response(['{"type":"token","text":"answer"}\n{"type":"done","model":"qwen3.5:9b-q4_K_M","context":{"limit":32768}}']);
+  const events = []; await stream('/chat', {}, new AbortController().signal, e => events.push(e));
+  assert.equal(events.at(-1).model, 'qwen3.5:9b-q4_K_M');
+});
