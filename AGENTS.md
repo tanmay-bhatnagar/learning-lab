@@ -16,6 +16,8 @@ These rules apply to development in this repository. They do not grant the appli
 - Use functional programming: pure transformations, explicit dependencies, immutable caller inputs, and I/O at boundaries. See `docs/engineering.md` for the enforceable conventions and framework exceptions.
 - Keep inline comments to a bare minimum. Use meaningful names, types, and useful contract docstrings. Do not add prose that repeats code.
 - Keep changes cohesive. Do not mix unrelated refactors, generated artifacts, model weights, or personal material into a change.
+- Refactors follow the behavior-preserving procedure in `docs/engineering.md`: characterization tests first, mechanical commits separate and proven, exemptions removed as they are resolved.
+- No test-only branches in production code; domain modules raise domain errors; only `lab/config.py` reads the environment.
 - Preserve originals; retain topic isolation; expose failures and degraded fallbacks. Stored-format changes need a version/compatibility decision.
 - Do not introduce compaction, autonomous execution, web research inside the app, or hardware control merely because a coding agent has those capabilities.
 

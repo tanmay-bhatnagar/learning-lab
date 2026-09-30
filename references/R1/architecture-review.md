@@ -249,6 +249,7 @@ Decided by Tanmay on 1 October 2026:
 - Decision 4: the coordinator may start any role within an approved plan. This is recorded in `AGENTS.md`.
 - Decision 2: use `zod` schemas in `api.ts` as the single source of both TypeScript types and runtime checks, including NDJSON stream events.
 - Decision 5: automatic formatting only (Prettier and `ruff format`). There are no enforced limits on line, file, function or complexity size. Split files when they become a real problem, never to satisfy a number. The structural refactor slices below stand on their own design merits.
+- "Refresh files": re-fetch only the file list and keep the selection, dropping ticked files that no longer exist; typed text, goal edits and the conversation stay untouched. This resolves the open question in section 4.1.
 
 ### Phase 1 — defect fixes (sequential, each with a regression test)
 

@@ -13,6 +13,54 @@
 - Use explicit result types or narrow exceptions at boundaries. Do not convert failures into empty success values or catch every exception and continue silently.
 - Represent state transitions deliberately. A ready status means the required durable artifacts exist. Document recovery and compatibility for partial writes and stored-schema changes.
 
+## Errors
+
+Domain code raises domain errors; only the HTTP layer knows status codes. `lab/errors.py` owns the taxonomy and one exception handler in the HTTP layer maps it, keeping today's status codes and messages:
+
+| Error | Meaning | Status |
+| --- | --- | --- |
+| `InvalidInput` | The request or a value inside it is malformed | 400 |
+| `Forbidden` | A path-safety rule refused access | 403 |
+| `NotFound` | A topic, file, attachment or asset does not exist | 404 |
+| `Conflict` | The resource is not in a state that allows the operation (busy topic, conversion incomplete, not indexed, index missing) | 409 |
+| `TooLarge` | The payload exceeds a configured limit | 413 |
+| `DoesNotFit` | The selected material cannot fit the context limit | 422 |
+| `CorruptData` | Saved data cannot be read; the user must restore it | 500 |
+
+Degradation signals such as `EmbeddingUnavailable` are caught by the caller that owns the fallback, which reports the degradation as a warning. Parser and converter `ValueError`s become the file record's `error`. Programming errors (`TypeError`, `KeyError`, `AttributeError`) are never caught to produce a user-facing message.
+
+A blind catch (`except Exception`, TypeScript `catch` without a binding) is allowed only at a boundary that reports the failure, and it states why on the same line (`# noqa: BLE001 - reason`, or a comment opening the `catch` block). Ruff and `check_engineering.py` enforce this.
+
+## Configuration
+
+Configuration is read once, at the composition root, into a frozen `AppConfig` (`lab/config.py`) and passed down. Only that module reads the process environment; `check_engineering.py` enforces this for `lab/`. Importing a module has no side effects: no app construction, no environment reads, no directory creation. Scripts are entry points and may read their own environment. Defaults that point at personal data (the `Learning/` root) are never used by tests or verification, which always pass isolated roots.
+
+## Test seams
+
+Production code has no test-only branches. An injected dependency follows exactly the production path, with the same call signature, locks and dispatch; a test fake implements the production interface (`ModelGateway`, `Store`, the parser map) rather than a simplified one. If a behavior cannot be tested without a special branch, change the design so the decision is a pure function, then test that function directly.
+
+## Frontend
+
+The functional rules above apply to TypeScript and React as well.
+
+- Components render. Decisions (stream-event folding, file selectability, context meters, activity guards) are pure functions in `src/state/` or `src/domain/` with their own tests.
+- Effects live in hooks (`src/hooks/`). Components do not call `fetch`, `localStorage` or `window` directly. Refs hold DOM nodes and `AbortController`s, not application state.
+- One operation runs at a time per activity; represent it as a union (`idle | sending | uploading | …`) and derive guards from it, not from parallel booleans.
+- `setState` updaters and reducers are pure. React may call them twice.
+- Every value crossing the browser boundary (HTTP responses, stream events, `localStorage`) is parsed with a `zod` schema in `src/api/`; the schema is the source of the TypeScript type. Status fields are unions shared with the domain rules.
+- URLs are built in one module (`src/api/urls.ts`).
+- Asynchronous work started by a component or hook is aborted when it unmounts or its input changes.
+- Formatting is Prettier's; ESLint enforces `react-hooks` and `no-empty`. There are no line, file, function or complexity limits; split a file when its responsibilities diverge, not to satisfy a number.
+
+## Behavior-preserving refactors
+
+1. Write down the observable behavior to preserve: the API contract (`docs/API.md`), stored formats, and user flows. Stored-format changes need a separate compatibility decision.
+2. Land characterization tests first, in their own commit, passing against the current code. They test behavior through public interfaces, not the internals being moved.
+3. Keep mechanical changes (formatting, moves, renames) in their own commits and prove them mechanical: equal Python ASTs, equal TypeScript syntax trees, or byte-identical outputs on a fixture. `git diff -w` is not enough when quotes or wrapping change.
+4. Make structural changes in small slices, each with its checks passing. Do not change characterization tests to make a slice pass; a needed change is a behavior change and is reported.
+5. One writer per path. Parallel slices use isolated worktrees; the coordinator merges and reruns every check.
+6. Each slice removes the lint and structure exemptions it resolves (`ruff.toml` per-file ignores, `PENDING` in `check_engineering.py`, the ESLint override list) so the ratchet only tightens.
+
 ## Comments, types, and docs
 
 Inline comments are rare: retain only a non-obvious reason or constraint that names/types cannot express. Do not add narration, commented-out code, or decorative section markers. Trust agents to read code.
@@ -27,15 +75,18 @@ Define acceptance criteria before implementation. Use the smallest useful design
 
 Install engineering tools with `.venv/bin/python -m pip install -r requirements-engineering.txt` in the project environment.
 
-- `.venv/bin/python scripts/check_engineering.py`: role/skill wiring, local documentation links, supported config shape.
-- `.venv/bin/python -m ruff check .`: high-confidence Python errors. The initial config intentionally does not impose a wholesale formatting migration on existing code.
-- `.venv/bin/python -m ruff check --select E4,E7,E9,F,I scripts/check_engineering.py scripts/verify_workspace.py tests/test_verify_workspace.py`: stricter checks for new setup tooling.
-- `.venv/bin/python -m ruff format --check scripts/check_engineering.py scripts/verify_workspace.py tests/test_verify_workspace.py`: formatting for that tooling.
-- `make test`: Python and frontend behavior tests.
-- `make build`: TypeScript strict checking and production web build.
+- `.venv/bin/python scripts/check_engineering.py`: role/skill wiring, local documentation links, supported config shape, and structure: no `fastapi`/`starlette` import in `lab/` outside the HTTP layer, no environment read outside `lab/config.py`, no TypeScript `catch` that discards an error without a reason.
+- `.venv/bin/python -m ruff check .`: Python errors, bug patterns (`B`), shadowed builtins, blind excepts and, in `lab/`, parameter and return annotations. Unused exemptions fail (`RUF100`).
+- `.venv/bin/python -m ruff check --select E4,E7,E9,F,I scripts/check_engineering.py scripts/verify_workspace.py tests/test_verify_workspace.py`: stricter checks for the setup tooling.
+- `.venv/bin/python -m ruff format --check .`: Python formatting.
+- `npm run --prefix apps/web format:check` and `npm run --prefix apps/web lint`: Prettier and ESLint for the web app.
+- `make test`: Python tests (pytest) and web tests (Vitest with Testing Library and jsdom).
+- `make build`: TypeScript strict checking (including `noImplicitReturns`) and the production web build.
 - `.venv/bin/python scripts/verify_workspace.py`: real HTTP upload/conversion/persistence checks in an isolated workspace.
 
-CI uses macOS and the existing Python 3.13 dependency lock, matching the current supported development setup. It runs these checks without Ollama or model downloads. Browser verification and real-model/parser evaluation remain explicit checks; CI passing does not certify them. Functional purity and module cohesion require review; the linter does not prove them. Broader Python typing and frontend lint/format adoption should be introduced as scoped follow-ups rather than silently rewriting the current app.
+Existing offenders are listed explicitly: per-file ignores in `ruff.toml`, `PENDING` in `check_engineering.py`, and the override list in `apps/web/eslint.config.js`. New code may not add entries without a stated reason.
+
+CI uses macOS and the existing Python 3.13 dependency lock, matching the current supported development setup. It runs these checks without Ollama or model downloads. Browser verification and real-model/parser evaluation remain explicit checks; CI passing does not certify them. Functional purity and module cohesion still require review; the checks catch only the patterns listed above.
 
 ## Provenance
 

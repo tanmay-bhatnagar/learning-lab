@@ -1,6 +1,6 @@
 # R1 architecture refactor — task briefs
 
-**Status: ready, not started. Do not begin any slice until Tanmay explicitly says to start.** Starting approves this plan for the purposes of `AGENTS.md`. The coordinator may then start roles for the slices below without asking again. It still stops for anything outside this plan: new features, stored-format changes, `main`, releases, or personal topics.
+**Status: in progress. Tanmay started the refactor on 1 October 2026.** Starting approves this plan for the purposes of `AGENTS.md`. The coordinator may then start roles for the slices below without asking again. It still stops for anything outside this plan: new features, stored-format changes, `main`, releases, or personal topics.
 
 Source of findings and acceptance criteria: [architecture-review.md](architecture-review.md) section 7. Phase 0 decisions and Phase 1 defect fixes are complete. This file adds what each slice needs to be executed and tracked.
 
@@ -13,12 +13,13 @@ Source of findings and acceptance criteria: [architecture-review.md](architectur
   - `zod` validation at the browser boundary;
   - formatting only, with no size or complexity limits;
   - interrupted uploads are marked on read;
-  - the coordinator may start any role within this plan.
+  - the coordinator may start any role within this plan;
+  - "Refresh files" re-fetches only the file list and keeps the selection, dropping ticked files that no longer exist. Typed text, goal edits and the conversation stay untouched (Tanmay, 1 October 2026). Today it reloads the whole topic and clears all of them. The frontend track makes this change in its own commit, as the one intended behavior change of the track.
 
 ## Rules for every slice
 
 - Behavior-preserving. `docs/API.md` and the stored JSON/SQLite formats stay frozen. A slice that seems to need a contract or format change stops and reports to the coordinator.
-- Characterization tests land before the code they protect, and later slices must not weaken them. Mechanical changes (formatting, file moves) get their own commits, checked with `git diff -w` or `git diff -M`.
+- Characterization tests land before the code they protect, and later slices must not weaken them. Mechanical changes (formatting, file moves) get their own commits, proven by equal syntax trees or `git diff -M`.
 - One writer per path. The frontend track owns `apps/web/`. The backend track owns `services/api/`, `scripts/` and `tests/`. Shared docs (`docs/*`, `AGENTS.md`, `.agents/`) belong to the coordinator unless a slice lists them.
 - Parallel tracks run in isolated worktrees branched from `dev`. The coordinator reviews each finished slice, merges it into `dev`, reruns the checks and pushes. Nothing goes to `main`.
 - Install new dependencies with the package manager at their latest versions when the slice needs them (Prettier, ESLint and plugins, Vitest, Testing Library, jsdom, `zod`). Commit the lockfile changes.
@@ -43,13 +44,13 @@ Phases 3 and 4 start only after Phase 2 is merged, and then run in parallel. G-2
 
 | Slice | Role | Depends on | Extra checks and evidence | Done signal | Status |
 | --- | --- | --- | --- | --- | --- |
-| G-2 Python format | code | — | `git diff -w` is empty apart from formatting; the test count is unchanged | `ruff format --check .` passes in CI | not started |
-| G-3 TS format and lint | code | G-2 | The Prettier commit is separate from the config commit; `npm run lint` passes, with any pre-existing violations listed in the config | CI runs the format check and lint | not started |
-| G-4 Vitest harness | code | G-3 | All 19 tests ported with the same intent; a test value-imports a second module | `npm test` runs Vitest; the `data:` loader is removed | not started |
-| G-1 Python lint rules | code | G-2 | Every per-file ignore names today's offenders | Ruff runs `BLE001, A001, B, ANN001/ANN201` on `lab/` | not started |
-| G-5 structural checks | code | G-1 | A test for each new check in `tests/` | `check_engineering.py` fails on a seeded violation | not started |
-| G-6 conventions | coordinator | G-3, G-4 | Links resolve (`check_engineering.py`) | `engineering.md` has frontend, error, configuration, test-seam and refactor-procedure sections | not started |
-| FE-0 characterization | debug or review | Phase 2 | The flows listed in the review pass on the current code. Record current "Refresh files" behavior and ask Tanmay whether it is intended | New tests pass before any `src/` change | not started |
+| G-2 Python format | code | — | `git diff -w` is empty apart from formatting; the test count is unchanged | `ruff format --check .` passes in CI | done `ae6b9c2` |
+| G-3 TS format and lint | code | G-2 | The Prettier commit is separate from the config commit; `npm run lint` passes, with any pre-existing violations listed in the config | CI runs the format check and lint | done `48ee6e2`, `387e81e` |
+| G-4 Vitest harness | code | G-3 | All 19 tests ported with the same intent; a test value-imports a second module | `npm test` runs Vitest; the `data:` loader is removed | done `dc128fd` |
+| G-1 Python lint rules | code | G-2 | Every per-file ignore names today's offenders | Ruff runs `BLE001, A001, B, ANN001/ANN201` on `lab/` | done `c3d3f66` |
+| G-5 structural checks | code | G-1 | A test for each new check in `tests/` | `check_engineering.py` fails on a seeded violation | done `21298be` |
+| G-6 conventions | coordinator | G-3, G-4 | Links resolve (`check_engineering.py`) | `engineering.md` has frontend, error, configuration, test-seam and refactor-procedure sections | done (this commit) |
+| FE-0 characterization | debug or review | Phase 2 | The flows listed in the review pass on the current code. Record current "Refresh files" behavior (decided: see Baseline) | New tests pass before any `src/` change | not started |
 | FE-1 pure extraction | code | FE-0 | Unit tests for each pure module; the dead code in the review list is removed | `main.tsx` has no stream-folding or file-status logic | not started |
 | FE-2 hooks own effects | code | FE-1 | FE-0 unchanged and passing | `App` has no `fetch`, `localStorage` or `window` calls | not started |
 | FE-3 components | code | FE-2 | FE-0 unchanged and passing; one `VisualAssets` | `main.tsx` only calls `createRoot` | not started |
