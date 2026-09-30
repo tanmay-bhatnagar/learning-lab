@@ -1,13 +1,9 @@
 # Learning Lab code repository
 
-This independent Git repository will house Learning Lab application code and coding experiments. The initial browser app and backend implementation began on 10 September 2026; see ../README.md. Source: `../../design/2026_09_08_scope_and_boundaries.md` and `../../AGENTS.md`.
+The application and engineering tools live in this independent Git repository. `dev` is the development branch; `main` is reserved for releases. Remote: [tanmay-bhatnagar/learning-lab](https://github.com/tanmay-bhatnagar/learning-lab).
 
-- `dev`: ongoing development.
-- `main`: reviewed stable work.
-- Merge and publishing actions require explicit authorization. No remote has been configured.
-- Learning documents and progress belong in `../Learning/<topic>/` and should not be copied into this repository by default.
-- A learning session has no default access to this repository because it sits outside the active topic folder. Approve specific access and execution operations.
-- Do not commit credentials, model downloads, dependency environments, or private learning evidence. Define runtime/cache locations and ignore rules when implementation begins.
-- Code is explicitly exempt from the Second Brain's three-directory-level limit; organize implemented components as a data product.
+Start with the [README](../README.md), [current R1 snapshot](../references/R1/README.md), [system map](../references/R1/system-map.html), and [architecture](architecture.md). The older design notes in `../../design/` record how the scope was chosen.
 
-The initial app exposes no execution tools to the model. Topic path validation is implemented in the backend; OS isolation for future experiments remains later work.
+Personal learning topics, uploads and conversations live in `../Learning/<topic>/` and do not belong in this public repository. `data/external/benchmark_PDFs/` contains the public parser corpus; `data/external/modelweights/`, runtime state, credentials and private material are ignored. The model currently has no shell, browser or hardware tools.
+
+Follow [AGENTS.md](../AGENTS.md) and [engineering.md](engineering.md) for changes. Push to `dev` only within user authorization; merge to `main` for releases. The Code repository is exempt from the parent Second Brain's three-level directory limit.

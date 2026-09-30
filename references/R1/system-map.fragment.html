@@ -1,0 +1,129 @@
+<div id="learning-lab-map">
+  <div class="viz-row">
+    <h2 id="lab-map-title">Learning Lab · system map</h2>
+    <button id="lab-map-back" class="btn" type="button" hidden>← All blocks</button>
+  </div>
+  <p id="lab-map-hint" class="text-muted text-small">Select a block to see its parts. Green: built · amber: partial · muted: planned.</p>
+  <div id="lab-map-overview" role="img" aria-label="Eight connected Learning Lab system blocks"></div>
+  <div id="lab-map-detail" hidden></div>
+</div>
+<style>
+#learning-lab-map { width:100%; }
+#learning-lab-map [hidden] { display:none !important; }
+#learning-lab-map .viz-row { justify-content:space-between; }
+#learning-lab-map h2 { margin:0; }
+#learning-lab-map #lab-map-overview { overflow-x:auto; }
+#learning-lab-map svg { display:block; width:100%; min-width:660px; height:auto; }
+#learning-lab-map .edge { stroke:var(--border); stroke-width:2; fill:none; marker-end:url(#lab-arrow); }
+#learning-lab-map .node { fill:var(--muted); stroke:var(--border); stroke-width:1; }
+#learning-lab-map .group { outline:none; }
+#learning-lab-map .group:focus-visible .node { stroke:var(--ring); stroke-width:3; }
+#learning-lab-map .label { fill:var(--foreground); font-size:15px; font-weight:500; }
+#learning-lab-map .small { fill:var(--muted-foreground); font-size:12px; }
+#learning-lab-map .status-built { fill:var(--green); }
+#learning-lab-map .status-partial { fill:var(--orange); }
+#learning-lab-map .status-planned { fill:var(--muted-foreground); }
+#learning-lab-map .detail-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px 24px; margin-top:12px; }
+#learning-lab-map .detail-item { display:flex; align-items:flex-start; gap:10px; padding:10px 0; border-bottom:1px solid var(--border); }
+#learning-lab-map .detail-item .dot { width:9px; height:9px; border-radius:50%; flex:none; margin-top:6px; }
+#learning-lab-map .detail-item .dot.status-built { background:var(--green); }
+#learning-lab-map .detail-item .dot.status-partial { background:var(--orange); }
+#learning-lab-map .detail-item .dot.status-planned { background:var(--muted-foreground); }
+#learning-lab-map .detail-item strong { display:block; font-weight:500; }
+#learning-lab-map .detail-item span { display:block; color:var(--muted-foreground); }
+#learning-lab-map .detail-heading { margin-top:14px; }
+@media(max-width:600px){#learning-lab-map .detail-grid{grid-template-columns:1fr;}}
+</style>
+<script>
+(() => {
+  const root = document.getElementById('learning-lab-map');
+  const blocks = [
+    {id:'ui', title:'Workspace & UI', status:'partial', x:16, y:45, parts:[
+      ['Topic, PDF upload, settings','built','Browser flow, attached files, model choice, context meter'],
+      ['Citations & source panel','built','Per-answer evidence survives reload'],
+      ['Open cited PDF page','planned','Jump from a citation to the source page'],
+      ['Topic goal editor','planned','State what you want to learn'],
+      ['Several conversations','planned','Choose and resume a saved session']]},
+    {id:'api', title:'Topic API & storage', status:'partial', x:236, y:45, parts:[
+      ['Topic-scoped API','built','Upload, messages, settings, retrieval, chat'],
+      ['Original PDF preservation','built','Keep immutable originals beside derived files'],
+      ['One saved session per topic','built','Messages and sources persist'],
+      ['Session IDs & migration','planned','Multiple chats without losing old history'],
+      ['Approval records','planned','Scope future agent actions by target and operation']]},
+    {id:'ingest', title:'PDF ingestion', status:'partial', x:456, y:45, parts:[
+      ['MarkItDown & AnyDoc','built','Direct backend conversion; unindexed fallback'],
+      ['Docling structured parse','built','Text, headings, pages, figures, Markdown'],
+      ['Bounded chunks','built','Tokenizer-aware chunks with intact source text'],
+      ['Extraction-gap flags','planned','Show undecoded formulas and unsupported visuals'],
+      ['Document outline & sections','planned','Build the material map from parsed structure']]},
+    {id:'retrieval', title:'Index & evidence', status:'partial', x:676, y:45, parts:[
+      ['Topic SQLite index','built','Keyword search and local embeddings'],
+      ['Ranked evidence & citations','built','Prompt keeps whole, cited passages'],
+      ['Retrieval trace view','built','Inspect ranks, scores, chunks, pages'],
+      ['Neighbouring-chunk tool','planned','Let a future agent read adjacent context'],
+      ['Retrieval evaluation','planned','Gold questions, recall@k, MRR']]},
+    {id:'models', title:'Local inference', status:'partial', x:676, y:245, parts:[
+      ['Ollama model gateway','built','Installed-model selection and streaming'],
+      ['Model-specific thinking','built','Toggle or effort levels when supported'],
+      ['Context budgeting','built','Trim oldest prompt input; save full history'],
+      ['Vision input path','partial','Retrieved figure images for vision-capable models'],
+      ['Mac + Jetson split','planned','Decide placement after model/latency tests']]},
+    {id:'agent', title:'Agent workflow', status:'planned', x:456, y:245, parts:[
+      ['LangGraph state machine','planned','Route, retrieve, reason, respond'],
+      ['Retrieval tools','planned','Search and read neighbouring chunks'],
+      ['Tool-call validation','planned','Check schema, topic scope and limits'],
+      ['Interrupt & approval','planned','Pause before actions outside the topic'],
+      ['Restart checkpoint','planned','Resume an interrupted workflow']]},
+    {id:'learning', title:'Learning functions', status:'partial', x:236, y:245, parts:[
+      ['Explain & investigate','partial','Basic grounded chat exists; agent tools remain'],
+      ['Map the material','planned','Sections, prerequisites, cited summaries'],
+      ['Check understanding','planned','Ask, assess, hint, save attempts'],
+      ['Coding experiments','planned','Later release: controlled code tools'],
+      ['Web research','planned','Later release: external sources with provenance']]},
+    {id:'memory', title:'Progress & quality', status:'partial', x:16, y:245, parts:[
+      ['Saved conversation','built','One durable history per topic'],
+      ['Goal & progress notes','planned','Concepts covered and open questions'],
+      ['Per-turn timing & errors','planned','Inspect how each answer was produced'],
+      ['R1 acceptance demo','planned','Map, explain, check, restart, boundary tests'],
+      ['Context compaction','planned','Last: preserve facts and citation references']]}
+  ];
+  const NS='http://www.w3.org/2000/svg';
+  const overview=root.querySelector('#lab-map-overview');
+  const detail=root.querySelector('#lab-map-detail');
+  const title=root.querySelector('#lab-map-title');
+  const hint=root.querySelector('#lab-map-hint');
+  const back=root.querySelector('#lab-map-back');
+  const svg=document.createElementNS(NS,'svg');
+  svg.setAttribute('viewBox','0 0 900 390');
+  svg.setAttribute('role','group');
+  svg.setAttribute('aria-label','Select a system block to inspect its components');
+  const defs=document.createElementNS(NS,'defs');
+  const marker=document.createElementNS(NS,'marker');
+  marker.setAttribute('id','lab-arrow'); marker.setAttribute('viewBox','0 0 10 10'); marker.setAttribute('refX','9'); marker.setAttribute('refY','5'); marker.setAttribute('markerWidth','6'); marker.setAttribute('markerHeight','6'); marker.setAttribute('orient','auto-start-reverse');
+  const arrow=document.createElementNS(NS,'path'); arrow.setAttribute('d','M 0 0 L 10 5 L 0 10 z'); arrow.setAttribute('fill','var(--border)'); marker.appendChild(arrow); defs.appendChild(marker); svg.appendChild(defs);
+  const make=(tag,attrs,parent)=>{const el=document.createElementNS(NS,tag); Object.entries(attrs).forEach(([k,v])=>el.setAttribute(k,String(v)));parent.appendChild(el);return el;};
+  const byId=Object.fromEntries(blocks.map(b=>[b.id,b]));
+  const edges=[['ui','api'],['api','ingest'],['ingest','retrieval'],['retrieval','models'],['models','agent'],['agent','learning'],['learning','memory']];
+  edges.forEach(([a,b])=>{const n=byId[a],m=byId[b];let x1,y1,x2,y2;
+    if(n.y===m.y && n.x<m.x){x1=n.x+198;y1=n.y+51;x2=m.x-7;y2=m.y+51;}
+    else if(n.y===m.y){x1=n.x-8;y1=n.y+51;x2=m.x+206;y2=m.y+51;}
+    else if(n.x===m.x){x1=n.x+99;y1=n.y+103;x2=m.x+99;y2=m.y-8;}
+    else {x1=n.x+99;y1=n.y+104;x2=m.x+99;y2=m.y-8;}
+    make('path',{d:`M ${x1} ${y1} L ${x2} ${y2}`,class:'edge'},svg);
+  });
+  blocks.forEach(b=>{const g=make('g',{class:'group cursor-interaction',role:'button',tabindex:'0','aria-label':`${b.title}, ${b.status}. Open components`},svg);
+    make('rect',{x:b.x,y:b.y,width:198,height:103,rx:9,class:'node'},g);
+    make('circle',{cx:b.x+17,cy:b.y+22,r:5,class:`status-${b.status}`},g);
+    const t=make('text',{x:b.x+29,y:b.y+27,class:'label'},g);t.textContent=b.title;
+    const p=make('text',{x:b.x+15,y:b.y+76,class:'small'},g);p.textContent=`${b.parts.filter(q=>q[1]==='built').length}/${b.parts.length} built · open parts`;
+    g.addEventListener('click',()=>open(b));g.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();open(b);}});
+  });
+  overview.appendChild(svg);
+  function open(b){overview.hidden=true;detail.hidden=false;back.hidden=false;title.textContent=b.title;hint.textContent='Component status: built, partial, or planned.';
+    detail.replaceChildren();const grid=document.createElement('div');grid.className='detail-grid';
+    b.parts.forEach(([name,status,desc])=>{const item=document.createElement('div');item.className='detail-item';const dot=document.createElement('span');dot.className=`dot status-${status}`;const body=document.createElement('div');const heading=document.createElement('strong');heading.textContent=name;const sub=document.createElement('span');sub.textContent=`${status} · ${desc}`;body.append(heading,sub);item.append(dot,body);grid.appendChild(item);});
+    detail.appendChild(grid);back.focus();
+  }
+  back.addEventListener('click',()=>{detail.hidden=true;overview.hidden=false;back.hidden=true;title.textContent='Learning Lab · system map';hint.textContent='Select a block to see its parts. Green: built · amber: partial · muted: planned.';});
+})();
+</script>

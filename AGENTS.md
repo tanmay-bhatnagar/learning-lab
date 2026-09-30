@@ -21,7 +21,7 @@ These rules apply to development in this repository. They do not grant the appli
 
 ## Delegate and verify
 
-- Delegation is appropriate for independent bounded tasks. Give each worker a goal, acceptance criteria, owned paths, shared contracts, and required evidence; use `docs/task-template.md` when a written handoff helps.
+- The user prefers local work because subagents consume usage limits. Use subagents only when Tanmay asks for delegation. When authorized, give each worker a goal, acceptance criteria, owned paths, shared contracts, and required evidence; use `docs/task-template.md` when a written handoff helps.
 - One writer per path. Agree on interfaces before parallel edits. Use isolated checkouts when overlapping work cannot be avoided. The coordinator owns integration and inspects every worker result.
 - Run `.venv/bin/python scripts/check_engineering.py`, relevant tests, and the web build for affected UI/contracts. A passing build is not runtime proof. Use the usage skill for changed user flows.
 - Use synthetic fixtures and isolated roots for tests. Never drive a personal topic as test data. Keep local evidence under ignored `.local/verification/`.

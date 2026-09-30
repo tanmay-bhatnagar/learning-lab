@@ -1,37 +1,41 @@
 # Architecture and ownership
 
-This is the engineering map, not a claim that all planned R1 features have shipped. Confirm behavior against the checked-out revision; local application changes can be ahead of committed `dev`.
+Current state on `dev` after commit `b2a6b71`. See the [interactive R1 map](../references/R1/system-map.html) for the system and its planned blocks, and the [R1 snapshot](../references/R1/README.md) for validation and remaining work.
 
-## Current stable boundaries
+## Runtime path
+
+`Browser → topic API → topic-scoped retrieval → local Ollama model → streamed answer with saved citations`
+
+A PDF upload follows a separate path: `browser → topic API → parser → bounded chunks and assets → topic SQLite index`. Selected MarkItDown and AnyDoc files use their Markdown as an unindexed chat attachment. Docling is the default structured parser.
 
 | Location | Owns |
 | --- | --- |
-| `apps/web/src/main.tsx` | Browser workspace, file attachment, settings, conversation orchestration |
-| `apps/web/src/api.ts` | HTTP and streaming transport/types |
-| `services/api/lab/main.py` | Request validation, topic operations, upload/chat orchestration |
-| `services/api/lab/parsers.py` | Converter adapters |
-| `services/api/lab/models.py` | Local model discovery and inference boundary |
-| `services/api/lab/context.py` | Context budget and oldest-input truncation |
-| `services/api/lab/storage.py` | Topic paths and persisted records; original preservation |
+| `apps/web/src/main.tsx`, `api.ts` | Browser workspace, files, settings, conversation and transport |
+| `apps/web/src/citations.tsx`, `retrievalTrace.tsx` | Per-answer source display and retrieval inspection |
+| `services/api/lab/main.py` | Request validation, topic-scoped upload and chat orchestration |
+| `services/api/lab/parsers.py`, `docling_pipeline.py`, `parse_pipeline.py` | PDF converters, structured extraction and derived artifacts |
+| `services/api/lab/chunking.py`, `embedding_config.py` | Chunk boundaries, local tokenizer choice and embedding format |
+| `services/api/lab/index.py`, `retrieval.py` | Topic SQLite index, hybrid search and evidence assembly |
+| `services/api/lab/models.py`, `context.py` | Local model gateway, streaming and prompt budget |
+| `services/api/lab/storage.py` | Topic paths, original preservation, file and session records |
 | `scripts/dev.py` | Development service lifecycle |
 
-Data flows from browser through API orchestration into parser/model/storage boundaries and back. The app's learning material lives outside the code repository in a topic directory. Tests must override those roots. The model does not gain developer shell or filesystem access from these engineering agents.
+Personal topics and their PDFs live in `../Learning/<topic>/`, outside this Git repository. Tests override those roots. Model weights and runtime state remain local and ignored by Git.
 
-## Contract direction
+## Current limits
 
-Parser-specific objects should be converted at the ingestion boundary into explicit document, chunk, and asset records. Retrieval consumes those records; it should not require the UI to understand a parser library. Conversation records own durable per-answer metadata. Storage owns formats and migration/recovery decisions. API types and their consumers must remain aligned.
+- One saved conversation per topic. The selected context can be trimmed for a model request; the saved history remains complete. There is no compaction.
+- Indexed Docling files support keyword and local embedding retrieval with a trace. Cited evidence is limited to passages retained in the model prompt. The user can inspect sources, but cannot yet jump from a citation to its PDF page.
+- Chat is one retrieval pass followed by model streaming. No LangGraph workflow, model tool calls, approval interrupts, understanding checks or progress memory exist yet.
+- Topic and path validation is implemented. It is not an execution sandbox for future code, browser or device tools.
+- The model adapter can send retrieved figure images to a vision-capable local model. General multimodal R2 behavior and Mac–Jetson deployment are not implemented.
 
-Structured ingestion/retrieval work is evolving separately. When it lands, extend this map with its actual files and validated contracts. Do not invent fields here that the implementation does not support.
+## Contracts to preserve
 
-Keep pure transformations separate from I/O. Framework route and storage classes are existing boundaries, not a reason to distribute mutable business state. Refactor incrementally when a task touches the relevant responsibility.
+- Every retrieval and persistence operation uses an explicit topic. Originals are immutable.
+- A ready indexed file with a missing index fails visibly. An unfit prompt fails before the turn is saved.
+- Tokenizer fallback is labeled approximate. Exact local counts include embedding prefixes and special tokens; oversized chunks retain their source whitespace.
+- Citation metadata belongs to each saved assistant answer. It must agree with the evidence sent in that answer's model request.
+- Stored-format changes require a compatibility decision. Future model tools, hardware access and web research require separate validation and authorization.
 
-## Product invariants
-
-- Every retrieval and persistence operation is scoped to an explicit topic.
-- User originals are immutable evidence.
-- Unknown/failed conversions do not appear ready.
-- Model calls respect configured capabilities; unavailable features are not simulated.
-- Older prompt input may be truncated; saved history remains. Automatic compaction is deferred.
-- Future tools, web access, and hardware execution need separately designed enforcement and authorization.
-
-Architecture changes must state affected contracts, error behavior, persistence compatibility, and a concrete observable check. Detailed coding rules live in `engineering.md`.
+Coding conventions and validation gates live in [engineering.md](engineering.md).

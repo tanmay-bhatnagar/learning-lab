@@ -47,7 +47,10 @@ services/api/      local API, parsers, Ollama gateway
 skills/            pinned parser instructions
 data/external/     public parser-benchmark corpus and ignored model weights
 docs/              API and validation notes
+references/R1/     current R1 map and project snapshot
 ```
+
+The [R1 snapshot](references/R1/README.md) tracks what is built and what remains. Open the [interactive system map](references/R1/system-map.html) in a browser to inspect each block.
 
 The application keeps personal topics, uploaded PDFs, conversions, and conversations in `../Learning/<topic>/`, outside this repository. The model has no shell, filesystem, web, or hardware tools.
 

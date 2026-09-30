@@ -2,9 +2,9 @@
 
 ## Post-release Docling versus MinerU benchmark
 
-Status: proposal for a later structured-ingestion release.
+Status: historical parser comparison proposal. Docling is now the default structured parser; the proposed MinerU comparison remains deferred.
 
-The current app uses AnyDoc and MarkItDown. [Docling](https://github.com/docling-project/docling) is a future candidate because it provides a structured `DoclingDocument`, page and bounding-box provenance, hyperlinks, figure/caption relationships, referenced image export, and `HybridChunker` in one integration.
+The current app uses [Docling](https://github.com/docling-project/docling) for structured extraction and indexing. AnyDoc and MarkItDown remain unindexed Markdown alternatives. Docling provides a structured `DoclingDocument`, page and bounding-box provenance, hyperlinks, figure/caption relationships, image export, and `HybridChunker`.
 
 [MinerU](https://github.com/opendatalab/MinerU) remains a serious future parser candidate. Its high-quality hybrid/VLM pipeline reports stronger results on difficult scientific layouts in OmniDocBench and emits a useful native bundle:
 
