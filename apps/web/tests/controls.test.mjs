@@ -10,6 +10,7 @@ async function load(name) {
 }
 const { APP_CONTEXT_MAX, LEGACY_CONTEXT_LIMIT, modelLabel, modelContextMax, modelSelection, normalizeSettings, quantizationLabel, validateContext, thinkingValue, chatRequest } = await load('modelControls');
 const { pdfDropBlocked, validatePdfs, MAX_PDF_BYTES } = await load('uploads');
+const { canSaveLearningGoal, MAX_LEARNING_GOAL_CHARS } = await load('learningGoal');
 const qwen = { id: 'qwen3.5:9b-q4_K_M', name: 'qwen3.5:9b-q4_K_M', thinking: { type: 'toggle' } };
 test('model labels prefer server display name and format known IDs without technical quantization suffixes', () => {
   assert.equal(modelLabel(qwen), 'Qwen 3.5 · 9B · 4-bit');
@@ -58,6 +59,17 @@ test('PDF drop eligibility explains blocked uploads before validation runs', () 
   assert.match(pdfDropBlocked({ busy: true, topicReady: true, hasTopic: true }), /current action/);
   assert.match(pdfDropBlocked({ busy: false, topicReady: false, hasTopic: true }), /finish loading/);
   assert.match(pdfDropBlocked({ busy: false, topicReady: true, hasTopic: false }), /Choose a topic/);
+});
+test('learning goal saves only a changed, bounded draft for a fully loaded idle topic', () => {
+  const ready = { hasTopic: true, topicReady: true, busy: false, draft: 'Learn eigenvectors', saved: '' };
+  assert.equal(canSaveLearningGoal(ready), true);
+  assert.equal(canSaveLearningGoal({ ...ready, topicReady: false }), false);
+  assert.equal(canSaveLearningGoal({ ...ready, hasTopic: false }), false);
+  assert.equal(canSaveLearningGoal({ ...ready, busy: true }), false);
+  assert.equal(canSaveLearningGoal({ ...ready, saved: ready.draft }), false);
+  assert.equal(canSaveLearningGoal({ ...ready, draft: 'x'.repeat(MAX_LEARNING_GOAL_CHARS) }), true);
+  assert.equal(canSaveLearningGoal({ ...ready, draft: 'x'.repeat(MAX_LEARNING_GOAL_CHARS + 1) }), false);
+  assert.equal(canSaveLearningGoal({ ...ready, draft: '', saved: 'Old goal' }), true);
 });
 test('PDF browse/drop validation accepts valid PDFs including blank browser MIME', async () => {
   await validatePdfs([new File(['%PDF-1.7\ncontent'], 'Reading.PDF', { type: 'application/pdf' }), new File(['%PDF-1.4'], 'second.pdf')]);
