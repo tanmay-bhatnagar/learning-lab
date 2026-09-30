@@ -87,7 +87,14 @@ describe('App characterization', () => {
       await new Promise((resolve) => setTimeout(resolve, 30));
       if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
       yield { type: 'token', text: 'Partial' };
-      await new Promise((resolve) => setTimeout(resolve, 300));
+      await new Promise((resolve) => {
+        const timer = setTimeout(resolve, 2000);
+        signal.addEventListener('abort', () => {
+          clearTimeout(timer);
+          resolve(undefined);
+        });
+      });
+      if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
       yield { type: 'token', text: ' answer' };
       yield { type: 'done', model: 'qwen3.5:9b-q4_K_M', context: { used: 10, limit: 32768 } };
     };
@@ -100,10 +107,12 @@ describe('App characterization', () => {
     await user.click(screen.getByRole('button', { name: 'Send message' }));
 
     await waitFor(() => expect(screen.getByText(/Hmm/)).toBeInTheDocument());
-    await user.click(await screen.findByRole('button', { name: 'Stop response' }));
+    await waitFor(() => expect(screen.getByText('Partial')).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: 'Stop response' }));
 
     await waitFor(() => expect(screen.getByText(/Response stopped/i)).toBeInTheDocument());
-    expect(screen.getByText(/Partial/)).toBeInTheDocument();
+    expect(screen.getByText('Partial')).toBeInTheDocument();
+    expect(screen.queryByText(/Partial answer/)).not.toBeInTheDocument();
     expect(screen.getByText(/Response incomplete/i)).toBeInTheDocument();
   });
 
