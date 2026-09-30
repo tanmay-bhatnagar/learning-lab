@@ -12,7 +12,7 @@ extend-immutable-calls = ["fastapi.File", "fastapi.Form", "fastapi.Depends", "fa
 # Annotations are enforced for application code only.
 "!services/api/lab/**" = ["ANN001", "ANN201"]
 # Existing offenders; each refactor slice deletes the entries it resolves.
-"services/api/lab/index.py" = ["A001", "ANN001"]
-"services/api/lab/storage.py" = ["B904", "ANN001", "ANN201"]
+"services/api/lab/index.py" = ["ANN001"]
+"services/api/lab/storage.py" = ["ANN001", "ANN201"]
 "services/api/lab/main.py" = ["BLE001", "ANN001", "ANN201"]
 "services/api/lab/{chunking,context,docling_pipeline,models,parse_pipeline,retrieval}.py" = ["ANN001", "ANN201"]

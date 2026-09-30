@@ -17,7 +17,7 @@ DEFAULT_RRF_K = 60
 _FTS_TOKEN = re.compile(r"[\w]+", re.UNICODE)
 
 
-class IndexError(ValueError):
+class IndexInputError(ValueError):
     """Raised when chunk or search inputs are invalid."""
 
 
@@ -46,13 +46,13 @@ def _pack_vector(values: list[float]) -> bytes:
 def _unpack_vector(blob: bytes, dimension: int) -> list[float]:
     expected = dimension * struct.calcsize("f")
     if len(blob) != expected:
-        raise IndexError(f"Stored vector length {len(blob)} does not match dimension {dimension}")
+        raise IndexInputError(f"Stored vector length {len(blob)} does not match dimension {dimension}")
     return list(struct.unpack(f"{dimension}f", blob))
 
 
 def _cosine(a: list[float], b: list[float]) -> float:
     if len(a) != len(b):
-        raise IndexError(f"Vector dimension mismatch: {len(a)} vs {len(b)}")
+        raise IndexInputError(f"Vector dimension mismatch: {len(a)} vs {len(b)}")
     dot = 0.0
     norm_a = 0.0
     norm_b = 0.0
@@ -93,24 +93,24 @@ def _validate_file_ids(file_ids: list[str] | None) -> list[str] | None:
     if file_ids is None:
         return None
     if not isinstance(file_ids, list) or any(not isinstance(item, str) or not item for item in file_ids):
-        raise IndexError("file_ids must be a list of non-empty strings")
+        raise IndexInputError("file_ids must be a list of non-empty strings")
     return sorted(dict.fromkeys(file_ids))
 
 
 def _validate_chunk_record(record: dict[str, Any], expected_file_id: str | None = None) -> dict[str, Any]:
     if not isinstance(record, dict):
-        raise IndexError("Each chunk record must be a JSON object")
+        raise IndexInputError("Each chunk record must be a JSON object")
     required = ("chunk_id", "file_id", "file_name", "chunk_index", "text", "content_hash")
     missing = [field for field in required if field not in record]
     if missing:
-        raise IndexError(f"Chunk record missing required fields: {', '.join(missing)}")
+        raise IndexInputError(f"Chunk record missing required fields: {', '.join(missing)}")
     file_id = record["file_id"]
     if expected_file_id is not None and file_id != expected_file_id:
-        raise IndexError("All chunk records must share the replace_file file_id")
+        raise IndexInputError("All chunk records must share the replace_file file_id")
     if not isinstance(record["chunk_index"], int) or record["chunk_index"] < 0:
-        raise IndexError("chunk_index must be a non-negative integer")
+        raise IndexInputError("chunk_index must be a non-negative integer")
     if not isinstance(record["text"], str):
-        raise IndexError("text must be a string")
+        raise IndexInputError("text must be a string")
     normalized = {
         "chunk_id": str(record["chunk_id"]),
         "file_id": str(file_id),
@@ -127,13 +127,13 @@ def _validate_chunk_record(record: dict[str, Any], expected_file_id: str | None 
     }
     for field in ("headings", "pages", "bboxes", "asset_ids"):
         if not isinstance(normalized[field], list):
-            raise IndexError(f"{field} must be a list")
+            raise IndexInputError(f"{field} must be a list")
     embedding = normalized["embedding"]
     if embedding is not None:
         if not isinstance(embedding, list) or not embedding:
-            raise IndexError("embedding must be a non-empty list of floats")
+            raise IndexInputError("embedding must be a non-empty list of floats")
         if any(not isinstance(value, (int, float)) for value in embedding):
-            raise IndexError("embedding must contain only numbers")
+            raise IndexInputError("embedding must contain only numbers")
         normalized["embedding"] = [float(value) for value in embedding]
     return normalized
 
@@ -205,14 +205,14 @@ class TopicIndex:
             return
         version = self._conn.execute("SELECT version FROM schema_version").fetchone()
         if version is None:
-            raise IndexError("schema_version table exists but has no version row")
+            raise IndexInputError("schema_version table exists but has no version row")
         if version["version"] == 1:
             with self._conn:
                 self._conn.execute("ALTER TABLE chunk_embeddings ADD COLUMN model TEXT NOT NULL DEFAULT ''")
                 self._conn.execute("UPDATE schema_version SET version = 2")
             return
         if version["version"] != SCHEMA_VERSION:
-            raise IndexError(f"Unsupported schema version {version['version']}; expected {SCHEMA_VERSION}")
+            raise IndexInputError(f"Unsupported schema version {version['version']}; expected {SCHEMA_VERSION}")
 
     def _create_schema_v1(self) -> None:
         self._conn.executescript(
@@ -271,14 +271,14 @@ class TopicIndex:
 
     def replace_file(self, file_id: str, chunks: list[dict[str, Any]]) -> dict[str, int]:
         if not isinstance(file_id, str) or not file_id:
-            raise IndexError("file_id must be a non-empty string")
+            raise IndexInputError("file_id must be a non-empty string")
         if not isinstance(chunks, list):
-            raise IndexError("chunks must be a list of JSON chunk records")
+            raise IndexInputError("chunks must be a list of JSON chunk records")
 
         normalized = [_validate_chunk_record(record, file_id) for record in chunks]
         chunk_ids = [record["chunk_id"] for record in normalized]
         if len(set(chunk_ids)) != len(chunk_ids):
-            raise IndexError("chunk_id values must be unique within replace_file")
+            raise IndexInputError("chunk_id values must be unique within replace_file")
 
         expected_dim: int | None = None
         for record in normalized:
@@ -289,7 +289,7 @@ class TopicIndex:
             if expected_dim is None:
                 expected_dim = dim
             elif dim != expected_dim:
-                raise IndexError("All embeddings in replace_file must share the same dimension")
+                raise IndexInputError("All embeddings in replace_file must share the same dimension")
 
         with self._conn:
             self._conn.execute("DELETE FROM chunks WHERE file_id = ?", (file_id,))
@@ -333,7 +333,7 @@ class TopicIndex:
 
     def remove_file(self, file_id: str) -> int:
         if not isinstance(file_id, str) or not file_id:
-            raise IndexError("file_id must be a non-empty string")
+            raise IndexInputError("file_id must be a non-empty string")
         with self._conn:
             cursor = self._conn.execute("DELETE FROM chunks WHERE file_id = ?", (file_id,))
         return cursor.rowcount
@@ -345,7 +345,7 @@ class TopicIndex:
         file_ids: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         if chunk_ids is not None and (not isinstance(chunk_ids, list) or not chunk_ids):
-            raise IndexError("chunk_ids must be a non-empty list when provided")
+            raise IndexInputError("chunk_ids must be a non-empty list when provided")
         file_ids = _validate_file_ids(file_ids)
 
         clauses: list[str] = []
@@ -380,7 +380,7 @@ class TopicIndex:
         limit: int = 10,
     ) -> list[dict[str, Any]]:
         if not isinstance(query, str):
-            raise IndexError("query must be a string")
+            raise IndexInputError("query must be a string")
         if limit <= 0:
             return []
         file_ids = _validate_file_ids(file_ids)
@@ -435,9 +435,9 @@ class TopicIndex:
         model: str | None = None,
     ) -> list[dict[str, Any]]:
         if not isinstance(vector, list) or not vector:
-            raise IndexError("vector must be a non-empty list of floats")
+            raise IndexInputError("vector must be a non-empty list of floats")
         if any(not isinstance(value, (int, float)) for value in vector):
-            raise IndexError("vector must contain only numbers")
+            raise IndexInputError("vector must contain only numbers")
         query_vector = [float(value) for value in vector]
         if limit <= 0:
             return []
@@ -473,7 +473,7 @@ class TopicIndex:
         scored: list[tuple[float, sqlite3.Row]] = []
         for row in rows:
             if row["dimension"] != len(query_vector):
-                raise IndexError(
+                raise IndexInputError(
                     f"Query vector dimension {len(query_vector)} does not match stored dimension {row['dimension']}"
                 )
             cosine = _cosine(query_vector, _unpack_vector(row["vector"], row["dimension"]))
@@ -504,7 +504,7 @@ class TopicIndex:
         if limit <= 0:
             return []
         if rrf_k <= 0:
-            raise IndexError("rrf_k must be positive")
+            raise IndexInputError("rrf_k must be positive")
 
         keyword_hits = self.keyword_search(query, file_ids=file_ids, limit=max(limit * 5, limit))
         vector_hits: list[dict[str, Any]] = []

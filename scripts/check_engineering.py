@@ -18,7 +18,7 @@ HTTP_LAYER = (f"{LAB}/main.py", f"{LAB}/asgi.py", f"{LAB}/http/")
 CONFIG_MODULE = f"{LAB}/config.py"
 # Today's offenders; each refactor slice deletes the entries it resolves. Stale entries fail.
 PENDING = {
-    "framework-import": frozenset({f"{LAB}/storage.py"}),
+    "framework-import": frozenset(),
     "environment-read": frozenset(
         {f"{LAB}/main.py", f"{LAB}/docling_pipeline.py", f"{LAB}/embedding_config.py", f"{LAB}/models.py"}
     ),

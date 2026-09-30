@@ -8,7 +8,8 @@ from typing import Any, Awaitable, Callable
 
 from .embedding_config import embedding_index_key, format_for_embedding
 from .index import TopicIndex
-from .contracts import Citation, EmbeddingUnavailable, IndexedChunk
+from .contracts import Citation, IndexedChunk
+from .errors import EmbeddingUnavailable
 from .storage import read_bytes
 
 # Embedders raise EmbeddingUnavailable when the model cannot serve requests and

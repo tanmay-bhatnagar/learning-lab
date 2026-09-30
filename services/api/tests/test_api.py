@@ -2,8 +2,8 @@ import json
 from pathlib import Path
 
 import pytest
-from fastapi import HTTPException
 from fastapi.testclient import TestClient
+from lab.errors import Forbidden, InvalidInput
 from lab.main import create_app, SYSTEM_RULES
 from lab.storage import Store
 from tests.fakes import FakeModel, SlowFakeModel
@@ -150,9 +150,8 @@ def test_parser_error_keeps_original(setup):
 @pytest.mark.parametrize("bad", ["..", "../other", "/etc", "a/b", "a\\b", ".hidden", "A", "a" * 81])
 def test_safe_ids(setup, bad):
     _, _, root, settings, *_ = setup
-    with pytest.raises(HTTPException) as error:
+    with pytest.raises(InvalidInput):
         Store(root, settings).topic(bad)
-    assert error.value.status_code == 400
 
 
 def test_symlink_root_topic_original_markdown_session_settings(setup, tmp_path):
@@ -161,7 +160,7 @@ def test_symlink_root_topic_original_markdown_session_settings(setup, tmp_path):
     outside.mkdir()
     link = tmp_path / "root-link"
     link.symlink_to(root, target_is_directory=True)
-    with pytest.raises(HTTPException):
+    with pytest.raises(Forbidden):
         create_app(link, settings)
     (root / "linked").symlink_to(outside, target_is_directory=True)
     assert client.get("/api/topics/linked/files").status_code == 403

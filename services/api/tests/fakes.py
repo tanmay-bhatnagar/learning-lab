@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from typing import AsyncIterator
 
-from lab.contracts import EmbeddingUnavailable
+from lab.errors import EmbeddingUnavailable
 
 
 class FakeModel:

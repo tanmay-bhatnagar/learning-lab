@@ -5,10 +5,6 @@ from __future__ import annotations
 from typing import NotRequired, TypedDict
 
 
-class EmbeddingUnavailable(Exception):
-    """The embedding model cannot serve requests now; retrieval may degrade to keyword search."""
-
-
 class IndexedChunk(TypedDict):
     chunk_id: str
     file_id: str

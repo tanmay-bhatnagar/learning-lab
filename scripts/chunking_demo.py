@@ -136,7 +136,7 @@ def _embedder():
 
 
 async def _require_ollama_embedding(model: str, embed) -> None:
-    from lab.contracts import EmbeddingUnavailable
+    from lab.errors import EmbeddingUnavailable
 
     try:
         await embed(["preflight"], model)

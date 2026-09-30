@@ -6,7 +6,7 @@ import asyncio
 
 import pytest
 
-from lab.contracts import EmbeddingUnavailable
+from lab.errors import EmbeddingUnavailable
 from lab.embedding_config import EMBEDDING_FORMAT_VERSION, format_for_embedding
 from lab.retrieval import index_chunks, search
 

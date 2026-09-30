@@ -8,7 +8,7 @@ import re
 import httpx
 
 from lab.context import DEFAULT_CONTEXT_LIMIT, estimate_tokens, prepare_context
-from lab.contracts import EmbeddingUnavailable
+from lab.errors import EmbeddingUnavailable
 from lab.embedding_config import normalize_ollama_embed_error
 
 OLLAMA_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")

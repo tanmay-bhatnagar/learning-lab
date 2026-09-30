@@ -6,14 +6,15 @@ import re
 import stat
 import uuid
 from pathlib import Path
-from fastapi import HTTPException
+
+from .errors import CorruptData, Forbidden, InvalidInput, NotFound
 
 ID = re.compile(r"^[a-z0-9][a-z0-9_-]{0,79}$")
 
 
 def valid_id(value):
     if not ID.fullmatch(value):
-        raise HTTPException(400, "Invalid ID: use lowercase letters, digits, hyphens or underscores.")
+        raise InvalidInput("Invalid ID: use lowercase letters, digits, hyphens or underscores.")
     return value
 
 
@@ -21,7 +22,7 @@ def checked(path):
     path = Path(os.path.abspath(path))
     for part in [*reversed(path.parents), path]:
         if part.is_symlink():
-            raise HTTPException(403, "Symlink paths are not allowed.")
+            raise Forbidden("Symlink paths are not allowed.")
     return path
 
 
@@ -30,10 +31,10 @@ def read_bytes(path):
     try:
         fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     except FileNotFoundError:
-        raise HTTPException(404, "File not found.")
+        raise NotFound("File not found.") from None
     with os.fdopen(fd, "rb") as stream:
         if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
-            raise HTTPException(403, "Only regular files are allowed.")
+            raise Forbidden("Only regular files are allowed.")
         return stream.read()
 
 
@@ -44,7 +45,7 @@ def read_json(path, default=None):
     try:
         return json.loads(read_bytes(path))
     except (ValueError, UnicodeError):
-        raise HTTPException(500, f"Invalid saved data in {path.name}; restore a backup before retrying.")
+        raise CorruptData(f"Invalid saved data in {path.name}; restore a backup before retrying.") from None
 
 
 def write_json(path, data):
@@ -109,10 +110,10 @@ class Store:
     def topic(self, topic):
         path = checked(self.root / valid_id(topic))
         if not path.is_dir():
-            raise HTTPException(404, "Topic not found.")
+            raise NotFound("Topic not found.")
         metadata = read_json(path / "topic.json")
         if not metadata or metadata.get("archived"):
-            raise HTTPException(404, "Topic not found.")
+            raise NotFound("Topic not found.")
         return path
 
     def topics(self):
@@ -146,11 +147,11 @@ class Store:
         for record in self.files(topic):
             if record["id"] == file_id:
                 return record
-        raise HTTPException(404, "Attachment not found in the selected topic.")
+        raise NotFound("Attachment not found in the selected topic.")
 
     def file_path(self, topic, name):
         if not isinstance(name, str) or Path(name).name != name or name in {".", ".."} or "\\" in name:
-            raise HTTPException(403, "Invalid stored filename.")
+            raise Forbidden("Invalid stored filename.")
         return checked(self.topic(topic) / name)
 
     def session(self, topic):

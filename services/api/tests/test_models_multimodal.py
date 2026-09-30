@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import httpx
 from lab import models
-from lab.contracts import EmbeddingUnavailable
+from lab.errors import EmbeddingUnavailable
 
 
 class Chunks(httpx.AsyncByteStream):

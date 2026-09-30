@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field, field_validator
 from starlette.concurrency import run_in_threadpool
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from .errors import Conflict, DoesNotFit, DomainError, Forbidden, InvalidInput, NotFound, TooLarge
 from .parse_pipeline import parse_and_persist
 from .context import prepare_context_details
 from .file_records import mark_interrupted
@@ -129,6 +130,10 @@ def create_app(
     max_upload_bytes=None,
 ):
     app = FastAPI(title="Learning Lab")
+
+    @app.exception_handler(DomainError)
+    async def domain_error_handler(_request: Request, exc: DomainError):
+        return JSONResponse(status_code=exc.status_code, content={"detail": exc.message})
     store = Store(
         root or os.environ.get("LEARNING_LAB_ROOT", CODE_ROOT.parent / "Learning"),
         settings_path
@@ -245,14 +250,14 @@ def create_app(
             async with lock(topic):
                 name = file.filename or "document.pdf"
                 if "/" in name or "\\" in name or any(ord(c) < 32 for c in name) or not name.lower().endswith(".pdf"):
-                    raise HTTPException(400, "Upload a PDF with a plain filename, without path separators.")
+                    raise InvalidInput("Upload a PDF with a plain filename, without path separators.")
                 data = bytearray()
                 while chunk := await file.read(65536):
                     data.extend(chunk)
                     if len(data) > limit:
-                        raise HTTPException(413, f"PDF exceeds the {limit} byte upload limit.")
+                        raise TooLarge(f"PDF exceeds the {limit} byte upload limit.")
                 if not data.startswith(b"%PDF-"):
-                    raise HTTPException(400, "File does not have a valid PDF header.")
+                    raise InvalidInput("File does not have a valid PDF header.")
                 file_id = uuid.uuid4().hex
                 active_uploads.add(file_id)
                 stem = re.sub(r"[^A-Za-z0-9._-]", "_", Path(name).stem)[:100] or "document"
@@ -341,7 +346,7 @@ def create_app(
     def markdown(topic: str, file_id: str):
         record = store.file(topic, file_id)
         if record["status"] != "ready":
-            raise HTTPException(409, record.get("error", "Conversion is not complete."))
+            raise Conflict(record.get("error", "Conversion is not complete."))
         return {"markdown": read_bytes(store.file_path(topic, record["markdown_name"])).decode("utf-8")}
 
     @app.get("/api/topics/{topic}/files/{file_id}/original")
@@ -357,14 +362,14 @@ def create_app(
     def parsed(topic: str, file_id: str):
         record = store.file(topic, file_id)
         if record.get("status") != "ready" or not record.get("docling_name"):
-            raise HTTPException(409, "Structured Docling output is not available for this file.")
+            raise Conflict("Structured Docling output is not available for this file.")
         return read_json(store.file_path(topic, record["docling_name"]))
 
     @app.get("/api/topics/{topic}/files/{file_id}/chunks")
     def chunks(topic: str, file_id: str):
         record = store.file(topic, file_id)
         if record.get("status") != "ready" or not record.get("chunks_name"):
-            raise HTTPException(409, "Structured chunks are not available for this file.")
+            raise Conflict("Structured chunks are not available for this file.")
         lines = read_bytes(store.file_path(topic, record["chunks_name"])).decode("utf-8").splitlines()
         return {"chunks": [json.loads(line) for line in lines if line.strip()]}
 
@@ -373,7 +378,7 @@ def create_app(
         record = store.file(topic, file_id)
         match = next((item for item in record.get("assets", []) if item.get("id") == asset_id), None)
         if not match:
-            raise HTTPException(404, "Visual asset not found for this file.")
+            raise NotFound("Visual asset not found for this file.")
         return Response(
             read_bytes(store.file_path(topic, match["name"])),
             media_type="image/png",
@@ -385,7 +390,7 @@ def create_app(
         for file_id in dict.fromkeys(body.file_ids):
             record = store.file(topic, file_id)
             if record.get("index_status") != "ready":
-                raise HTTPException(409, f"{record['name']} is not indexed.")
+                raise Conflict(f"{record['name']} is not indexed.")
         current = Settings(**read_json(store.settings, {}))
         embedding = embedder()
         result = await search(
@@ -427,7 +432,7 @@ def create_app(
     async def chat(topic: str, body: ChatInput):
         topic_lock = lock(topic)
         if topic_lock.locked():
-            raise HTTPException(409, "This topic is busy. Wait for its current upload or reply to finish.")
+            raise Conflict("This topic is busy. Wait for its current upload or reply to finish.")
         await topic_lock.acquire()
         try:
             session = store.session(topic)
@@ -436,7 +441,7 @@ def create_app(
             for file_id in dict.fromkeys(body.file_ids):
                 record = store.file(topic, file_id)
                 if record["status"] != "ready":
-                    raise HTTPException(409, f"Attachment {record['name']} is not ready; check its conversion error.")
+                    raise Conflict(f"Attachment {record['name']} is not ready; check its conversion error.")
                 selected_records.append(record)
                 if record.get("index_status") != "ready":
                     content = read_bytes(store.file_path(topic, record["markdown_name"])).decode("utf-8")
@@ -463,8 +468,7 @@ def create_app(
                 names = ", ".join(
                     record["name"] for record in selected_records if record.get("index_status") == "ready"
                 )
-                raise HTTPException(
-                    409,
+                raise Conflict(
                     f"Indexed evidence is unavailable for {names}: the topic retrieval index is missing. "
                     "Restore retrieval.sqlite or re-upload the selected files before chatting.",
                 )
@@ -523,7 +527,7 @@ def create_app(
                     atomic_indices=atomic_indices,
                 )
             except ValueError as exc:
-                raise HTTPException(422, f"The selected material does not fit this context limit: {exc}") from exc
+                raise DoesNotFit(f"The selected material does not fit this context limit: {exc}") from exc
             retained_set = set(retained_indices)
             citations = [
                 citation for offset, citation in enumerate(citations) if evidence_start + offset in retained_set
