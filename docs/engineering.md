@@ -44,8 +44,8 @@ Production code has no test-only branches. An injected dependency follows exactl
 The functional rules above apply to TypeScript and React as well.
 
 - Components render. Decisions (stream-event folding, file selectability, context meters, activity guards) are pure functions in `src/state/` or `src/domain/` with their own tests.
-- Effects live in hooks (`src/hooks/`). Components do not call `fetch`, `localStorage` or `window` directly. Refs hold DOM nodes and `AbortController`s, not application state.
-- One operation runs at a time per activity; represent it as a union (`idle | sending | uploading | …`) and derive guards from it, not from parallel booleans.
+- Effects live in hooks (`src/hooks/`). Components do not call `fetch`, `localStorage` or `window` directly. Refs hold DOM nodes, `AbortController`s, and latest-value mirrors that async callbacks or same-tick re-entry guards read; render never reads a ref, and refs never hold application state.
+- Mutually exclusive operations share one activity union (`idle | sending | uploading | …`) and derive guards from it, not from parallel booleans. Operations the product lets overlap, such as creating a topic, keep their own pending state.
 - `setState` updaters and reducers are pure. React may call them twice.
 - Every value crossing the browser boundary (HTTP responses, stream events, `localStorage`) is parsed with a `zod` schema in `src/api/`; the schema is the source of the TypeScript type. Status fields are unions shared with the domain rules.
 - URLs are built in one module (`src/api/urls.ts`).
@@ -57,7 +57,7 @@ The functional rules above apply to TypeScript and React as well.
 1. Write down the observable behavior to preserve: the API contract (`docs/API.md`), stored formats, and user flows. Stored-format changes need a separate compatibility decision.
 2. Land characterization tests first, in their own commit, passing against the current code. They test behavior through public interfaces, not the internals being moved.
 3. Keep mechanical changes (formatting, moves, renames) in their own commits and prove them mechanical: equal Python ASTs, equal TypeScript syntax trees, or byte-identical outputs on a fixture. `git diff -w` is not enough when quotes or wrapping change.
-4. Make structural changes in small slices, each with its checks passing. Do not change characterization tests to make a slice pass; a needed change is a behavior change and is reported.
+4. Make structural changes in small slices, each with its checks passing. Do not change characterization tests to make a slice pass; a needed change is a behavior change and is reported. Before merging, compare against the base commit directly: the OpenAPI schema, and for UI work the rendered DOM and request sequence of scripted flows. A test that fails after the change must pass on the base commit to count as a regression test.
 5. One writer per path. Parallel slices use isolated worktrees; the coordinator merges and reruns every check.
 6. Each slice removes the lint and structure exemptions it resolves (`ruff.toml` per-file ignores, `PENDING` in `check_engineering.py`, the ESLint override list) so the ratchet only tightens.
 

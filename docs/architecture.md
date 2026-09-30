@@ -1,6 +1,6 @@
 # Architecture and ownership
 
-Current state on `dev` as of 30 September 2026. See the [interactive R1 map](../references/R1/system-map.html) for the system and its planned blocks, and the [R1 snapshot](../references/R1/README.md) for validation and remaining work.
+Current state on `dev` as of 1 October 2026. See the [interactive R1 map](../references/R1/system-map.html) for the system and its planned blocks, and the [R1 snapshot](../references/R1/README.md) for validation and remaining work.
 
 ## Runtime path
 
@@ -12,7 +12,11 @@ The API app owns one model-generation lock shared by embedding and chat generati
 
 | Location | Owns |
 | --- | --- |
-| `apps/web/src/main.tsx`, `api.ts` | Browser workspace, files, settings, conversation and transport |
+| `apps/web/src/main.tsx`, `App.tsx` | Vite entry (`createRoot` only) and the workspace composition root |
+| `apps/web/src/api/` | Wire schemas (zod), URL builders, fetch and stream client |
+| `apps/web/src/hooks/` | Side effects: bootstrap, topic session, chat, uploads, settings, preview, window events |
+| `apps/web/src/state/`, `domain/` | Pure activity, topic-session and stream transitions; pure display rules |
+| `apps/web/src/components/` | Presentational UI: sidebar, workspace tabs, chat, files, settings, modals |
 | `apps/web/src/citations.tsx`, `retrievalTrace.tsx` | Per-answer source display and retrieval inspection |
 | `services/api/lab/web/` | HTTP routers, middleware, request schemas and app factory |
 | `services/api/lab/config.py` | Frozen `AppConfig` and environment defaults |
