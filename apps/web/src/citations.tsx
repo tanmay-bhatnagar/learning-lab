@@ -1,44 +1,10 @@
 import React, { useId, useState } from 'react';
 import { BookOpen, ChevronDown } from 'lucide-react';
 import type { Citation, LabFile, MessageRetrieval } from './api';
-import { assetApiUrl } from './api';
-import { headingsLabel, pagesLabel, resolveAssetId } from './retrievalTraceHelpers';
-import { citationChunkLabel, hasSources, modeBadgeLabel, sourcesButtonLabel } from './citationsHelpers';
 import { originalPdfUrl } from './api';
-
-function CitationAssets({ topic, file, assets }: { topic: string; file: LabFile | undefined; assets: string[] }) {
-  if (!assets.length) return null;
-  return (
-    <div className="citation-assets" aria-label="Linked visuals">
-      {assets.map((ref) => {
-        const assetId = resolveAssetId(file, ref);
-        const asset = file?.assets?.find((item) => item.id === assetId || item.name === ref);
-        if (!assetId) {
-          return (
-            <figure className="citation-asset citation-asset-missing" key={ref}>
-              <span className="citation-asset-placeholder">Visual unavailable</span>
-              <figcaption>{asset?.caption || ref}</figcaption>
-            </figure>
-          );
-        }
-        return (
-          <figure className="citation-asset" key={assetId}>
-            <a href={assetApiUrl(topic, file!.id, assetId)} target="_blank" rel="noopener noreferrer">
-              <img
-                src={assetApiUrl(topic, file!.id, assetId)}
-                alt={asset?.caption || asset?.kind || 'Document visual'}
-                loading="lazy"
-              />
-            </a>
-            <figcaption>
-              {asset?.caption || `${asset?.kind || 'visual'}${asset?.page != null ? ` · p.${asset.page}` : ''}`}
-            </figcaption>
-          </figure>
-        );
-      })}
-    </div>
-  );
-}
+import { headingsLabel, pagesLabel } from './retrievalTraceHelpers';
+import { citationChunkLabel, hasSources, modeBadgeLabel, sourcesButtonLabel } from './citationsHelpers';
+import { VisualAssets } from './components/VisualAssets';
 
 function CitationCard({
   citation,
@@ -54,6 +20,7 @@ function CitationCard({
   const chunkLabel = citationChunkLabel(citation.chunk_index);
   const pages = [...new Set(citation.pages)].filter((page) => Number.isInteger(page) && page > 0).sort((a, b) => a - b);
   const unavailablePages = pages.filter((page) => file?.page_count != null && page > file.page_count);
+  const readyFile = file?.status === 'ready' ? file : undefined;
   return (
     <article className="citation-card" aria-labelledby={`citation-${citation.chunk_id}-${index}`}>
       <header className="citation-card-header">
@@ -62,9 +29,9 @@ function CitationCard({
           {headingsLabel(citation.headings)} ·{' '}
           {pages.length
             ? pages.map((page) =>
-                file?.status === 'ready' && !unavailablePages.includes(page) ? (
+                readyFile && !unavailablePages.includes(page) ? (
                   <React.Fragment key={page}>
-                    <a href={originalPdfUrl(topic, file.id, page)} target="_blank" rel="noopener noreferrer">
+                    <a href={originalPdfUrl(topic, readyFile.id, page)} target="_blank" rel="noopener noreferrer">
                       Page {page}
                     </a>
                     {page !== pages[pages.length - 1] ? ', ' : ''}
@@ -82,7 +49,7 @@ function CitationCard({
         </p>
       </header>
       {citation.text && <pre className="citation-excerpt">{citation.text}</pre>}
-      <CitationAssets topic={topic} file={file} assets={citation.assets || []} />
+      <VisualAssets topic={topic} file={file} assetRefs={citation.assets || []} classNamePrefix="citation" />
     </article>
   );
 }
@@ -99,7 +66,8 @@ export function MessageSources({
   const [open, setOpen] = useState(false);
   const panelId = useId();
   if (!hasSources(retrieval)) return null;
-  const count = retrieval!.citations.length;
+  const sources = retrieval!;
+  const count = sources.citations.length;
   const fileById = new Map(files.map((file) => [file.id, file]));
   return (
     <div className="message-sources">
@@ -112,17 +80,17 @@ export function MessageSources({
       >
         <BookOpen size={13} aria-hidden="true" />
         <span>{sourcesButtonLabel(count)}</span>
-        <span className="sources-mode-badge">{modeBadgeLabel(retrieval!.mode)}</span>
+        <span className="sources-mode-badge">{modeBadgeLabel(sources.mode)}</span>
         <ChevronDown size={14} className={`sources-chevron ${open ? 'open' : ''}`} aria-hidden="true" />
       </button>
-      {retrieval!.warning && (
+      {sources.warning && (
         <p className="sources-warning" role="status">
-          {retrieval!.warning}
+          {sources.warning}
         </p>
       )}
       {open && (
         <div className="sources-panel" id={panelId}>
-          {retrieval!.citations.map((citation, index) => (
+          {sources.citations.map((citation, index) => (
             <CitationCard
               key={`${citation.chunk_id}-${index}`}
               citation={citation}
