@@ -41,3 +41,15 @@ class CorruptData(DomainError):
 
 class EmbeddingUnavailable(Exception):
     """The embedding model cannot serve requests now; retrieval may degrade to keyword search."""
+
+
+class ModelNotInstalled(Exception):
+    """The requested Ollama model is not installed locally."""
+
+
+class RemoteModelRejected(Exception):
+    """Remote or cloud-hosted models are not supported."""
+
+
+class ModelMetadataUnavailable(Exception):
+    """Ollama model metadata could not be loaded for local verification."""

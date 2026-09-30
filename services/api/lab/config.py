@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 CODE_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_LEARNING_ROOT = CODE_ROOT.parent / "Learning"
@@ -12,8 +13,18 @@ DEFAULT_STATE_ROOT = CODE_ROOT / ".local"
 DEFAULT_SETTINGS_NAME = "settings.json"
 DEFAULT_MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434"
-DEFAULT_DOCLING_ARTIFACTS_PATH = CODE_ROOT / "data" / "external" / "modelweights" / "docling"
-DEFAULT_EMBEDDING_TOKENIZER_ROOT = CODE_ROOT / "data" / "external" / "modelweights" / "embedding-tokenizer"
+DEFAULT_EMBEDDING_TOKENIZER_ROOT = (CODE_ROOT / "data" / "external" / "modelweights" / "tokenizers").resolve()
+
+_UNSET: Any = object()
+
+
+def _optional_path(value: str | None) -> Path | None:
+    if value is None:
+        return None
+    stripped = value.strip()
+    if not stripped:
+        return None
+    return Path(stripped).expanduser().resolve()
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,7 +34,7 @@ class AppConfig:
     settings_path: Path
     max_upload_bytes: int
     ollama_base_url: str
-    docling_artifacts_path: Path
+    docling_artifacts_path: Path | None
     embedding_tokenizer_root: Path
 
 
@@ -33,11 +44,21 @@ def load_config(
     settings_path: Path | None = None,
     max_upload_bytes: int | None = None,
     ollama_base_url: str | None = None,
-    docling_artifacts_path: Path | None = None,
-    embedding_tokenizer_root: Path | None = None,
+    docling_artifacts_path: Path | None = _UNSET,
+    embedding_tokenizer_root: Path | None = _UNSET,
 ) -> AppConfig:
     """Build config from explicit arguments with environment fallbacks."""
     state_root = Path(os.environ.get("LEARNING_LAB_STATE_ROOT", str(DEFAULT_STATE_ROOT))).expanduser()
+    if docling_artifacts_path is _UNSET:
+        resolved_docling = _optional_path(os.environ.get("DOCLING_ARTIFACTS_PATH"))
+    else:
+        resolved_docling = docling_artifacts_path
+    if embedding_tokenizer_root is _UNSET:
+        resolved_tokenizer = (
+            _optional_path(os.environ.get("EMBEDDING_TOKENIZER_ROOT")) or DEFAULT_EMBEDDING_TOKENIZER_ROOT
+        )
+    else:
+        resolved_tokenizer = embedding_tokenizer_root or DEFAULT_EMBEDDING_TOKENIZER_ROOT
     return AppConfig(
         learning_root=Path(
             learning_root
@@ -61,14 +82,6 @@ def load_config(
             if ollama_base_url is not None
             else os.environ.get("OLLAMA_BASE_URL", DEFAULT_OLLAMA_BASE_URL)
         ).rstrip("/"),
-        docling_artifacts_path=Path(
-            docling_artifacts_path
-            if docling_artifacts_path is not None
-            else os.environ.get("DOCLING_ARTIFACTS_PATH", str(DEFAULT_DOCLING_ARTIFACTS_PATH))
-        ).expanduser(),
-        embedding_tokenizer_root=Path(
-            embedding_tokenizer_root
-            if embedding_tokenizer_root is not None
-            else os.environ.get("EMBEDDING_TOKENIZER_ROOT", str(DEFAULT_EMBEDDING_TOKENIZER_ROOT))
-        ).expanduser(),
+        docling_artifacts_path=resolved_docling,
+        embedding_tokenizer_root=Path(resolved_tokenizer).expanduser().resolve(),
     )

@@ -16,7 +16,7 @@ embedding-tokenizer:
 	EMBEDDING_TOKENIZER_DIR="$(EMBEDDING_TOKENIZER_DIR)" .venv/bin/python scripts/download_embedding_tokenizer.py
 
 dev:
-	.venv/bin/python -m scripts.dev
+	.venv/bin/python scripts/dev.py
 
 test:
 	PYTHONPATH=services/api .venv/bin/python -m pytest services/api/tests -q

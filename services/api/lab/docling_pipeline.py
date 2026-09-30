@@ -7,11 +7,27 @@ image generation. Optional model cache directory via ``DOCLING_ARTIFACTS_PATH``.
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
 from typing import Any, Literal
+
+
+@dataclass(frozen=True)
+class ParserWarning:
+    code: str
+    message: str
+
+
+PARTIAL_SUCCESS_WARNING = ParserWarning("partial_success", "Docling reported partial_success.")
+
+
+def stored_warning_messages(warnings: list[ParserWarning]) -> list[str]:
+    return [warning.message for warning in warnings]
+
+
+def warning_codes(warnings: list[ParserWarning]) -> list[str]:
+    return [warning.code for warning in warnings]
 
 
 @dataclass(frozen=True)
@@ -35,23 +51,9 @@ class ParseArtifacts:
     markdown: str
     docling: dict[str, Any]
     images: list[ImageAsset]
-    warnings: list[str]
+    warnings: list[ParserWarning]
     parser_version: str
     document: Any
-
-
-_configured_artifacts_path: str | Path | None = None
-
-
-def configure(artifacts_path: str | Path | None = None) -> None:
-    global _configured_artifacts_path
-    _configured_artifacts_path = artifacts_path
-
-
-def _artifacts_path(explicit: str | Path | None) -> str | Path | None:
-    if explicit is not None:
-        return explicit
-    return _configured_artifacts_path
 
 
 def _build_converter(*, images_scale: float, artifacts_path: str | Path | None):
@@ -78,29 +80,34 @@ def _build_converter(*, images_scale: float, artifacts_path: str | Path | None):
     )
 
 
-def _bbox_to_dict(bbox) -> dict[str, Any]:
+def _bbox_to_dict(bbox: Any) -> dict[str, Any]:
     return bbox.model_dump(mode="json", by_alias=True, exclude_none=True)
 
 
-def _pil_to_png_bytes(pil_image) -> bytes:
+def _pil_to_png_bytes(pil_image: Any) -> bytes:
     buffer = BytesIO()
     pil_image.save(buffer, format="PNG")
     return buffer.getvalue()
 
 
-def _collect_warnings(result) -> list[str]:
+def _collect_warnings(result: Any) -> list[ParserWarning]:
     from docling.datamodel.base_models import ConversionStatus
 
-    warnings: list[str] = []
+    warnings: list[ParserWarning] = []
     if result.status == ConversionStatus.PARTIAL_SUCCESS:
-        warnings.append("docling:partial_success")
+        warnings.append(PARTIAL_SUCCESS_WARNING)
     for error in result.errors:
         page = f" (page {error.page_no})" if error.page_no is not None else ""
-        warnings.append(f"{error.module_name}: {error.error_message}{page}")
+        warnings.append(
+            ParserWarning(
+                code=error.module_name,
+                message=f"{error.module_name}: {error.error_message}{page}",
+            )
+        )
     return warnings
 
 
-def _collect_image_assets(document) -> list[ImageAsset]:
+def _collect_image_assets(document: Any) -> list[ImageAsset]:
     assets: list[ImageAsset] = []
 
     for page_no in sorted(document.pages.keys()):
@@ -173,7 +180,7 @@ def parse_pdf_bytes(
     stream = DocumentStream(name=filename, stream=BytesIO(data))
     converter = _build_converter(
         images_scale=images_scale,
-        artifacts_path=_artifacts_path(artifacts_path),
+        artifacts_path=artifacts_path,
     )
 
     try:
@@ -216,7 +223,7 @@ def parse_pdf_bytes(
         ) from exc
 
     if result.status == ConversionStatus.FAILURE:
-        detail = "; ".join(_collect_warnings(result)) or "conversion failed"
+        detail = "; ".join(stored_warning_messages(_collect_warnings(result))) or "conversion failed"
         raise ValueError(f"docling could not convert this PDF: {detail}")
 
     document = result.document

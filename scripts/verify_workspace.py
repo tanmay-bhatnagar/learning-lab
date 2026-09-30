@@ -16,7 +16,7 @@ import uuid
 from collections.abc import Mapping
 from pathlib import Path
 
-from scripts.process_helpers import available_port, stop_processes, wait_ready
+from process_helpers import available_port, stop_processes, wait_ready
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -248,7 +248,8 @@ def main(argv: list[str] | None = None) -> int:
                     python,
                     "-m",
                     "uvicorn",
-                    "lab.asgi:app",
+                    "lab.asgi:create_app_factory",
+                    "--factory",
                     "--app-dir",
                     str(ROOT / "services/api"),
                     "--host",

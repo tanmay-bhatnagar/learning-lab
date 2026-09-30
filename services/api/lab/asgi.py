@@ -1,10 +1,9 @@
 """ASGI entry point without import-time side effects."""
 
-from lab.http.app import create_app
+from fastapi import FastAPI
+
+from lab.web.app import create_app
 
 
-def app_factory():
+def create_app_factory() -> FastAPI:
     return create_app()
-
-
-app = app_factory()

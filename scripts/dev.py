@@ -8,7 +8,7 @@ import subprocess
 import sys
 import time
 
-from scripts.process_helpers import available_port, stop_processes, wait_ready
+from process_helpers import available_port, stop_processes, wait_ready
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -31,8 +31,6 @@ def main():
     children = []
     runtime_env = {
         **os.environ,
-        # Keep Docling artifacts with the project's other local model weights.
-        # An explicit path also prevents unexpected background network downloads.
         "DOCLING_ARTIFACTS_PATH": str(ROOT / "data/external/modelweights/docling"),
     }
     for sig in (signal.SIGINT, signal.SIGTERM):
@@ -44,7 +42,8 @@ def main():
                     str(ROOT / ".venv/bin/python"),
                     "-m",
                     "uvicorn",
-                    "lab.asgi:app",
+                    "lab.asgi:create_app_factory",
+                    "--factory",
                     "--app-dir",
                     "services/api",
                     "--host",
@@ -78,4 +77,7 @@ def main():
 
 
 if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1] in ("-h", "--help"):
+        print("Run local Learning Lab API and web dev servers.")
+        sys.exit(0)
     sys.exit(main())

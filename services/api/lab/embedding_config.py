@@ -61,25 +61,17 @@ def embedding_model_config(model: str) -> EmbeddingModelConfig | None:
     return None
 
 
-_configured_tokenizer_root: Path | None = None
-
-
-def configure(tokenizer_root_path: Path | str | None = None) -> None:
-    global _configured_tokenizer_root
-    _configured_tokenizer_root = Path(tokenizer_root_path).expanduser().resolve() if tokenizer_root_path else None
-
-
-def tokenizer_root() -> Path:
-    if _configured_tokenizer_root is not None:
-        return _configured_tokenizer_root
+def resolve_tokenizer_root(tokenizer_root_path: Path | str | None = None) -> Path:
+    if tokenizer_root_path is not None:
+        return Path(tokenizer_root_path).expanduser().resolve()
     return (_CODE_ROOT / "data/external/modelweights/tokenizers").resolve()
 
 
-def tokenizer_path(model: str) -> Path | None:
+def tokenizer_path(model: str, *, tokenizer_root_path: Path | None = None) -> Path | None:
     config = embedding_model_config(model)
     if config is None:
         return None
-    return tokenizer_root() / config.tokenizer_dir
+    return resolve_tokenizer_root(tokenizer_root_path) / config.tokenizer_dir
 
 
 def _tokenizer_files_present(path: Path) -> bool:
@@ -125,6 +117,7 @@ def _load_transformers_tokenizer(path: str):
 def chunk_tokenizer(
     embedding_model: str,
     *,
+    tokenizer_root_path: Path | None = None,
     chunk_token_limit: int = DEFAULT_CHUNK_TOKEN_LIMIT,
 ) -> tuple[Any, list[str]]:
     """Return a HybridChunker-compatible tokenizer and any warnings."""
@@ -137,7 +130,7 @@ def chunk_tokenizer(
         )
         return _ConservativeTokenizer(chunk_token_limit), warnings
 
-    path = tokenizer_root() / config.tokenizer_dir
+    path = resolve_tokenizer_root(tokenizer_root_path) / config.tokenizer_dir
     if not _tokenizer_files_present(path):
         warnings.append(
             f"Embedding tokenizer files missing at {path}; run `make embedding-tokenizer`. "

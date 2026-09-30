@@ -1,19 +1,33 @@
 #!/usr/bin/env python3
 """Exercise real PDF converters and optionally local inference in an isolated topic root."""
 
+from __future__ import annotations
+
 import argparse
-from io import BytesIO
 import json
 import os
+from io import BytesIO
 from pathlib import Path
 import sys
 from tempfile import TemporaryDirectory
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "services/api"))
 
 
-def main():
+def _ensure_api_on_path() -> None:
+    api_root = str(ROOT / "services/api")
+    current = os.environ.get("PYTHONPATH", "")
+    parts = [part for part in current.split(os.pathsep) if part]
+    if api_root in parts:
+        return
+    os.environ["PYTHONPATH"] = os.pathsep.join([api_root, *parts])
+    os.execv(sys.executable, [sys.executable, *sys.argv])
+
+
+_ensure_api_on_path()
+
+
+def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--context", type=int, default=32768)
     parser.add_argument("--model", help="Also run a real Ollama response using this installed model")
@@ -21,10 +35,16 @@ def main():
     from reportlab.pdfgen import canvas
     from fastapi.testclient import TestClient
 
+    from lab.web.app import create_app
+
     with TemporaryDirectory(prefix="learning-lab-smoke-") as scratch:
-        os.environ["LEARNING_LAB_ROOT"] = str(Path(scratch).resolve() / "Learning")
-        os.environ["LEARNING_LAB_STATE_ROOT"] = str(Path(scratch).resolve() / "state")
-        from lab.main import app
+        scratch_path = Path(scratch).resolve()
+        learning_root = scratch_path / "Learning"
+        state_root = scratch_path / "state"
+        state_root.mkdir()
+        settings_path = state_root / "settings.json"
+        settings_path.write_text('{"model":"","embedding_model":"nomic-embed-text"}')
+        app = create_app(learning_root, settings_path)
 
         pdf = BytesIO()
         page = canvas.Canvas(pdf)
