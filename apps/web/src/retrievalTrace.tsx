@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronRight, FileText, LoaderCircle, ScanSearch } from 'lucide-react';
 import { api, fileChunksPath, json, retrievalTracePath } from './api';
 import type { FileChunk, LabFile, RetrievalTraceHit, RetrievalTraceResponse } from './api';
+import { fileChunksResponseSchema, retrievalTraceResponseSchema } from './api/types';
 import {
   chunkDisplayText,
   formatRank,
@@ -144,10 +145,10 @@ export function RetrievalTracePanel({ topic, files, selected, topK, busy, topicR
     const signal = controller.signal;
     try {
       const [trace, ...chunkSets] = await Promise.all([
-        api<RetrievalTraceResponse>(retrievalTracePath(topic), { ...json(body), signal }),
+        api(retrievalTracePath(topic), retrievalTraceResponseSchema, { ...json(body), signal }),
         ...indexedIds.map(async (fileId) => {
           const file = filesById.get(fileId);
-          const payload = await api<{ chunks: FileChunk[] }>(fileChunksPath(topic, fileId), { signal });
+          const payload = await api(fileChunksPath(topic, fileId), fileChunksResponseSchema, { signal });
           return { fileId, fileName: file?.name || fileId, chunks: payload.chunks };
         }),
       ]);

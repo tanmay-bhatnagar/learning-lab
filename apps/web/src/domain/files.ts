@@ -1,4 +1,6 @@
-import type { LabFile } from '../api/types';
+import type { FileStatus, LabFile } from '../api/types';
+
+export type { FileStatus };
 
 const NON_SELECTABLE_STATUS = /failed|error|pending|processing|queued|converting|uploaded/i;
 

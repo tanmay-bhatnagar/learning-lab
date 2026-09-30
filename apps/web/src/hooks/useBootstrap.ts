@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, json } from '../api';
+import { modelsResponseSchema, settingsSchema, topicsResponseSchema } from '../api/types';
 import type { Model, Settings, Topic } from '../api/types';
 import { DEFAULT_SETTINGS, normalizeSettings } from '../modelControls';
 import { errorText } from '../lib/errors';
@@ -19,7 +20,7 @@ export function useBootstrap() {
   const refreshModels = useCallback(async () => {
     setModelError('');
     try {
-      const result = await api<{ models: Model[]; error?: string }>('/models');
+      const result = await api('/models', modelsResponseSchema);
       setModels(result.models);
       setModelError(result.error || '');
     } catch (e) {
@@ -31,9 +32,9 @@ export function useBootstrap() {
     setLoading(true);
     setError('');
     const results = await Promise.allSettled([
-      api<{ topics: Topic[] }>('/topics'),
-      api<{ models: Model[]; error?: string }>('/models'),
-      api<Settings>('/settings'),
+      api('/topics', topicsResponseSchema),
+      api('/models', modelsResponseSchema),
+      api('/settings', settingsSchema),
     ]);
     const [t, m, s] = results;
     if (t.status === 'fulfilled') {
@@ -50,7 +51,7 @@ export function useBootstrap() {
       setParser(value.parser);
       if (migrated && !migrationLock.current) {
         migrationLock.current = true;
-        api<Settings>('/settings', json(value, 'PUT'))
+        api('/settings', settingsSchema, json(value, 'PUT'))
           .then((saved) => {
             setSettings(saved);
             setParser(saved.parser);

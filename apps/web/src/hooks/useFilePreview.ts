@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, fileMarkdownPath } from '../api';
-import type { LabFile } from '../api/types';
+import { markdownResponseSchema, type LabFile } from '../api/types';
 import { aborted, errorText } from '../lib/errors';
 
 export function useFilePreview(topic: string, preview: LabFile | null, previewTab: 'markdown' | 'original') {
@@ -14,7 +14,7 @@ export function useFilePreview(topic: string, preview: LabFile | null, previewTa
     setPreviewLoading(true);
     setPreviewError('');
     setMarkdown('');
-    api<{ markdown: string }>(fileMarkdownPath(topic, preview.id), { signal: controller.signal })
+    api(fileMarkdownPath(topic, preview.id), markdownResponseSchema, { signal: controller.signal })
       .then((data) => setMarkdown(data.markdown))
       .catch((e) => {
         if (!aborted(e)) setPreviewError(errorText(e));

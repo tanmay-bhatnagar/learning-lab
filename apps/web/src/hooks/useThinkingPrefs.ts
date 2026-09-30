@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { parsePayload, thinkingPrefsSchema } from '../api/types';
 
 const STORAGE_KEY = 'lab-thinking';
 
@@ -7,16 +8,18 @@ function readThinkingPrefs(): Record<string, boolean | string> {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return {};
     const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return {};
-    return parsed as Record<string, boolean | string>;
+    const result = thinkingPrefsSchema.safeParse(parsed);
+    if (!result.success) return {};
+    return result.data;
   } catch {
     /* ignore corrupt localStorage */
     return {};
   }
 }
 
-function writeThinkingPrefs(value: Record<string, boolean | string>): void {
+export function writeThinkingPrefs(value: Record<string, boolean | string>): void {
   try {
+    parsePayload(thinkingPrefsSchema, value, 'thinking preferences');
     localStorage.setItem(STORAGE_KEY, JSON.stringify(value));
   } catch {
     /* quota or private mode — prefs stay in memory for this session */
@@ -29,10 +32,10 @@ export function useThinkingPrefs() {
 
   useEffect(() => {
     try {
+      parsePayload(thinkingPrefsSchema, thinking, 'thinking preferences');
       localStorage.setItem(STORAGE_KEY, JSON.stringify(thinking));
       setStorageError('');
     } catch {
-      /* quota or private mode */
       setStorageError('Thinking preferences could not be saved in this browser.');
     }
   }, [thinking]);
@@ -43,5 +46,3 @@ export function useThinkingPrefs() {
 
   return { thinking, setThink, storageError };
 }
-
-export { writeThinkingPrefs, readThinkingPrefs };

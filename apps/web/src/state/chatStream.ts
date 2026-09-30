@@ -8,7 +8,7 @@ export function applyStreamEvent(messages: Message[], event: StreamEvent): Messa
   if (!messages.length) return messages;
   const lastIndex = messages.length - 1;
   let next = messages;
-  if (event.model) {
+  if (event.type === 'done' && event.model) {
     next = next.map((message, index) => (index === lastIndex ? { ...message, model: event.model } : message));
   }
   if (event.type === 'done' && event.retrieval) {

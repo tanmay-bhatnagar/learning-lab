@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState, type RefObject } from 'react';
 import { api, topicFilesPath } from '../api';
-import type { LabFile } from '../api/types';
+import { labFileSchema, type LabFile } from '../api/types';
 import { errorText } from '../lib/errors';
 import { validatePdfs } from '../uploads';
 
@@ -52,7 +52,7 @@ export function useUploads(topic: string, topicRef: RefObject<string>) {
           const body = new FormData();
           body.append('file', file);
           body.append('parser', parser);
-          const result = await api<LabFile>(topicFilesPath(target), { method: 'POST', body });
+          const result = await api(topicFilesPath(target), labFileSchema, { method: 'POST', body });
           if (topicRef.current === target) appendFile(result);
         }
       } catch (e) {

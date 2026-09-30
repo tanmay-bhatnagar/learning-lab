@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import { api, json } from '../api';
-import type { Context, Model, Settings } from '../api/types';
+import { settingsSchema, type Context, type Model, type Settings } from '../api/types';
 import { modelLabel, modelSelection, validateContext } from '../modelControls';
 import { errorText } from '../lib/errors';
 
@@ -43,7 +43,7 @@ export function useSettings(
       setSelectionError('');
       if (selectedModel) setSwitching(selectedModel.id);
       try {
-        const value = await api<Settings>('/settings', json(next, 'PUT'));
+        const value = await api('/settings', settingsSchema, json(next, 'PUT'));
         setSettings(value);
         setDraft(value);
         setParser(value.parser);

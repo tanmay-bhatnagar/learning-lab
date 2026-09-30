@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, json, learningGoalPath, topicFilesPath, topicMessagesPath, topicPath } from '../api';
-import type { Context, LabFile, Message, Topic } from '../api/types';
+import {
+  filesResponseSchema,
+  learningGoalResponseSchema,
+  messagesResponseSchema,
+  topicSchema,
+  type Context,
+  type LabFile,
+  type Message,
+} from '../api/types';
 import { aborted, errorText } from '../lib/errors';
 import { filesRefreshed, goalSaved } from '../state/topicSession';
 
@@ -39,9 +47,9 @@ export function useTopicSession(topic: string, revision: number, setError: (mess
     if (!topic) return () => controller.abort();
 
     Promise.all([
-      api<{ messages: Message[]; context?: Context }>(topicMessagesPath(topic), { signal: controller.signal }),
-      api<{ files: LabFile[] }>(topicFilesPath(topic), { signal: controller.signal }),
-      api<Topic>(topicPath(topic), { signal: controller.signal }),
+      api(topicMessagesPath(topic), messagesResponseSchema, { signal: controller.signal }),
+      api(topicFilesPath(topic), filesResponseSchema, { signal: controller.signal }),
+      api(topicPath(topic), topicSchema, { signal: controller.signal }),
     ])
       .then(([history, attachments, topicData]) => {
         const goal = topicData.learning_goal || '';
@@ -69,7 +77,7 @@ export function useTopicSession(topic: string, revision: number, setError: (mess
   const refreshFiles = useCallback(async () => {
     if (!topic) return;
     try {
-      const attachments = await api<{ files: LabFile[] }>(topicFilesPath(topic));
+      const attachments = await api(topicFilesPath(topic), filesResponseSchema);
       setSession((previous) => {
         const refreshed = filesRefreshed({ ...previous, preview: null, input: previous.input }, attachments.files);
         return { ...previous, files: refreshed.files, selected: refreshed.selected };
@@ -81,8 +89,9 @@ export function useTopicSession(topic: string, revision: number, setError: (mess
 
   const saveLearningGoal = useCallback(
     async (draft: string) => {
-      const saved = await api<{ learning_goal: string }>(
+      const saved = await api(
         learningGoalPath(topic),
+        learningGoalResponseSchema,
         json({ learning_goal: draft }, 'PUT'),
       );
       setSession((previous) => goalSaved(previous, saved.learning_goal));
@@ -91,7 +100,7 @@ export function useTopicSession(topic: string, revision: number, setError: (mess
   );
 
   const createTopic = useCallback(async (name: string) => {
-    return api<Topic>('/topics', json({ name }));
+    return api('/topics', topicSchema, json({ name }));
   }, []);
 
   return {

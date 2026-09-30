@@ -1,4 +1,5 @@
-import type { StreamEvent } from './types';
+import { z } from 'zod';
+import { formatParseError, parsePayload, streamEventSchema, type StreamEvent } from './types';
 
 export function parseErrorDetail(body: unknown, fallback: string): string {
   if (typeof body === 'object' && body !== null && 'detail' in body) {
@@ -24,12 +25,18 @@ export const json = (body: unknown, method = 'POST'): RequestInit => ({
   body: JSON.stringify(body),
 });
 
-export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
+export async function api<T>(path: string, schema: z.ZodType<T>, init: RequestInit = {}): Promise<T> {
   const response = await fetch(`/api${path}`, init);
   if (!response.ok) {
     throw new Error(await readErrorDetail(response, `Request failed (${response.status})`));
   }
-  return response.json() as Promise<T>;
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    throw new Error(`Invalid response from ${path}: body is not JSON`);
+  }
+  return parsePayload(schema, body, path);
 }
 
 export async function stream(path: string, body: unknown, signal: AbortSignal, onEvent: (event: StreamEvent) => void) {
@@ -44,7 +51,17 @@ export async function stream(path: string, body: unknown, signal: AbortSignal, o
   let done = false;
   const consume = (line: string) => {
     if (!line.trim()) return;
-    const event = JSON.parse(line) as StreamEvent;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      throw new Error('Invalid stream event: line is not JSON');
+    }
+    const result = streamEventSchema.safeParse(parsed);
+    if (!result.success) {
+      throw new Error(formatParseError('stream event', result.error));
+    }
+    const event = result.data;
     if (event.type === 'error') throw new Error(event.message || 'The model could not complete this response.');
     onEvent(event);
     if (event.type === 'done') done = true;
