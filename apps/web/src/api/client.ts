@@ -34,6 +34,7 @@ export async function api<T>(path: string, schema: z.ZodType<T>, init: RequestIn
   try {
     body = await response.json();
   } catch {
+    /* non-JSON success bodies are treated as protocol errors */
     throw new Error(`Invalid response from ${path}: body is not JSON`);
   }
   return parsePayload(schema, body, path);
@@ -55,6 +56,7 @@ export async function stream(path: string, body: unknown, signal: AbortSignal, o
     try {
       parsed = JSON.parse(line);
     } catch {
+      /* malformed NDJSON lines fail the turn visibly */
       throw new Error('Invalid stream event: line is not JSON');
     }
     const result = streamEventSchema.safeParse(parsed);
