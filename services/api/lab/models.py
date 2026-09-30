@@ -6,7 +6,7 @@ import re
 
 import httpx
 
-from lab.context import DEFAULT_CONTEXT_LIMIT, estimate_tokens, prepare_context
+from lab.context import DEFAULT_CONTEXT_LIMIT, estimate_messages, estimate_tokens, prepare_context
 from lab.errors import EmbeddingUnavailable
 from lab.embedding_config import normalize_ollama_embed_error
 
@@ -131,7 +131,7 @@ def display_name(model: str, details: dict) -> str:
     return " · ".join(str(part) for part in [title, size, precision] if part)
 
 
-def context_capacity(_info: dict) -> int:
+def context_capacity() -> int:
     """App-wide context ceiling; independent of model-advertised native context."""
     return DEFAULT_CONTEXT_LIMIT
 
@@ -161,7 +161,7 @@ async def list_models() -> dict:
                         "id": name,
                         "name": tag.get("name", name),
                         "display_name": display_name(name, details),
-                        "max_context_length": context_capacity(info),
+                        "max_context_length": context_capacity(),
                         "size_bytes": tag.get("size", 0),
                         "quantization": details.get("quantization_level", ""),
                         "parameter_size": details.get("parameter_size", ""),
@@ -185,17 +185,15 @@ async def embed_texts(texts: list[str], model: str, *, generation_lock: asyncio.
     async with generation_lock:
         try:
             async with _client() as client:
-                tags = await _tags(client)
-                tag = _find_tag(tags, model)
-                if tag is None:
-                    raise EmbeddingUnavailable(
-                        f"Embedding model {model!r} is not installed locally; run `ollama pull {model}`"
-                    )
-                if _is_remote(model, tag):
-                    raise EmbeddingUnavailable("Remote/cloud models are not supported; select a local model")
-                info = await _show(client, model)
-                if _is_remote(model, info):
-                    raise EmbeddingUnavailable("Remote/cloud models are not supported; select a local model")
+                try:
+                    await _resolve_local_model(client, model)
+                except ValueError as exc:
+                    message = str(exc)
+                    if "not installed locally" in message:
+                        raise EmbeddingUnavailable(
+                            f"Embedding model {model!r} is not installed locally; run `ollama pull {model}`"
+                        ) from exc
+                    raise EmbeddingUnavailable(message) from exc
                 response = await client.post(
                     "/api/embed", json={"model": model, "input": texts, "truncate": False, "keep_alive": 0}
                 )
@@ -210,6 +208,19 @@ async def embed_texts(texts: list[str], model: str, *, generation_lock: asyncio.
                 return _validate_embeddings(texts, response.json())
         except httpx.HTTPError as exc:
             raise EmbeddingUnavailable(f"Embedding service unavailable ({type(exc).__name__}): {exc}") from exc
+
+
+async def _resolve_local_model(client, model: str):
+    tags = await _tags(client)
+    tag = _find_tag(tags, model)
+    if tag is None:
+        raise ValueError("Requested model is not installed locally")
+    if _is_remote(model, tag):
+        raise ValueError("Remote/cloud models are not supported; select a local model")
+    info = await _show(client, model)
+    if _is_remote(model, info):
+        raise ValueError("Remote/cloud models are not supported; select a local model")
+    return tag, info
 
 
 async def stream_chat(
@@ -228,23 +239,22 @@ async def stream_chat(
     for predictable memory usage. Other Ollama clients remain outside our control.
     """
     try:
-        prompt, context, prediction = prepare_context(messages, context_limit)
         if context_metadata is not None:
-            context = {**context, "truncated_messages": context_metadata["truncated_messages"]}
+            reserve = min(2048, max(64, context_limit // 4))
+            used = context_metadata.get("used", estimate_messages(messages))
+            if used > context_limit - reserve:
+                raise ValueError("Prompt exceeds configured context limit")
+            prompt = messages
+            context = dict(context_metadata)
+            prediction = reserve
+        else:
+            prompt, context, prediction = prepare_context(messages, context_limit)
         async with generation_lock:
             async with _client() as client:
-                tags = await _tags(client)
-                tag = _find_tag(tags, model)
-                if tag is None:
-                    raise ValueError("Requested model is not installed locally")
-                if _is_remote(model, tag):
-                    raise ValueError("Remote/cloud models are not supported; select a local model")
                 try:
-                    info = await _show(client, model)
-                except (httpx.HTTPError, ValueError) as exc:
+                    _tag, info = await _resolve_local_model(client, model)
+                except httpx.HTTPError as exc:
                     raise ValueError("Model metadata unavailable; cannot verify local inference") from exc
-                if _is_remote(model, info):
-                    raise ValueError("Remote/cloud models are not supported; select a local model")
                 if _messages_have_images(prompt) and not _vision(info):
                     raise ValueError(
                         "This model does not support vision; remove images or select a vision-capable model"
@@ -307,5 +317,5 @@ async def stream_chat(
                             yield {"type": "done", "context": context, "model": response_model}
                             return
                     yield {"type": "error", "message": "Ollama stream ended before done"}
-    except (httpx.HTTPError, ValueError, TypeError, KeyError) as exc:
+    except (httpx.HTTPError, ValueError) as exc:
         yield {"type": "error", "message": f"Ollama chat failed: {exc}"}
