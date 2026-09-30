@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, json } from '../api/client';
 import { topicSchema, type LabFile, type Model } from '../api/types';
 import { thinkingValue } from '../modelControls';
@@ -23,6 +23,7 @@ export function useAppState() {
   const [preview, setPreview] = useState<LabFile | null>(null);
   const [previewTab, setPreviewTab] = useState<'markdown' | 'original'>('markdown');
   const [follow, setFollow] = useState(true);
+  const followLatest = useCallback(() => setFollow(true), []);
   const bottom = useRef<HTMLDivElement>(null);
 
   const activityApi = useActivity();
@@ -46,6 +47,7 @@ export function useAppState() {
     session,
     bootstrap.setError,
     activityApi,
+    followLatest,
   );
 
   const uploads = useUploads(bootstrap.topic, topicRef, activityApi.activity, session.topicReady, activityApi);

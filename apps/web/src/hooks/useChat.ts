@@ -20,6 +20,7 @@ export function useChat(
   session: TopicSession,
   setError: (message: string) => void,
   activityApi: ActivityApi,
+  onTurnStart: () => void,
 ) {
   const streamController = useRef<AbortController | null>(null);
   const topicRef = useRef(topic);
@@ -45,6 +46,7 @@ export function useChat(
       const target = topic;
       setError('');
       session.dispatch({ type: 'inputChanged', value: '' });
+      onTurnStart();
       session.dispatch({ type: 'messagesChanged', value: (previous) => startTurn(previous, message) });
 
       try {
@@ -78,7 +80,7 @@ export function useChat(
         activityApi.end();
       }
     },
-    [topic, settings, models, thinking, selected, topicReady, session, setError, activityApi],
+    [topic, settings, models, thinking, selected, topicReady, session, setError, activityApi, onTurnStart],
   );
 
   return { send, stop };
