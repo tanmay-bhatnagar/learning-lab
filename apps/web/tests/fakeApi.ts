@@ -1,5 +1,14 @@
 import { vi } from 'vitest';
-import type { Context, LabFile, Message, MessageRetrieval, Model, Settings, StreamEvent, Topic } from '../src/api';
+import type {
+  Context,
+  LabFile,
+  Message,
+  MessageRetrieval,
+  Model,
+  Settings,
+  StreamEvent,
+  Topic,
+} from '../src/api/types';
 
 export type StreamScript = (body: Record<string, unknown>, signal: AbortSignal) => AsyncIterable<StreamEvent>;
 
@@ -11,6 +20,7 @@ export type FakeApiOptions = {
   settings?: Settings;
   models?: Model[];
   modelsError?: string;
+  topicLoadDelayMs?: number;
   stream?: StreamScript;
   onSettingsPut?: (settings: Settings) => Settings | void;
   onLearningGoalPut?: (topic: string, goal: string) => void;
@@ -90,6 +100,13 @@ export function createFakeApi(options: FakeApiOptions = {}) {
   let streamScript: StreamScript = options.stream ?? defaultStream;
   let onSettingsPut = options.onSettingsPut;
   let onLearningGoalPut = options.onLearningGoalPut;
+  const topicLoadDelayMs = options.topicLoadDelayMs ?? 0;
+  const delayTopicLoad = () =>
+    topicLoadDelayMs > 0 ? new Promise((resolve) => setTimeout(resolve, topicLoadDelayMs)) : Promise.resolve();
+  let pendingFilesPause: string | null = null;
+  let filesGetRelease: (() => void) | null = null;
+  let pendingGoalPause: string | null = null;
+  let goalPutRelease: (() => void) | null = null;
   const markdownByFile: Record<string, string> = {
     'file-1': '# Paper A\n\nContent from A.',
     'file-2': '# Paper B\n\nContent from B.',
@@ -136,14 +153,23 @@ export function createFakeApi(options: FakeApiOptions = {}) {
     const rest = topicMatch[2] ?? '';
 
     if (rest === '' && method === 'GET') {
+      await delayTopicLoad();
       const topic = topics.find((t) => t.id === topicId);
       if (!topic) return jsonResponse({ detail: 'Topic missing' }, 404);
       return jsonResponse({ ...topic, learning_goal: topicGoals[topicId] ?? '' });
     }
     if (rest === '/messages' && method === 'GET') {
+      await delayTopicLoad();
       return jsonResponse({ messages: messages[topicId] ?? [], context: { used: 50, limit: settings.context_limit } });
     }
     if (rest === '/files' && method === 'GET') {
+      await delayTopicLoad();
+      if (pendingFilesPause === topicId) {
+        pendingFilesPause = null;
+        await new Promise<void>((resolve) => {
+          filesGetRelease = resolve;
+        });
+      }
       return jsonResponse({ files: files[topicId] ?? [] });
     }
     if (rest === '/files' && method === 'POST') {
@@ -157,6 +183,12 @@ export function createFakeApi(options: FakeApiOptions = {}) {
       return jsonResponse(record);
     }
     if (rest === '/learning-goal' && method === 'PUT') {
+      if (pendingGoalPause === topicId) {
+        pendingGoalPause = null;
+        await new Promise<void>((resolve) => {
+          goalPutRelease = resolve;
+        });
+      }
       const body = JSON.parse(String(init?.body ?? '{}')) as { learning_goal: string };
       topicGoals[topicId] = body.learning_goal;
       onLearningGoalPut?.(topicId, body.learning_goal);
@@ -232,6 +264,20 @@ export function createFakeApi(options: FakeApiOptions = {}) {
     },
     removeFile(topicId: string, fileId: string) {
       files[topicId] = (files[topicId] ?? []).filter((f) => f.id !== fileId);
+    },
+    pauseNextFilesGet(topicId: string) {
+      pendingFilesPause = topicId;
+    },
+    releaseFilesGet() {
+      filesGetRelease?.();
+      filesGetRelease = null;
+    },
+    pauseNextGoalPut(topicId: string) {
+      pendingGoalPause = topicId;
+    },
+    releaseGoalPut() {
+      goalPutRelease?.();
+      goalPutRelease = null;
     },
   };
 }

@@ -17,8 +17,6 @@ afterEach(() => {
 async function waitForAppReady() {
   await waitFor(() => expect(screen.queryByText(/Connecting to your workspace/i)).not.toBeInTheDocument());
   await waitFor(() => expect(screen.getByRole('button', { name: 'Topic A' })).toBeInTheDocument());
-  await waitFor(() => expect(screen.queryByText(/Loading topic/i)).not.toBeInTheDocument());
-  await waitFor(() => expect(screen.getByRole('textbox', { name: 'Message' })).not.toBeDisabled());
 }
 
 async function openFilesTab(user: ReturnType<typeof userEvent.setup>) {
@@ -254,20 +252,45 @@ describe('App characterization', () => {
   test('Refresh files re-fetches the file list without clearing conversation or input', async () => {
     const fake = installFakeApi({
       messages: { 'topic-a': [{ role: 'user', content: 'Keep this?' }] },
+      files: {
+        'topic-a': [
+          {
+            id: 'file-1',
+            name: 'paper-a.pdf',
+            status: 'ready',
+            parser: 'docling',
+            index_status: 'ready',
+            index_mode: 'hybrid',
+          },
+          {
+            id: 'file-2',
+            name: 'paper-aux.pdf',
+            status: 'ready',
+            parser: 'docling',
+            index_status: 'ready',
+            index_mode: 'hybrid',
+          },
+        ],
+      },
     });
     const user = userEvent.setup();
     render(<App />);
     await waitForAppReady();
+    await waitFor(() => expect(screen.getByRole('textbox', { name: 'Message' })).not.toBeDisabled());
     await user.type(screen.getByRole('textbox', { name: 'Message' }), 'typed before refresh');
 
     await openFilesTab(user);
-    const checkbox = screen.getByRole('checkbox', { name: /paper-a.pdf/i });
-    await user.click(checkbox);
-    expect(checkbox).toBeChecked();
+    const checkboxA = screen.getByRole('checkbox', { name: /paper-a.pdf/i });
+    const checkboxB = screen.getByRole('checkbox', { name: /paper-aux.pdf/i });
+    await user.click(checkboxA);
+    await user.click(checkboxB);
+    expect(checkboxA).toBeChecked();
+    expect(checkboxB).toBeChecked();
 
     fake.removeFile('topic-a', 'file-1');
     await user.click(screen.getByRole('button', { name: 'Refresh files' }));
     await waitFor(() => expect(screen.queryByText('paper-a.pdf')).not.toBeInTheDocument());
+    expect(screen.getByRole('checkbox', { name: /paper-aux.pdf/i })).toBeChecked();
 
     const tabs = document.querySelector('.tabs') as HTMLElement | null;
     if (!tabs) throw new Error('Workspace tabs missing');
@@ -275,5 +298,37 @@ describe('App characterization', () => {
     expect(screen.getByText('Keep this?')).toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue('typed before refresh');
     expect(screen.queryByRole('checkbox', { name: /paper-a.pdf/i })).not.toBeInTheDocument();
+  });
+
+  test('shows thinking preference storage errors', async () => {
+    installFakeApi();
+    const original = window.localStorage.setItem.bind(window.localStorage);
+    const setItem = vi.spyOn(window.localStorage, 'setItem').mockImplementation((key, value) => {
+      if (key === 'lab-thinking') throw new Error('quota');
+      original(key, value);
+    });
+    render(<App />);
+    await waitFor(() => expect(screen.getByText(/Thinking preferences could not be saved/i)).toBeInTheDocument());
+    setItem.mockRestore();
+  });
+
+  test('Refresh files ignores stale response after topic switch', async () => {
+    const fake = installFakeApi({
+      files: {
+        'topic-a': [{ id: 'file-1', name: 'paper-a.pdf', status: 'ready', parser: 'docling' }],
+        'topic-b': [{ id: 'file-2', name: 'paper-b.pdf', status: 'ready', parser: 'docling' }],
+      },
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    await waitForAppReady();
+    await openFilesTab(user);
+    fake.pauseNextFilesGet('topic-a');
+    void user.click(screen.getByRole('button', { name: 'Refresh files' }));
+    await user.click(screen.getByRole('button', { name: 'Topic B' }));
+    await waitFor(() => expect(screen.getByText('paper-b.pdf')).toBeInTheDocument());
+    fake.releaseFilesGet();
+    await waitFor(() => expect(screen.getByText('paper-b.pdf')).toBeInTheDocument());
+    expect(screen.queryByText('paper-a.pdf')).not.toBeInTheDocument();
   });
 });
