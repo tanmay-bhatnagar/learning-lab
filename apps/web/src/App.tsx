@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
@@ -22,31 +22,14 @@ import {
   Sparkles,
   ExternalLink,
 } from 'lucide-react';
-import { api, json, stream, topicPath, topicFilesPath } from './api';
-import type { Topic, LabFile, Message, Context, Model, Settings } from './api';
-import { applyStreamEvent, failTurn, startTurn } from './state/chatStream';
-import { deriveActivity, uploadBlockedReason } from './state/activity';
-import { filesRefreshed } from './state/topicSession';
+import { fileOriginalPath } from './api';
 import { contextMeter } from './domain/contextMeter';
 import { fileMeta, isSelectable, showLegacyUnassessedWarning } from './domain/files';
-import {
-  APP_CONTEXT_MAX,
-  DEFAULT_SETTINGS,
-  modelLabel,
-  modelSelection,
-  normalizeSettings,
-  quantizationLabel,
-  validateContext,
-  thinkingValue,
-  chatRequest,
-} from './modelControls';
+import { APP_CONTEXT_MAX, modelLabel, quantizationLabel } from './modelControls';
 import { RetrievalTracePanel } from './retrievalTrace';
 import { MessageSources } from './citations';
-import { validatePdfs } from './uploads';
-import { MAX_LEARNING_GOAL_CHARS, canSaveLearningGoal } from './learningGoal';
-const errorText = (error: unknown) =>
-  error instanceof Error ? error.message : 'Something went wrong. Please try again.';
-const aborted = (error: unknown) => error instanceof DOMException && error.name === 'AbortError';
+import { MAX_LEARNING_GOAL_CHARS } from './learningGoal';
+import { useAppState } from './hooks/useAppState';
 const parserOptions = [
   <option key="docling" value="docling">
     Docling
@@ -79,425 +62,95 @@ function RichText({ text }: { text: string }) {
   );
 }
 export function App() {
-  const [topics, setTopics] = useState<Topic[]>([]);
-  const [topic, setTopic] = useState('');
-  const [models, setModels] = useState<Model[]>([]);
-  const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
-  const [draft, setDraft] = useState<Settings>(DEFAULT_SETTINGS);
-  const [page, setPage] = useState<'workspace' | 'settings'>('workspace');
-  const [tab, setTab] = useState<'chat' | 'files' | 'trace'>('chat');
-  const [sidebar, setSidebar] = useState(() => window.innerWidth > 700);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [files, setFiles] = useState<LabFile[]>([]);
-  const [selected, setSelected] = useState<string[]>([]);
-  const [context, setContext] = useState<Context>({});
-  const [learningGoal, setLearningGoal] = useState('');
-  const [goalDraft, setGoalDraft] = useState('');
-  const [goalSaving, setGoalSaving] = useState(false);
-  const [goalNotice, setGoalNotice] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [topicLoading, setTopicLoading] = useState(false);
-  const [topicReady, setTopicReady] = useState(false);
-  const [sending, setSending] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
-  const [modelError, setModelError] = useState('');
-  const [notice, setNotice] = useState('');
-  const [input, setInput] = useState('');
-  const [newTopic, setNewTopic] = useState<string | null>(null);
-  const [creating, setCreating] = useState(false);
-  const [parser, setParser] = useState('docling');
-  const [preview, setPreview] = useState<LabFile | null>(null);
-  const [previewTab, setPreviewTab] = useState<'markdown' | 'original'>('markdown');
-  const [markdown, setMarkdown] = useState('');
-  const [previewLoading, setPreviewLoading] = useState(false);
-  const [previewError, setPreviewError] = useState('');
-  const [thinking, setThinking] = useState<Record<string, boolean | string>>(() => {
-    try {
-      return JSON.parse(localStorage.getItem('lab-thinking') || '{}');
-    } catch {
-      return {};
-    }
-  });
-  const persistenceLock = useRef(false);
-  const uploadLock = useRef(false);
-  const [switching, setSwitching] = useState('');
-  const [selectionStatus, setSelectionStatus] = useState('');
-  const [selectionError, setSelectionError] = useState('');
-  const [dragging, setDragging] = useState(false);
-  const [dropBlocked, setDropBlocked] = useState(false);
-  const [dropFeedback, setDropFeedback] = useState('');
-  const dragDepth = useRef(0);
-  const dropFeedbackTimer = useRef<number | null>(null);
-  const streamController = useRef<AbortController | null>(null);
-  const bottom = useRef<HTMLDivElement>(null);
-  const uploadInput = useRef<HTMLInputElement>(null);
-  const topicRef = useRef(topic);
-  topicRef.current = topic;
-  const activeTopic = topics.find((t) => t.id === topic);
-  const activeModel = models.find((m) => m.id === settings.model);
-  const activity = deriveActivity({
-    sending,
-    uploading,
-    saving,
-    goalSaving,
+  const {
+    page,
+    setPage,
+    tab,
+    setTab,
+    sidebar,
+    setSidebar,
+    closeSidebarOnMobile,
+    setRevision,
+    newTopic,
+    setNewTopic,
     creating,
-    streamLocked: !!streamController.current,
-    uploadLocked: uploadLock.current,
-    persistenceLocked: persistenceLock.current,
-  });
-  const busy = sending || uploading || saving || goalSaving;
-  const draftModel = models.find((m) => m.id === (switching || draft.model));
-  const uploadBlocked = uploadBlockedReason(activity, { topicReady, hasTopic: !!topic });
-  const goalSavable = canSaveLearningGoal({
-    hasTopic: !!topic,
-    topicReady,
+    preview,
+    setPreview,
+    previewTab,
+    setPreviewTab,
+    follow,
+    setFollow,
+    bottom,
+    selectTopic,
+    bootstrap: {
+      topics,
+      topic,
+      models,
+      settings,
+      parser,
+      setParser,
+      loading,
+      error,
+      setError,
+      modelError,
+      migrationError,
+      initialize,
+      refreshModels,
+    },
+    session: {
+      messages,
+      files,
+      selected,
+      setSelected,
+      context,
+      goalDraft,
+      setGoalDraft,
+      goalNotice,
+      topicLoading,
+      topicReady,
+      input,
+      setInput,
+    },
+    chat: { sending, stop },
+    uploads: {
+      uploading,
+      dragging,
+      setDragging,
+      dropBlocked,
+      setDropBlocked,
+      dropFeedback,
+      dragDepthRef,
+      uploadInput,
+      showDropFeedback,
+    },
+    settingsUi: {
+      draft,
+      setDraft,
+      saving,
+      notice,
+      setNotice,
+      switching,
+      selectionStatus,
+      selectionError,
+      selectModel,
+      saveDraft,
+    },
+    previewState: { markdown, previewLoading, previewError },
     busy,
-    draft: goalDraft,
-    saved: learningGoal,
-  });
-  function showDropFeedback(message: string) {
-    setDropFeedback(message);
-    if (dropFeedbackTimer.current) window.clearTimeout(dropFeedbackTimer.current);
-    dropFeedbackTimer.current = window.setTimeout(() => {
-      setDropFeedback('');
-      dropFeedbackTimer.current = null;
-    }, 6000);
-  }
-  async function refreshModels() {
-    setModelError('');
-    try {
-      const result = await api<{ models: Model[]; error?: string }>('/models');
-      setModels(result.models);
-      setModelError(result.error || '');
-    } catch (e) {
-      setModelError(errorText(e));
-    }
-  }
-  async function initialize() {
-    setLoading(true);
-    setError('');
-    const results = await Promise.allSettled([
-      api<{ topics: Topic[] }>('/topics'),
-      api<{ models: Model[]; error?: string }>('/models'),
-      api<Settings>('/settings'),
-    ]);
-    const [t, m, s] = results;
-    if (t.status === 'fulfilled') {
-      setTopics(t.value.topics);
-      setTopic((current) => current || t.value.topics[0]?.id || '');
-    } else setError(errorText(t.reason));
-    if (m.status === 'fulfilled') {
-      setModels(m.value.models);
-      setModelError(m.value.error || '');
-    } else setModelError(errorText(m.reason));
-    if (s.status === 'fulfilled') {
-      const { settings: value, migrated } = normalizeSettings(s.value);
-      setSettings(value);
-      setDraft(value);
-      setParser(value.parser);
-      if (migrated) {
-        api<Settings>('/settings', json(value, 'PUT'))
-          .then((saved) => {
-            setSettings(saved);
-            setDraft(saved);
-            setParser(saved.parser);
-          })
-          .catch(() => {});
-      }
-    } else setError(errorText(s.reason));
-    setLoading(false);
-  }
-  useEffect(() => {
-    void initialize();
-    return () => {
-      streamController.current?.abort();
-      if (dropFeedbackTimer.current) window.clearTimeout(dropFeedbackTimer.current);
-    };
-  }, []);
-  const [revision, setRevision] = useState(0);
-  useEffect(() => {
-    const controller = new AbortController();
-    setMessages([]);
-    setFiles([]);
-    setSelected([]);
-    setContext({});
-    setPreview(null);
-    setInput('');
-    setTopicReady(false);
-    setLearningGoal('');
-    setGoalDraft('');
-    setGoalNotice('');
-    if (!topic) {
-      setTopicLoading(false);
-      return;
-    }
-    setTopicLoading(true);
-    setError('');
-    Promise.all([
-      api<{ messages: Message[]; context?: Context }>(`${topicPath(topic)}/messages`, { signal: controller.signal }),
-      api<{ files: LabFile[] }>(`${topicPath(topic)}/files`, { signal: controller.signal }),
-      api<Topic>(topicPath(topic), { signal: controller.signal }),
-    ])
-      .then(([history, attachments, topicData]) => {
-        setMessages(history.messages);
-        setContext(history.context || {});
-        setFiles(attachments.files);
-        setLearningGoal(topicData.learning_goal || '');
-        setGoalDraft(topicData.learning_goal || '');
-        setTopicReady(true);
-      })
-      .catch((e) => {
-        if (!aborted(e)) setError(errorText(e));
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setTopicLoading(false);
-      });
-    return () => controller.abort();
-  }, [topic, revision]);
-  useEffect(() => {
-    if (!preview || previewTab !== 'markdown') return;
-    const controller = new AbortController();
-    setPreviewLoading(true);
-    setPreviewError('');
-    setMarkdown('');
-    api<{ markdown: string }>(`${topicPath(topic)}/files/${encodeURIComponent(preview.id)}/markdown`, {
-      signal: controller.signal,
-    })
-      .then((data) => setMarkdown(data.markdown))
-      .catch((e) => {
-        if (!aborted(e)) setPreviewError(errorText(e));
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setPreviewLoading(false);
-      });
-    return () => controller.abort();
-  }, [preview, previewTab, topic]);
-  const [follow, setFollow] = useState(true);
-  useEffect(() => {
-    if (follow) bottom.current?.scrollIntoView({ behavior: sending ? 'instant' : 'smooth', block: 'end' });
-  }, [messages, sending, follow]);
-  function setThink(value: boolean | string, modelId = settings.model) {
-    setThinking((previous) => {
-      const next = { ...previous, [modelId]: value };
-      try {
-        localStorage.setItem('lab-thinking', JSON.stringify(next));
-      } catch {}
-      return next;
-    });
-  }
-  function thinkValue(model = activeModel) {
-    return thinkingValue(model, thinking);
-  }
-  async function createTopic(event: React.FormEvent) {
-    event.preventDefault();
-    if (!newTopic?.trim()) return;
-    setCreating(true);
-    setError('');
-    try {
-      const created = await api<Topic>('/topics', json({ name: newTopic.trim() }));
-      setTopics((previous) => [...previous, created]);
-      setTopic(created.id);
-      setNewTopic(null);
-      setPage('workspace');
-    } catch (e) {
-      setError(errorText(e));
-    } finally {
-      setCreating(false);
-    }
-  }
-  async function saveLearningGoal(event: React.FormEvent) {
-    event.preventDefault();
-    if (!goalSavable) return;
-    setGoalSaving(true);
-    setGoalNotice('');
-    try {
-      const saved = await api<{ learning_goal: string }>(
-        `${topicPath(topic)}/learning-goal`,
-        json({ learning_goal: goalDraft }, 'PUT'),
-      );
-      setLearningGoal(saved.learning_goal);
-      setGoalDraft(saved.learning_goal);
-      setGoalNotice('Learning goal saved for this topic.');
-    } catch (e) {
-      setError(errorText(e));
-    } finally {
-      setGoalSaving(false);
-    }
-  }
-  async function send(event: React.FormEvent) {
-    event.preventDefault();
-    if (
-      !input.trim() ||
-      !topic ||
-      !activeModel ||
-      busy ||
-      streamController.current ||
-      persistenceLock.current ||
-      uploadLock.current ||
-      !topicReady
-    )
-      return;
-    const message = input.trim();
-    const controller = new AbortController();
-    streamController.current = controller;
-    setSending(true);
-    setError('');
-    setInput('');
-    setFollow(true);
-    setMessages((previous) => startTurn(previous, message));
-    try {
-      await stream(
-        `${topicPath(topic)}/chat`,
-        chatRequest(settings, activeModel, thinking, message, selected),
-        controller.signal,
-        (event) => {
-          if (event.type === 'done') setContext(event.context || {});
-          setMessages((previous) => applyStreamEvent(previous, event));
-        },
-      );
-    } catch (e) {
-      const stop = aborted(e);
-      setError(
-        stop
-          ? 'Response stopped. Partial text is shown below; reload history to confirm what was saved.'
-          : errorText(e),
-      );
-      setMessages((previous) => failTurn(previous, stop).messages);
-    } finally {
-      setSending(false);
-      streamController.current = null;
-    }
-  }
-  async function upload(list: FileList | File[] | null) {
-    if (!list?.length || !topic) return;
-    const blocked = uploadBlockedReason(activity, { topicReady, hasTopic: !!topic });
-    if (blocked) {
-      setDropBlocked(true);
-      showDropFeedback(blocked);
-      return;
-    }
-    uploadLock.current = true;
-    const target = topic;
-    const batch = Array.from(list);
-    const selectedParser = parser;
-    setUploading(true);
-    setDragging(false);
-    setDropBlocked(false);
-    dragDepth.current = 0;
-    setError('');
-    setDropFeedback('');
-    try {
-      await validatePdfs(batch);
-      for (const file of batch) {
-        const body = new FormData();
-        body.append('file', file);
-        body.append('parser', selectedParser);
-        const result = await api<LabFile>(`${topicPath(target)}/files`, { method: 'POST', body });
-        if (topicRef.current === target)
-          setFiles((previous) => [...previous.filter((f) => f.id !== result.id), result]);
-      }
-    } catch (e) {
-      const message = errorText(e);
-      setError(message);
-      showDropFeedback(message);
-      setDropBlocked(true);
-    } finally {
-      uploadLock.current = false;
-      setUploading(false);
-      if (uploadInput.current) uploadInput.current.value = '';
-    }
-  }
-  async function persistSettings(next: Settings, selectedModel?: Model) {
-    if (persistenceLock.current || busy || streamController.current || uploadLock.current) return;
-    const validation = validateContext(next.context_limit);
-    if (validation) {
-      setError(validation);
-      return;
-    }
-    persistenceLock.current = true;
-    setSaving(true);
-    setError('');
-    setNotice('');
-    setSelectionStatus('');
-    setSelectionError('');
-    if (selectedModel) setSwitching(selectedModel.id);
-    try {
-      const value = await api<Settings>('/settings', json(next, 'PUT'));
-      // The server response is authoritative; never announce the requested model unless it was saved.
-      setSettings(value);
-      setDraft(value);
-      setParser(value.parser);
-      if (value.model !== settings.model || value.context_limit !== settings.context_limit) setContext({});
-      if (value.model !== next.model)
-        throw new Error('The server did not apply the selected model. Please select it again.');
-      if (selectedModel) setSelectionStatus(`${modelLabel(selectedModel)} selected. Your next message will use it.`);
-      else setNotice('Settings saved. They will apply to your next message.');
-    } catch (e) {
-      if (selectedModel) setSelectionError(errorText(e));
-      else setError(errorText(e));
-    } finally {
-      persistenceLock.current = false;
-      setSaving(false);
-      setSwitching('');
-    }
-  }
-  function selectModel(id: string) {
-    const model = models.find((m) => m.id === id);
-    if (model && id !== settings.model) void persistSettings(modelSelection(settings, model), model);
-  }
-  async function save(event: React.FormEvent) {
-    event.preventDefault();
-    await persistSettings(draft);
-  }
-  async function refreshFiles() {
-    if (!topic || busy) return;
-    setError('');
-    try {
-      const attachments = await api<{ files: LabFile[] }>(topicFilesPath(topic));
-      const refreshed = filesRefreshed(
-        {
-          messages: [],
-          files,
-          selected,
-          context: {},
-          learningGoal: '',
-          goalDraft: '',
-          goalNotice: '',
-          topicReady: true,
-          topicLoading: false,
-          preview: null,
-          input: '',
-        },
-        attachments.files,
-      );
-      setFiles(refreshed.files);
-      setSelected(refreshed.selected);
-    } catch (e) {
-      setError(errorText(e));
-    }
-  }
-  useEffect(() => {
-    const preventFileNavigation = (event: DragEvent) => {
-      if (Array.from(event.dataTransfer?.types || []).includes('Files')) {
-        event.preventDefault();
-        if (event.dataTransfer) event.dataTransfer.dropEffect = 'none';
-      }
-      if (event.type === 'drop' || event.type === 'dragend') {
-        setDragging(false);
-        dragDepth.current = 0;
-      }
-    };
-    window.addEventListener('dragover', preventFileNavigation);
-    window.addEventListener('drop', preventFileNavigation);
-    window.addEventListener('dragend', preventFileNavigation);
-    return () => {
-      window.removeEventListener('dragover', preventFileNavigation);
-      window.removeEventListener('drop', preventFileNavigation);
-      window.removeEventListener('dragend', preventFileNavigation);
-    };
-  }, []);
+    activeTopic,
+    activeModel,
+    draftModel,
+    uploadBlocked,
+    goalSavable,
+    goalSaving,
+    thinkValue,
+    setThink,
+    createTopic,
+    saveLearningGoal,
+    send,
+    upload,
+    refreshFiles,
+  } = useAppState();
   const meter = contextMeter(context, settings);
   function thinkingControl(model = activeModel) {
     const kind = model?.thinking?.type;
@@ -576,9 +229,9 @@ export function App() {
               className={`topic-item ${topic === t.id ? 'selected' : ''}`}
               disabled={busy}
               onClick={() => {
-                setTopic(t.id);
+                selectTopic(t.id);
                 setPage('workspace');
-                if (window.innerWidth <= 700) setSidebar(false);
+                closeSidebarOnMobile();
               }}
             >
               <BookOpen size={16} />
@@ -629,9 +282,9 @@ export function App() {
           </div>
           <span className="local-badge">LOCAL MODELS</span>
         </header>
-        {error && (
+        {(error || migrationError) && (
           <div className="banner error" role="alert">
-            <span>{error}</span>
+            <span>{error || migrationError}</span>
             <button
               disabled={busy || loading}
               onClick={() => {
@@ -657,7 +310,12 @@ export function App() {
               <span className="eyebrow">MAKE IT YOURS</span>
               <h1>Workspace settings</h1>
               <p className="muted">Choose how your next conversation runs.</p>
-              <form onSubmit={save}>
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void saveDraft();
+                }}
+              >
                 <section className="settings-card">
                   <div className="section-title">
                     <span className="tile">
@@ -903,7 +561,7 @@ export function App() {
                 onDragEnter={(e) => {
                   if (!Array.from(e.dataTransfer.types).includes('Files')) return;
                   e.preventDefault();
-                  dragDepth.current += 1;
+                  dragDepthRef.current += 1;
                   const blocked = !!uploadBlocked;
                   setDropBlocked(blocked);
                   setDragging(!blocked);
@@ -919,8 +577,8 @@ export function App() {
                 }}
                 onDragLeave={(e) => {
                   e.preventDefault();
-                  dragDepth.current = Math.max(0, dragDepth.current - 1);
-                  if (!dragDepth.current) {
+                  dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+                  if (!dragDepthRef.current) {
                     setDragging(false);
                     setDropBlocked(false);
                   }
@@ -929,7 +587,7 @@ export function App() {
                   e.preventDefault();
                   e.stopPropagation();
                   setDragging(false);
-                  dragDepth.current = 0;
+                  dragDepthRef.current = 0;
                   void upload(e.dataTransfer.files);
                 }}
               >
@@ -1238,7 +896,7 @@ export function App() {
                           type="button"
                           className="send-button stop"
                           aria-label="Stop response"
-                          onClick={() => streamController.current?.abort()}
+                          onClick={() => stop()}
                         >
                           <Square size={16} />
                         </button>
@@ -1349,17 +1007,14 @@ export function App() {
                 className="original-link"
                 target="_blank"
                 rel="noopener noreferrer"
-                href={`/api${topicPath(topic)}/files/${encodeURIComponent(preview.id)}/original`}
+                href={`/api${fileOriginalPath(topic, preview.id)}`}
               >
                 Open PDF <ExternalLink size={13} />
               </a>
             </div>
             <div className="preview-content">
               {previewTab === 'original' ? (
-                <iframe
-                  title={`Original PDF: ${preview.name}`}
-                  src={`/api${topicPath(topic)}/files/${encodeURIComponent(preview.id)}/original`}
-                />
+                <iframe title={`Original PDF: ${preview.name}`} src={`/api${fileOriginalPath(topic, preview.id)}`} />
               ) : previewLoading ? (
                 <div className="center-state">
                   <LoaderCircle className="spin" />

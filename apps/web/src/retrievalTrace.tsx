@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronRight, FileText, LoaderCircle, ScanSearch } from 'lucide-react';
 import { api, assetApiUrl, fileChunksPath, json, retrievalTracePath } from './api';
 import type { FileChunk, LabFile, RetrievalTraceHit, RetrievalTraceResponse } from './api';
@@ -163,6 +163,9 @@ export function RetrievalTracePanel({ topic, files, selected, topK, busy, topicR
   const [error, setError] = useState('');
   const [result, setResult] = useState<RetrievalTraceResponse | null>(null);
   const [loadedChunks, setLoadedChunks] = useState<LoadedChunks[]>([]);
+  const traceController = useRef<AbortController | null>(null);
+
+  useEffect(() => () => traceController.current?.abort(), []);
 
   const indexedIds = useMemo(() => indexedSelectedIds(files, selected), [files, selected]);
   const filesById = useMemo(() => new Map(files.map((file) => [file.id, file])), [files]);
@@ -176,22 +179,29 @@ export function RetrievalTracePanel({ topic, files, selected, topK, busy, topicR
     setError('');
     setResult(null);
     setLoadedChunks([]);
+    traceController.current?.abort();
+    const controller = new AbortController();
+    traceController.current = controller;
     const body = traceRequest(query, indexedIds, topK);
+    const signal = controller.signal;
     try {
       const [trace, ...chunkSets] = await Promise.all([
-        api<RetrievalTraceResponse>(retrievalTracePath(topic), json(body)),
+        api<RetrievalTraceResponse>(retrievalTracePath(topic), { ...json(body), signal }),
         ...indexedIds.map(async (fileId) => {
           const file = filesById.get(fileId);
-          const payload = await api<{ chunks: FileChunk[] }>(fileChunksPath(topic, fileId));
+          const payload = await api<{ chunks: FileChunk[] }>(fileChunksPath(topic, fileId), { signal });
           return { fileId, fileName: file?.name || fileId, chunks: payload.chunks };
         }),
       ]);
-      setResult(trace);
-      setLoadedChunks(chunkSets);
+      if (!signal.aborted) {
+        setResult(trace);
+        setLoadedChunks(chunkSets);
+      }
     } catch (e) {
+      if (e instanceof DOMException && e.name === 'AbortError') return;
       setError(e instanceof Error ? e.message : 'Retrieval trace failed.');
     } finally {
-      setRunning(false);
+      if (!signal.aborted) setRunning(false);
     }
   }
 

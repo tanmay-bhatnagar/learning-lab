@@ -12,10 +12,10 @@ export default defineConfig(
     languageOptions: { globals: globals.browser },
     rules: { 'no-empty': ['error', { allowEmptyCatch: false }] },
   },
-  // Pre-existing violations; the frontend refactor removes these entries as it fixes them.
+  // Data-fetch and persistence hooks reset UI state when their input changes; allowed at this boundary.
   {
-    files: ['src/App.tsx'],
-    rules: { 'react-hooks/refs': 'off', 'react-hooks/set-state-in-effect': 'off', 'no-empty': 'off' },
+    files: ['src/hooks/**/*.ts'],
+    rules: { 'react-hooks/set-state-in-effect': 'off' },
   },
   {
     files: ['tests/**/*.{js,mjs,ts,tsx}', '*.config.{js,ts}'],

@@ -17,6 +17,8 @@ afterEach(() => {
 async function waitForAppReady() {
   await waitFor(() => expect(screen.queryByText(/Connecting to your workspace/i)).not.toBeInTheDocument());
   await waitFor(() => expect(screen.getByRole('button', { name: 'Topic A' })).toBeInTheDocument());
+  await waitFor(() => expect(screen.queryByText(/Loading topic/i)).not.toBeInTheDocument());
+  await waitFor(() => expect(screen.getByRole('textbox', { name: 'Message' })).not.toBeDisabled());
 }
 
 async function openFilesTab(user: ReturnType<typeof userEvent.setup>) {

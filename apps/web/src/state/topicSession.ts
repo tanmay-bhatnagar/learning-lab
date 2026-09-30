@@ -10,7 +10,7 @@ export type TopicSessionState = {
   goalNotice: string;
   topicReady: boolean;
   topicLoading: boolean;
-  preview: LabFile | null;
+  preview?: LabFile | null;
   input: string;
 };
 
