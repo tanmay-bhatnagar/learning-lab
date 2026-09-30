@@ -1,17 +1,7 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
-import fs from 'node:fs/promises';
-import ts from 'typescript';
 
-async function load(name) {
-  const source = await fs.readFile(new URL(`../src/${name}.ts`, import.meta.url), 'utf8');
-  const compiled = ts.transpileModule(source, {
-    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
-  }).outputText;
-  return import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`);
-}
-
-const {
+import {
   assetApiUrl,
   chunkDisplayText,
   formatRank,
@@ -21,7 +11,7 @@ const {
   modeLabel,
   resolveAssetId,
   traceRequest,
-} = await load('retrievalTraceHelpers');
+} from '../src/retrievalTraceHelpers';
 
 const indexed = { id: 'a', name: 'paper.pdf', status: 'ready', parser: 'docling', index_status: 'ready' };
 const legacy = { id: 'b', name: 'notes.pdf', status: 'ready', parser: 'markitdown', index_status: undefined };
