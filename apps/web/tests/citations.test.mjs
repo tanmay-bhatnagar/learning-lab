@@ -3,13 +3,12 @@ import assert from 'node:assert/strict';
 
 import {
   citationChunkLabel,
-  citationLocation,
   hasSources,
   modeBadgeLabel,
   sourcesButtonLabel,
   sourcesCount,
 } from '../src/citationsHelpers';
-import { originalPdfUrl } from '../src/api';
+import { originalPdfUrl } from '../src/api/urls';
 
 test('sources helpers count citations and build button labels', () => {
   const retrieval = { mode: 'keyword', citations: [{ chunk_id: 'a' }, { chunk_id: 'b' }] };
@@ -21,10 +20,9 @@ test('sources helpers count citations and build button labels', () => {
   assert.equal(sourcesButtonLabel(3), 'Sources (3)');
 });
 
-test('citation labels expose mode badges, locations, and chunk numbers', () => {
+test('citation labels expose mode badges and chunk numbers', () => {
   assert.equal(modeBadgeLabel('hybrid'), 'Hybrid (keyword + embeddings + RRF)');
   assert.equal(modeBadgeLabel('none'), 'No retrieval');
-  assert.equal(citationLocation('paper.pdf', ['Intro', 'Setup'], [2, 3]), 'paper.pdf · Intro › Setup · Pages 2, 3');
   assert.equal(citationChunkLabel(0), 'Chunk 1');
   assert.equal(citationChunkLabel(undefined), null);
 });

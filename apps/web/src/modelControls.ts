@@ -1,4 +1,4 @@
-import type { Model, Settings } from './api';
+import type { Model, Settings } from './api/types';
 
 export const APP_CONTEXT_MAX = 32768;
 export const LEGACY_CONTEXT_LIMIT = 8192;
@@ -9,10 +9,6 @@ export const DEFAULT_SETTINGS: Settings = {
   embedding_model: 'nomic-embed-text',
   retrieval_top_k: 6,
 };
-
-export function modelContextMax(_model?: Model): number {
-  return APP_CONTEXT_MAX;
-}
 
 export function modelLabel(model: Model | string): string {
   if (typeof model !== 'string' && model.display_name?.trim()) return model.display_name;
@@ -57,7 +53,7 @@ export function modelSelection(settings: Settings, model: Model): Settings {
   return { ...settings, model: model.id, context_limit: APP_CONTEXT_MAX };
 }
 
-export function validateContext(value: number, _model?: Model): string | undefined {
+export function validateContext(value: number): string | undefined {
   if (!Number.isInteger(value) || value < 1024 || value > APP_CONTEXT_MAX) {
     return `Context size must be a whole number between 1,024 and ${APP_CONTEXT_MAX.toLocaleString('en-US')}.`;
   }

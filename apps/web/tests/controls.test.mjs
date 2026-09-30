@@ -5,7 +5,6 @@ import {
   APP_CONTEXT_MAX,
   LEGACY_CONTEXT_LIMIT,
   modelLabel,
-  modelContextMax,
   modelSelection,
   normalizeSettings,
   quantizationLabel,
@@ -30,12 +29,8 @@ test('app context default and maximum stay at 32768 regardless of model metadata
   const selected = modelSelection(saved, qwen);
   assert.deepEqual(saved, { model: 'previous', context_limit: LEGACY_CONTEXT_LIMIT, parser: 'anydoc' });
   assert.deepEqual(selected, { model: qwen.id, context_limit: APP_CONTEXT_MAX, parser: 'anydoc' });
-  assert.equal(modelContextMax({ ...qwen, max_context_length: 262144 }), APP_CONTEXT_MAX);
-  assert.equal(modelContextMax({ ...qwen, max_context_length: 16384 }), APP_CONTEXT_MAX);
-  assert.equal(modelContextMax({ ...qwen, max_context_length: -1 }), APP_CONTEXT_MAX);
-  assert.equal(validateContext(APP_CONTEXT_MAX, qwen), undefined);
-  assert.equal(validateContext(APP_CONTEXT_MAX, { ...qwen, max_context_length: 16384 }), undefined);
-  for (const value of [1023, 32769, NaN, 2048.5]) assert.ok(validateContext(value, qwen));
+  assert.equal(validateContext(APP_CONTEXT_MAX), undefined);
+  for (const value of [1023, 32769, NaN, 2048.5]) assert.ok(validateContext(value));
 });
 test('legacy saved 8192 context migrates to 32768 during initialization normalization', () => {
   assert.deepEqual(

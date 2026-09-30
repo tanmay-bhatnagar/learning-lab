@@ -20,7 +20,7 @@ CONFIG_MODULE = f"{LAB}/config.py"
 PENDING = {
     "framework-import": frozenset(),
     "environment-read": frozenset(),
-    "silent-catch": frozenset({f"{WEB}/api.ts", f"{WEB}/main.tsx"}),
+    "silent-catch": frozenset(),
 }
 UNBOUND_CATCH = re.compile(r"\bcatch\s*\{\s*(\S)?(\S)?")
 

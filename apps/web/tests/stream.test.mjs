@@ -1,6 +1,6 @@
 import { test } from 'vitest';
 import assert from 'node:assert/strict';
-import { stream } from '../src/api';
+import { stream } from '../src/api/client';
 function response(chunks) {
   const encoder = new TextEncoder();
   return new Response(

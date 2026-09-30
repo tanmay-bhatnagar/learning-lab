@@ -1,9 +1,10 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronRight, FileText, LoaderCircle, ScanSearch } from 'lucide-react';
-import { api, fileChunksPath, json, retrievalTracePath } from './api';
-import type { FileChunk, LabFile, RetrievalTraceHit, RetrievalTraceResponse } from './api';
+import { api, json } from './api/client';
+import { fileChunksPath, retrievalTracePath } from './api/urls';
+import type { FileChunk, LabFile, RetrievalTraceHit, RetrievalTraceResponse } from './api/types';
+import { fileChunksResponseSchema, retrievalTraceResponseSchema } from './api/types';
 import {
-  assetApiUrl,
   chunkDisplayText,
   formatRank,
   formatTraceScore,
@@ -11,9 +12,9 @@ import {
   indexedSelectedIds,
   modeLabel,
   pagesLabel,
-  resolveAssetId,
   traceRequest,
 } from './retrievalTraceHelpers';
+import { VisualAssets } from './components/VisualAssets';
 
 type LoadedChunks = { fileId: string; fileName: string; chunks: FileChunk[] };
 
@@ -36,48 +37,6 @@ function TraceMetric({ label, rank, score, hint }: { label: string; rank: string
         {score}
         {hint ? <small>{hint}</small> : null}
       </span>
-    </div>
-  );
-}
-
-function AssetThumbnails({
-  topic,
-  file,
-  assetRefs,
-}: {
-  topic: string;
-  file: LabFile | undefined;
-  assetRefs: string[];
-}) {
-  if (!assetRefs.length) return null;
-  return (
-    <div className="trace-assets" aria-label="Linked visuals">
-      {assetRefs.map((ref) => {
-        const assetId = resolveAssetId(file, ref);
-        const asset = file?.assets?.find((item) => item.id === assetId || item.name === ref);
-        if (!assetId) {
-          return (
-            <figure className="trace-asset trace-asset-missing" key={ref}>
-              <span className="trace-asset-placeholder">Visual unavailable</span>
-              <figcaption>{asset?.caption || ref}</figcaption>
-            </figure>
-          );
-        }
-        return (
-          <figure className="trace-asset" key={assetId}>
-            <a href={assetApiUrl(topic, file!.id, assetId)} target="_blank" rel="noopener noreferrer">
-              <img
-                src={assetApiUrl(topic, file!.id, assetId)}
-                alt={asset?.caption || asset?.kind || 'Document visual'}
-                loading="lazy"
-              />
-            </a>
-            <figcaption>
-              {asset?.caption || `${asset?.kind || 'visual'}${asset?.page != null ? ` · p.${asset.page}` : ''}`}
-            </figcaption>
-          </figure>
-        );
-      })}
     </div>
   );
 }
@@ -124,7 +83,7 @@ function HitCard({
         />
       </div>
       <pre className="trace-chunk-text">{hit.text}</pre>
-      <AssetThumbnails topic={topic} file={file} assetRefs={assetRefs} />
+      <VisualAssets topic={topic} file={file} assetRefs={assetRefs} classNamePrefix="trace" />
     </article>
   );
 }
@@ -153,7 +112,7 @@ function SourceChunkCard({
         {selected && <span className="trace-selected-chip">Selected evidence</span>}
       </header>
       <pre>{text || '(empty chunk)'}</pre>
-      <AssetThumbnails topic={topic} file={file} assetRefs={assetRefs} />
+      <VisualAssets topic={topic} file={file} assetRefs={assetRefs} classNamePrefix="trace" />
     </article>
   );
 }
@@ -164,6 +123,9 @@ export function RetrievalTracePanel({ topic, files, selected, topK, busy, topicR
   const [error, setError] = useState('');
   const [result, setResult] = useState<RetrievalTraceResponse | null>(null);
   const [loadedChunks, setLoadedChunks] = useState<LoadedChunks[]>([]);
+  const traceController = useRef<AbortController | null>(null);
+
+  useEffect(() => () => traceController.current?.abort(), []);
 
   const indexedIds = useMemo(() => indexedSelectedIds(files, selected), [files, selected]);
   const filesById = useMemo(() => new Map(files.map((file) => [file.id, file])), [files]);
@@ -177,22 +139,29 @@ export function RetrievalTracePanel({ topic, files, selected, topK, busy, topicR
     setError('');
     setResult(null);
     setLoadedChunks([]);
+    traceController.current?.abort();
+    const controller = new AbortController();
+    traceController.current = controller;
     const body = traceRequest(query, indexedIds, topK);
+    const signal = controller.signal;
     try {
       const [trace, ...chunkSets] = await Promise.all([
-        api<RetrievalTraceResponse>(retrievalTracePath(topic), json(body)),
+        api(retrievalTracePath(topic), retrievalTraceResponseSchema, { ...json(body), signal }),
         ...indexedIds.map(async (fileId) => {
           const file = filesById.get(fileId);
-          const payload = await api<{ chunks: FileChunk[] }>(fileChunksPath(topic, fileId));
+          const payload = await api(fileChunksPath(topic, fileId), fileChunksResponseSchema, { signal });
           return { fileId, fileName: file?.name || fileId, chunks: payload.chunks };
         }),
       ]);
-      setResult(trace);
-      setLoadedChunks(chunkSets);
+      if (!signal.aborted) {
+        setResult(trace);
+        setLoadedChunks(chunkSets);
+      }
     } catch (e) {
+      if (e instanceof DOMException && e.name === 'AbortError') return;
       setError(e instanceof Error ? e.message : 'Retrieval trace failed.');
     } finally {
-      setRunning(false);
+      if (!signal.aborted) setRunning(false);
     }
   }
 
@@ -234,8 +203,8 @@ export function RetrievalTracePanel({ topic, files, selected, topK, busy, topicR
           <section className="trace-selection" aria-label="Indexed files in scope">
             <span className="eyebrow">INDEXED SELECTION</span>
             <ul>
-              {selectedNames.map((name) => (
-                <li key={name}>{name}</li>
+              {selectedNames.map((name, index) => (
+                <li key={`${name}-${index}`}>{name}</li>
               ))}
             </ul>
             <p className="muted small">
