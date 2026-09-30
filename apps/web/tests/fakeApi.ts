@@ -107,6 +107,9 @@ export function createFakeApi(options: FakeApiOptions = {}) {
   let filesGetRelease: (() => void) | null = null;
   let pendingGoalPause: string | null = null;
   let goalPutRelease: (() => void) | null = null;
+  let chatStreamPaused = false;
+  let chatStreamRelease: (() => void) | null = null;
+  let topicPostCount = 0;
   const markdownByFile: Record<string, string> = {
     'file-1': '# Paper A\n\nContent from A.',
     'file-2': '# Paper B\n\nContent from B.',
@@ -126,6 +129,7 @@ export function createFakeApi(options: FakeApiOptions = {}) {
       return jsonResponse({ topics: topics.map(({ id, name }) => ({ id, name })) });
     }
     if (apiPath === '/topics' && method === 'POST') {
+      topicPostCount += 1;
       const body = JSON.parse(String(init?.body ?? '{}')) as { name: string };
       const created = { id: `topic-${topics.length + 1}`, name: body.name };
       topics.push(created);
@@ -198,10 +202,23 @@ export function createFakeApi(options: FakeApiOptions = {}) {
       const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
       const signal = init?.signal ?? new AbortController().signal;
       const encoder = new TextEncoder();
+      async function* maybePausedStream() {
+        let pausedOnce = false;
+        for await (const event of streamScript(body, signal)) {
+          yield event;
+          if (chatStreamPaused && !pausedOnce) {
+            chatStreamPaused = false;
+            pausedOnce = true;
+            await new Promise<void>((resolve) => {
+              chatStreamRelease = resolve;
+            });
+          }
+        }
+      }
       const streamBody = new ReadableStream({
         async start(controller) {
           try {
-            for await (const event of streamScript(body, signal)) {
+            for await (const event of maybePausedStream()) {
               if (signal.aborted) {
                 controller.error(new DOMException('Aborted', 'AbortError'));
                 return;
@@ -278,6 +295,16 @@ export function createFakeApi(options: FakeApiOptions = {}) {
     releaseGoalPut() {
       goalPutRelease?.();
       goalPutRelease = null;
+    },
+    pauseNextChatStream() {
+      chatStreamPaused = true;
+    },
+    releaseChatStream() {
+      chatStreamRelease?.();
+      chatStreamRelease = null;
+    },
+    get topicPostCount() {
+      return topicPostCount;
     },
   };
 }

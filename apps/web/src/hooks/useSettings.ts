@@ -36,7 +36,7 @@ export function useSettings(
   const persistSettings = useCallback(
     async (next: Settings, selectedModel?: Model) => {
       const op = selectedModel ? 'selectModel' : 'saveSettings';
-      if (isBusy(activity) || activity === 'creatingTopic') return;
+      if (isBusy(activity)) return;
       const validation = validateContext(next.context_limit);
       if (validation) {
         setError(validation);

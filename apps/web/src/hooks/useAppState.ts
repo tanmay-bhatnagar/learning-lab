@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import type { LabFile, Model } from '../api/types';
+import { api, json } from '../api/client';
+import { topicSchema, type LabFile, type Model } from '../api/types';
 import { thinkingValue } from '../modelControls';
 import { canSaveLearningGoal } from '../learningGoal';
+import { errorText } from '../lib/errors';
 import { isBusy } from '../state/activity';
 import { useActivity } from './useActivity';
 import { useBootstrap } from './useBootstrap';
@@ -17,6 +19,7 @@ export function useAppState() {
   const [page, setPage] = useState<'workspace' | 'settings'>('workspace');
   const [tab, setTab] = useState<'chat' | 'files' | 'trace'>('chat');
   const [newTopic, setNewTopic] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
   const [preview, setPreview] = useState<LabFile | null>(null);
   const [previewTab, setPreviewTab] = useState<'markdown' | 'original'>('markdown');
   const [follow, setFollow] = useState(true);
@@ -92,15 +95,22 @@ export function useAppState() {
   const thinkValue = (model: Model | undefined = activeModel) => thinkingValue(model, thinking);
 
   const createTopic = async (event: React.FormEvent) => {
-    if (newTopic === null) return;
+    event.preventDefault();
+    if (newTopic === null || !newTopic.trim() || creating) return;
+    setCreating(true);
     bootstrap.setError('');
-    const created = await session.createTopic(event, newTopic);
-    if (!created) return;
-    bootstrap.setTopics((previous) => [...previous, created]);
-    setPreview(null);
-    bootstrap.setTopic(created.id);
-    setNewTopic(null);
-    setPage('workspace');
+    try {
+      const created = await api('/topics', topicSchema, json({ name: newTopic.trim() }));
+      bootstrap.setTopics((previous) => [...previous, created]);
+      setPreview(null);
+      bootstrap.setTopic(created.id);
+      setNewTopic(null);
+      setPage('workspace');
+    } catch (e) {
+      bootstrap.setError(errorText(e));
+    } finally {
+      setCreating(false);
+    }
   };
 
   const upload = (list: FileList | File[] | null) =>
@@ -123,6 +133,7 @@ export function useAppState() {
     closeSidebarOnMobile,
     newTopic,
     setNewTopic,
+    creating,
     preview,
     setPreview,
     previewTab,

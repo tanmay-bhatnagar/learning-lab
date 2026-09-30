@@ -24,6 +24,7 @@ export function App() {
     closeSidebarOnMobile,
     newTopic,
     setNewTopic,
+    creating,
     preview,
     setPreview,
     previewTab,
@@ -72,7 +73,6 @@ export function App() {
     },
     previewState: { markdown, previewLoading, previewError },
     storageError,
-    activity,
     busy,
     sending,
     activeTopic,
@@ -107,10 +107,9 @@ export function App() {
 
   const meter = contextMeter(context, settings);
   const bannerMessage = [error, migrationError, storageError].filter(Boolean).join(' ');
-  const creating = activity === 'creatingTopic';
-  const uploading = activity === 'uploading';
-  const saving = activity === 'savingSettings';
-  const goalSaving = activity === 'savingGoal';
+  const uploading = state.activity === 'uploading';
+  const saving = state.activity === 'savingSettings';
+  const goalSaving = state.activity === 'savingGoal';
 
   return (
     <div className={`app ${sidebar ? '' : 'collapsed'}`}>

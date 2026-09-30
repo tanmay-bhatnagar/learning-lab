@@ -119,22 +119,6 @@ export function useTopicSession(
     [topic, state.topicReady, state.goalDraft, state.learningGoal, activity, activityApi, setError],
   );
 
-  const createTopic = useCallback(
-    async (event: React.FormEvent, name: string) => {
-      event.preventDefault();
-      if (!name.trim() || !activityApi.begin('createTopic')) return null;
-      try {
-        return await api('/topics', topicSchema, json({ name: name.trim() }));
-      } catch (e) {
-        setError(errorText(e));
-        return null;
-      } finally {
-        activityApi.end();
-      }
-    },
-    [activityApi, setError],
-  );
-
   const appendFile = useCallback((file: LabFile) => {
     dispatch({ type: 'fileUploaded', file });
   }, []);
@@ -147,7 +131,6 @@ export function useTopicSession(
     reload,
     refreshFiles,
     saveLearningGoal,
-    createTopic,
     appendFile,
   };
 }

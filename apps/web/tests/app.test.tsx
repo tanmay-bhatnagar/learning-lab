@@ -312,6 +312,34 @@ describe('App characterization', () => {
     setItem.mockRestore();
   });
 
+  test('creates a topic while a chat reply is streaming without stale stream writes', async () => {
+    const fake = installFakeApi();
+    const user = userEvent.setup();
+    render(<App />);
+    await waitForAppReady();
+
+    await user.click(screen.getByRole('button', { name: 'Create topic' }));
+    await user.type(screen.getByPlaceholderText(/Understanding neural networks/i), 'Stream topic');
+
+    fake.pauseNextChatStream();
+    await user.type(screen.getByRole('textbox', { name: 'Message' }), 'Hello while modal open');
+    await user.click(screen.getByRole('button', { name: 'Send message' }));
+    await screen.findByRole('button', { name: 'Stop response' });
+
+    const dialog = screen.getByRole('dialog', { name: /Make room for a new topic/i });
+    await user.click(within(dialog).getByRole('button', { name: /^Create topic$/i }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Stream topic' })).toBeInTheDocument());
+    expect(fake.topicPostCount).toBe(1);
+
+    fake.releaseChatStream();
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Stop response' })).not.toBeInTheDocument(), {
+      timeout: 3000,
+    });
+
+    expect(screen.queryByText(/Echo:/i)).not.toBeInTheDocument();
+    expect(screen.queryByText('Hello while modal open')).not.toBeInTheDocument();
+  });
+
   test('Refresh files ignores stale response after topic switch', async () => {
     const fake = installFakeApi({
       files: {
