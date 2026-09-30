@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Any, Mapping, Sequence
 
 from lab.docling_pipeline import ImageAsset
+from lab.contracts import ChunkRecord
 from lab.embedding_config import (
     chunk_embed_token_limit,
     chunk_tokenizer,
@@ -75,7 +76,7 @@ def chunk_docling_document(
     chunker=None,
     tokenizer=None,
     **chunker_kwargs: Any,
-) -> tuple[list[dict[str, Any]], list[str]]:
+) -> tuple[list[ChunkRecord], list[str]]:
     """Chunk a DoclingDocument with HybridChunker into JSON-serializable records."""
     try:
         from docling.chunking import HybridChunker
@@ -92,7 +93,7 @@ def chunk_docling_document(
         chunker_kwargs["tokenizer"] = tokenizer
     hybrid = chunker if chunker is not None else HybridChunker(**chunker_kwargs)
 
-    chunks: list[dict[str, Any]] = []
+    chunks: list[ChunkRecord] = []
     for chunk in hybrid.chunk(document):
         doc_items = chunk.meta.doc_items
         pages, bboxes = _extract_pages_and_bboxes(doc_items)
@@ -115,7 +116,7 @@ def _contextualize(headings: Sequence[str] | None, text: str) -> str:
     return "\n".join([*(headings or []), text])
 
 
-def _enforce_embed_limit(record: dict[str, Any], embedding_model: str, *, tokenizer=None) -> list[dict[str, Any]]:
+def _enforce_embed_limit(record: ChunkRecord, embedding_model: str, *, tokenizer=None) -> list[ChunkRecord]:
     """Split chunks that HybridChunker left above the embedding limit.
 
     HybridChunker's max_tokens is a merge target: joined sub-chunks can exceed

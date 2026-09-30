@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from .chunking import _enforce_embed_limit, chunk_docling_document
+from .contracts import ArtifactAsset, IndexedChunk, ParseUpdates
 from .docling_pipeline import parse_pdf_bytes
 from .embedding_config import chunk_tokenizer, embedding_format_metadata
 from .index import content_hash
@@ -20,6 +21,17 @@ def _artifact_name(base: str, suffix: str) -> str:
     return name
 
 
+def _indexed_record(file_id: str, filename: str, index: int, text: str,
+                    headings: list[str], pages: list[int], bboxes: list[dict[str, Any]],
+                    assets: list[str]) -> IndexedChunk:
+    return {
+        "chunk_id": f"{file_id}:text:{index:06d}", "file_id": file_id,
+        "file_name": filename, "chunk_index": index, "text": text,
+        "headings": headings, "pages": pages, "bboxes": bboxes,
+        "asset_ids": assets, "content_hash": content_hash(text),
+    }
+
+
 def parse_and_persist(
     store,
     topic: str,
@@ -29,8 +41,11 @@ def parse_and_persist(
     original_name: str,
     file_id: str,
     embedding_model: str = "",
-) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    """Parse one immutable PDF and atomically retain rebuildable derived artifacts."""
+) -> tuple[ParseUpdates, list[IndexedChunk]]:
+    """Parse an immutable PDF and write derived files atomically one file at a time.
+
+    The artifact set is not transactional: a failed write can leave a partial set.
+    """
     base = original_name[:-4]
     created: list[Path] = []
     try:
@@ -44,7 +59,7 @@ def parse_and_persist(
         )
         chunk_warnings = tokenizer_warnings + chunk_warnings
 
-        asset_by_id: dict[str, dict[str, Any]] = {}
+        asset_by_id: dict[str, ArtifactAsset] = {}
         for asset in parsed.images:
             stored_name = _artifact_name(base, asset.filename)
             path = store.file_path(topic, stored_name)
@@ -78,18 +93,12 @@ def parse_and_persist(
                 if asset_id in asset_by_id
             ]
             chunk_id = f"{file_id}:text:{chunk_index:06d}"
-            record = {
-                "chunk_id": chunk_id,
-                "file_id": file_id,
-                "file_name": filename,
-                "chunk_index": len(records),
-                "text": text,
-                "headings": list(chunk.get("headings") or []),
-                "pages": list(chunk.get("pages") or []),
-                "bboxes": list(chunk.get("bboxes") or []),
-                "asset_ids": asset_names,
-                "content_hash": content_hash(text),
-            }
+            record = _indexed_record(
+                file_id, filename, len(records), text,
+                list(chunk.get("headings") or []), list(chunk.get("pages") or []),
+                list(chunk.get("bboxes") or []), asset_names,
+            )
+            record["chunk_id"] = chunk_id
             records.append(record)
             serializable_chunks.append({**chunk, "chunk_id": chunk_id, "asset_names": asset_names})
 

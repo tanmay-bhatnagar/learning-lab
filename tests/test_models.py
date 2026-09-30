@@ -51,15 +51,12 @@ class ModelTests(unittest.IsolatedAsyncioTestCase):
             base_url='http://test', transport=httpx.MockTransport(handle)))
         self.factory.start()
         self.addCleanup(self.factory.stop)
-        # Each IsolatedAsyncioTestCase owns a distinct event loop.
-        self.lock_patch = patch.object(models, '_GENERATION_LOCK', asyncio.Lock())
-        self.lock_patch.start()
-        self.addCleanup(self.lock_patch.stop)
+        self.generation_lock = asyncio.Lock()
 
     async def collect(self, model='qwen3.5:4b-q8_0', think=False, messages=None):
         return [event async for event in models.stream_chat(
             messages if messages is not None else [{'role': 'user', 'content': 'Hi'}],
-            model, think)]
+            model, think, generation_lock=self.generation_lock)]
 
     async def test_dynamic_discovery_and_metadata(self):
         result = await models.list_models()
@@ -179,19 +176,22 @@ class ModelTests(unittest.IsolatedAsyncioTestCase):
                 base_url='http://test', transport=httpx.MockTransport(fail))):
             self.assertIn('error', await models.list_models())
             self.assertEqual((await self.collect())[-1]['type'], 'error')
-        events = [e async for e in models.stream_chat([], 'x', context_limit=0)]
+        events = [e async for e in models.stream_chat([], 'x', context_limit=0,
+                                                       generation_lock=self.generation_lock)]
         self.assertEqual(events[0]['type'], 'error')
         self.assertEqual(self.requests, [])
 
     async def test_consumer_close_releases_http_stream(self):
-        stream = models.stream_chat([{'role': 'user', 'content': 'Hi'}], 'qwen3.5:4b-q8_0')
+        stream = models.stream_chat([{'role': 'user', 'content': 'Hi'}], 'qwen3.5:4b-q8_0',
+                                    generation_lock=self.generation_lock)
         self.assertEqual((await anext(stream))['type'], 'thinking')
         await stream.aclose()
         self.assertTrue(self.streams[-1].closed)
-        self.assertFalse(models._GENERATION_LOCK.locked())
+        self.assertFalse(self.generation_lock.locked())
 
     async def test_generation_requests_are_serialized(self):
-        first = models.stream_chat([{'role': 'user', 'content': 'first'}], 'qwen3.5:4b-q8_0')
+        first = models.stream_chat([{'role': 'user', 'content': 'first'}], 'qwen3.5:4b-q8_0',
+                                   generation_lock=self.generation_lock)
         await anext(first)
         second_started = asyncio.Event()
 

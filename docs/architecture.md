@@ -1,12 +1,14 @@
 # Architecture and ownership
 
-Current state on `dev` after commit `b2a6b71`. See the [interactive R1 map](../references/R1/system-map.html) for the system and its planned blocks, and the [R1 snapshot](../references/R1/README.md) for validation and remaining work.
+Current state on `dev` as of 30 September 2026. See the [interactive R1 map](../references/R1/system-map.html) for the system and its planned blocks, and the [R1 snapshot](../references/R1/README.md) for validation and remaining work.
 
 ## Runtime path
 
 `Browser → topic API → topic-scoped retrieval → local Ollama model → streamed answer with saved citations`
 
 A PDF upload follows a separate path: `browser → topic API → parser → bounded chunks and assets → topic SQLite index`. Selected MarkItDown and AnyDoc files use their Markdown as an unindexed chat attachment. Docling is the default structured parser.
+
+The API app owns one model-generation lock shared by embedding and chat generation, keeping local model use serialized for bounded memory. Parsed artifact writes are atomic per file; the complete set of derived files is not transactional, and a failed parse can leave partial derived artifacts.
 
 | Location | Owns |
 | --- | --- |

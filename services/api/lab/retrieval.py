@@ -5,8 +5,11 @@ import base64
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
+import httpx
+
 from .embedding_config import embedding_index_key, format_for_embedding
 from .index import TopicIndex
+from .contracts import Citation, IndexedChunk
 from .storage import read_bytes
 
 Embedder = Callable[[list[str], str], Awaitable[list[list[float]]]]
@@ -20,7 +23,7 @@ async def index_chunks(
     store,
     topic: str,
     file_id: str,
-    chunks: list[dict[str, Any]],
+    chunks: list[IndexedChunk],
     *,
     embedding_model: str = "",
     embedder: Embedder | None = None,
@@ -44,7 +47,7 @@ async def index_chunks(
                 chunk["embedding"] = vector
                 chunk["embedding_model"] = embedding_index_key(embedding_model)
             mode = "hybrid"
-        except Exception as exc:
+        except httpx.HTTPError as exc:
             warning = f"Embedding index unavailable ({type(exc).__name__}): {exc}"
 
     with TopicIndex(topic_index_path(store, topic)) as index:
@@ -73,7 +76,7 @@ async def search(
                 embedding_model,
             )
             vector = vectors[0]
-        except Exception as exc:
+        except httpx.HTTPError as exc:
             warning = f"Semantic search unavailable ({type(exc).__name__}): {exc}"
 
     path = topic_index_path(store, topic)
@@ -112,14 +115,14 @@ async def search(
 def evidence_messages(
     store,
     topic: str,
-    hits: list[dict[str, Any]],
+    hits: list[IndexedChunk],
     *,
     include_images: bool,
     max_images: int = 2,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+) -> tuple[list[dict[str, Any]], list[Citation]]:
     """Turn ranked hits into untrusted Ollama messages plus durable citations."""
     messages: list[dict[str, Any]] = []
-    citations: list[dict[str, Any]] = []
+    citations: list[Citation] = []
     used_assets: set[str] = set()
     image_count = 0
     for hit in hits:

@@ -10,6 +10,7 @@ import struct
 from pathlib import Path
 from typing import Any
 
+
 SCHEMA_VERSION = 2
 DEFAULT_RRF_K = 60
 _FTS_TOKEN = re.compile(r"[\w]+", re.UNICODE)
@@ -134,6 +135,33 @@ def _validate_chunk_record(record: dict[str, Any], expected_file_id: str | None 
             raise IndexError("embedding must contain only numbers")
         normalized["embedding"] = [float(value) for value in embedding]
     return normalized
+
+
+def _fuse_ranked_hits(keyword_hits: list[dict[str, Any]], vector_hits: list[dict[str, Any]],
+                      limit: int, rrf_k: int) -> list[dict[str, Any]]:
+    """Combine ranked result records deterministically without touching the index."""
+    keyword_by_id = {hit["chunk_id"]: hit for hit in keyword_hits}
+    vector_by_id = {hit["chunk_id"]: hit for hit in vector_hits}
+    scores: list[tuple[float, str]] = []
+    for chunk_id in sorted(set(keyword_by_id) | set(vector_by_id)):
+        keyword_rank = keyword_by_id.get(chunk_id, {}).get("trace", {}).get("keyword", {}).get("rank")
+        vector_rank = vector_by_id.get(chunk_id, {}).get("trace", {}).get("embedding", {}).get("rank")
+        score = (1.0 / (rrf_k + keyword_rank) if keyword_rank is not None else 0.0)
+        score += (1.0 / (rrf_k + vector_rank) if vector_rank is not None else 0.0)
+        scores.append((score, chunk_id))
+    scores.sort(key=lambda item: (-item[0], item[1]))
+    results: list[dict[str, Any]] = []
+    for rank, (score, chunk_id) in enumerate(scores[:limit], start=1):
+        source = keyword_by_id.get(chunk_id) or vector_by_id[chunk_id]
+        payload = {key: value for key, value in source.items() if key != "trace"}
+        empty = {"keyword": _trace_component(None, None),
+                 "embedding": _trace_component(None, None)}
+        keyword_trace = keyword_by_id.get(chunk_id, {"trace": empty})["trace"]["keyword"]
+        embedding_trace = vector_by_id.get(chunk_id, {"trace": empty})["trace"]["embedding"]
+        payload["trace"] = {"keyword": keyword_trace, "embedding": embedding_trace,
+                             "fusion": _trace_component(rank, score)}
+        results.append(payload)
+    return results
 
 
 class TopicIndex:
@@ -486,40 +514,7 @@ class TopicIndex:
                 vector, file_ids=file_ids, limit=max(limit * 5, limit), model=vector_model,
             )
 
-        keyword_by_id = {hit["chunk_id"]: hit for hit in keyword_hits}
-        vector_by_id = {hit["chunk_id"]: hit for hit in vector_hits}
-        chunk_ids = sorted(set(keyword_by_id) | set(vector_by_id))
-
-        fused: list[tuple[float, str]] = []
-        for chunk_id in chunk_ids:
-            score = 0.0
-            keyword_rank = keyword_by_id[chunk_id]["trace"]["keyword"]["rank"] if chunk_id in keyword_by_id else None
-            vector_rank = vector_by_id[chunk_id]["trace"]["embedding"]["rank"] if chunk_id in vector_by_id else None
-            if keyword_rank is not None:
-                score += 1.0 / (rrf_k + keyword_rank)
-            if vector_rank is not None:
-                score += 1.0 / (rrf_k + vector_rank)
-            fused.append((score, chunk_id))
-
-        fused.sort(key=lambda item: (-item[0], item[1]))
-
-        results: list[dict[str, Any]] = []
-        for fusion_rank, (fusion_score, chunk_id) in enumerate(fused[:limit], start=1):
-            source = keyword_by_id.get(chunk_id) or vector_by_id[chunk_id]
-            payload = {key: value for key, value in source.items() if key != "trace"}
-            keyword_trace = keyword_by_id.get(chunk_id, {}).get(
-                "trace", {"keyword": _trace_component(None, None), "embedding": _trace_component(None, None)}
-            )["keyword"]
-            embedding_trace = vector_by_id.get(chunk_id, {}).get(
-                "trace", {"keyword": _trace_component(None, None), "embedding": _trace_component(None, None)}
-            )["embedding"]
-            payload["trace"] = {
-                "keyword": keyword_trace,
-                "embedding": embedding_trace,
-                "fusion": _trace_component(fusion_rank, fusion_score),
-            }
-            results.append(payload)
-        return results
+        return _fuse_ranked_hits(keyword_hits, vector_hits, limit, rrf_k)
 
 
 def content_hash(text: str) -> str:

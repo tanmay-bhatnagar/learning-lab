@@ -128,7 +128,8 @@ def test_chat_citations_follow_real_model_context_trimming_with_legacy_attachmen
 
     def handle(request):
         if request.url.path == "/api/tags":
-            return httpx.Response(200, json={"models": [{"name": "fake"}]})
+            return httpx.Response(200, json={"models": [{"name": "fake"},
+                                                       {"name": "nomic-embed-text"}]})
         if request.url.path == "/api/show":
             return httpx.Response(200, json={"capabilities": ["completion"]})
         if request.url.path == "/api/chat":
@@ -137,13 +138,13 @@ def test_chat_citations_follow_real_model_context_trimming_with_legacy_attachmen
                 b'{"message":{"content":"ok"},"done":true,'
                 b'"prompt_eval_count":10,"eval_count":2}\n'
             ))
+        if request.url.path == "/api/embed":
+            return httpx.Response(503, json={"error": "embedding service unavailable"})
         raise AssertionError(request.url.path)
 
     client_factory = patch.object(models, "_client", lambda: httpx.AsyncClient(
         base_url="http://test", transport=httpx.MockTransport(handle)))
-    lock_patch = patch.object(models, "_GENERATION_LOCK")
     client_factory.start()
-    lock_patch.start()
 
     async def fixed_retriever(store, topic, query, **kwargs):
         if query == "rank test":
@@ -225,7 +226,6 @@ def test_chat_citations_follow_real_model_context_trimming_with_legacy_attachmen
         assert saved[-5]["retrieval"]["citations"] == []
         assert [item["chunk_id"] for item in saved[-3]["retrieval"]["citations"]] == ["rank-one"]
     finally:
-        lock_patch.stop()
         client_factory.stop()
 
 

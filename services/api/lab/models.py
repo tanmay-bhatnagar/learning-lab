@@ -9,7 +9,6 @@ import httpx
 from lab.context import DEFAULT_CONTEXT_LIMIT, estimate_tokens, prepare_context
 
 OLLAMA_URL = os.environ.get('OLLAMA_BASE_URL', 'http://localhost:11434').rstrip('/')
-_GENERATION_LOCK = asyncio.Lock()
 
 
 def _client():
@@ -160,11 +159,11 @@ async def list_models() -> dict:
     return result
 
 
-async def embed_texts(texts: list[str], model: str) -> list[list[float]]:
+async def embed_texts(texts: list[str], model: str, *, generation_lock: asyncio.Lock) -> list[list[float]]:
     """Return validated embedding vectors for local models via POST /api/embed."""
     if not isinstance(texts, list) or not texts or any(type(text) is not str for text in texts):
         raise ValueError('texts must be a non-empty list of strings')
-    async with _GENERATION_LOCK:
+    async with generation_lock:
         async with _client() as client:
             tags = await _tags(client)
             tag = _find_tag(tags, model)
@@ -172,16 +171,15 @@ async def embed_texts(texts: list[str], model: str) -> list[list[float]]:
                 raise ValueError('Requested model is not installed locally')
             if _is_remote(model, tag):
                 raise ValueError('Remote/cloud models are not supported; select a local model')
-            try:
-                info = await _show(client, model)
-            except (httpx.HTTPError, ValueError) as exc:
-                raise ValueError('Model metadata unavailable; cannot verify local inference') from exc
+            info = await _show(client, model)
             if _is_remote(model, info):
                 raise ValueError('Remote/cloud models are not supported; select a local model')
             response = await client.post('/api/embed', json={'model': model, 'input': texts,
                                                                'truncate': False,
                                                                'keep_alive': 0})
             if response.status_code >= 400:
+                if response.status_code >= 500:
+                    response.raise_for_status()
                 from lab.embedding_config import normalize_ollama_embed_error
                 try:
                     body = response.json()
@@ -194,7 +192,8 @@ async def embed_texts(texts: list[str], model: str) -> list[list[float]]:
 async def stream_chat(messages: list[dict], model: str,
                       think: bool | str | None = None,
                       context_limit: int = DEFAULT_CONTEXT_LIMIT,
-                      context_metadata: dict | None = None):
+                      context_metadata: dict | None = None,
+                      *, generation_lock: asyncio.Lock):
     """Yield NDJSON-ready dictionaries; request-local trimming never saves history.
 
     Serialize generation and unload on completion to prevent this process from
@@ -205,7 +204,7 @@ async def stream_chat(messages: list[dict], model: str,
         prompt, context, prediction = prepare_context(messages, context_limit)
         if context_metadata is not None:
             context = {**context, "truncated_messages": context_metadata["truncated_messages"]}
-        async with _GENERATION_LOCK:
+        async with generation_lock:
             async with _client() as client:
                 tags = await _tags(client)
                 tag = _find_tag(tags, model)

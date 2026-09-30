@@ -56,14 +56,12 @@ class MultimodalModelTests(unittest.IsolatedAsyncioTestCase):
             base_url='http://test', transport=httpx.MockTransport(handle)))
         self.factory.start()
         self.addCleanup(self.factory.stop)
-        self.lock_patch = patch.object(models, '_GENERATION_LOCK', asyncio.Lock())
-        self.lock_patch.start()
-        self.addCleanup(self.lock_patch.stop)
+        self.generation_lock = asyncio.Lock()
 
     async def collect(self, model='qwen3.5:4b-q8_0', messages=None):
         return [event async for event in models.stream_chat(
             messages if messages is not None else [{'role': 'user', 'content': 'Hi'}],
-            model)]
+            model, generation_lock=self.generation_lock)]
 
     async def test_list_models_exposes_vision_capability(self):
         self.info = {'capabilities': ['completion', 'vision']}
@@ -80,7 +78,7 @@ class MultimodalModelTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_embed_texts_batch_payload_and_validation(self):
         self.tags = [{'name': 'nomic-embed-text:latest'}]
-        vectors = await models.embed_texts(['alpha', 'beta'], 'nomic-embed-text')
+        vectors = await models.embed_texts(['alpha', 'beta'], 'nomic-embed-text', generation_lock=self.generation_lock)
         self.assertEqual(vectors, [[0.1, 0.2], [0.3, 0.4]])
         payload = next(body for path, body in self.requests if path == '/api/embed')
         self.assertEqual(payload, {'model': 'nomic-embed-text', 'input': ['alpha', 'beta'],
@@ -102,7 +100,7 @@ class MultimodalModelTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(models, '_client', lambda: httpx.AsyncClient(
                 base_url='http://test', transport=httpx.MockTransport(handle))):
             with self.assertRaises(ValueError) as ctx:
-                await models.embed_texts(['too long'], 'nomic-embed-text')
+                await models.embed_texts(['too long'], 'nomic-embed-text', generation_lock=self.generation_lock)
             self.assertIn('context limit', str(ctx.exception))
 
     async def test_embed_texts_rejects_malformed_vectors(self):
@@ -119,7 +117,7 @@ class MultimodalModelTests(unittest.IsolatedAsyncioTestCase):
                 self.requests.clear()
                 self.embed_response = response
                 with self.assertRaises(ValueError):
-                    await models.embed_texts(['one'], 'nomic-embed-text')
+                    await models.embed_texts(['one'], 'nomic-embed-text', generation_lock=self.generation_lock)
 
     async def test_embed_requests_are_serialized(self):
         self.tags = [{'name': 'nomic-embed-text'}]
@@ -141,13 +139,13 @@ class MultimodalModelTests(unittest.IsolatedAsyncioTestCase):
 
         with patch.object(models, '_client', lambda: httpx.AsyncClient(
                 base_url='http://test', transport=httpx.MockTransport(slow_handle))):
-            first = asyncio.create_task(models.embed_texts(['first'], 'nomic-embed-text'))
+            first = asyncio.create_task(models.embed_texts(['first'], 'nomic-embed-text', generation_lock=self.generation_lock))
             await self.embed_started.wait()
             second_started = asyncio.Event()
 
             async def second():
                 second_started.set()
-                return await models.embed_texts(['second'], 'nomic-embed-text')
+                return await models.embed_texts(['second'], 'nomic-embed-text', generation_lock=self.generation_lock)
 
             second_task = asyncio.create_task(second())
             await second_started.wait()

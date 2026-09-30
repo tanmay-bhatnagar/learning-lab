@@ -1,6 +1,6 @@
 # R1 current state
 
-Snapshot after `dev` commit `b2a6b71` (30 September 2026). The [interactive system map](system-map.html) has two layers; select a block to see its components. [Editable diagram source](system-map.fragment.html). The full ordered plan remains in [R1.md](../../../R1.md).
+Snapshot as of 30 September 2026. The [interactive system map](system-map.html) has two layers; select a block to see its components. [Editable diagram source](system-map.fragment.html). The full ordered plan remains in [R1.md](../../../R1.md).
 
 ## Built
 
@@ -21,11 +21,11 @@ Snapshot after `dev` commit `b2a6b71` (30 September 2026). The [interactive syst
 | 5 | Understanding checks, topic progress memory and restart recovery. |
 | 6 | Full R1 acceptance demonstration, then context compaction. |
 
-The functional-programming refactor is a separate engineering pass before adding agent workflow complexity. Coding experiments, web research, full multimodal support and Jetson hosting belong to later releases. The 107-PDF parser comparison remains deferred until Tanmay explicitly requests it.
+The [ingestion and retrieval refactor](refactor-handoff.md) is implemented; live Ollama and browser use remain unverified. Coding experiments, web research, full multimodal support and Jetson hosting belong to later releases. The 107-PDF parser comparison remains deferred until Tanmay explicitly requests it.
 
 ## Validation at this snapshot
 
-- 128 Python tests and 17 frontend tests passed. Production web build, Ruff and engineering configuration checks passed. GitHub CI passed on `b2a6b71`.
+- 128 Python tests and 17 frontend tests passed after the refactor, along with the production web build. Earlier Ruff, engineering configuration, and GitHub CI checks passed on `b2a6b71`.
 - Isolated real HTTP upload/conversion/persistence passed with MarkItDown and a synthetic PDF; original bytes were preserved.
 - Retrieval and citation integration tests exercised the actual model adapter with mocked HTTP. Independent review caught a whitespace regression in oversized code chunks; it was fixed and re-reviewed without further findings.
 - The current Docling path has targeted unit and synthetic integration tests. This snapshot does not certify real-model answer quality, the full browser chat journey after the latest changes, difficult PDF extraction quality, or the full parser corpus.

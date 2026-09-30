@@ -86,6 +86,7 @@ def create_app(root=None, settings_path=None, model_backend=None, converter=None
     store = Store(root or os.environ.get("LEARNING_LAB_ROOT", CODE_ROOT.parent / "Learning"),
                   settings_path or os.environ.get("LEARNING_LAB_SETTINGS", Path(os.environ.get("LEARNING_LAB_STATE_ROOT", CODE_ROOT / ".local")) / "settings.json"))
     app.state.store = store
+    app.state.model_generation_lock = asyncio.Lock()
     locks = {}
     limit = max_upload_bytes or int(os.environ.get("LEARNING_LAB_MAX_UPLOAD_BYTES", 25 * 1024 * 1024))
     origins = ["http://localhost:5173", "http://127.0.0.1:5173"]
@@ -107,6 +108,15 @@ def create_app(root=None, settings_path=None, model_backend=None, converter=None
 
     def backend():
         return model_backend or importlib.import_module("lab.models")
+
+    def embedder():
+        method = getattr(backend(), "embed_texts", None)
+        if method is None or model_backend is not None:
+            return method
+
+        async def serialized(texts, model):
+            return await method(texts, model, generation_lock=app.state.model_generation_lock)
+        return serialized
 
     def lock(topic):
         store.topic(topic)
@@ -182,7 +192,7 @@ def create_app(root=None, settings_path=None, model_backend=None, converter=None
                             embedding_model=current.embedding_model,
                         )
                         record.update(updates)
-                        embedding = getattr(backend(), "embed_texts", None)
+                        embedding = embedder()
                         try:
                             index_result = await index_chunks(
                                 store, topic, file_id, chunks,
@@ -259,13 +269,13 @@ def create_app(root=None, settings_path=None, model_backend=None, converter=None
             if record.get("index_status") != "ready":
                 raise HTTPException(409, f"{record['name']} is not indexed.")
         current = Settings(**read_json(store.settings, {}))
-        embedder = getattr(backend(), "embed_texts", None)
+        embedding = embedder()
         result = await search(
             store, topic, body.query,
             file_ids=list(dict.fromkeys(body.file_ids)) or None,
             limit=body.top_k,
             embedding_model=current.embedding_model,
-            embedder=embedder,
+            embedder=embedding,
         )
         return {"query": body.query, **result}
 
@@ -321,7 +331,7 @@ def create_app(root=None, settings_path=None, model_backend=None, converter=None
                     file_ids=search_filter,
                     limit=current.retrieval_top_k,
                     embedding_model=current.embedding_model,
-                    embedder=getattr(backend(), "embed_texts", None),
+                    embedder=embedder(),
                 )
             elif indexed_ids:
                 names = ", ".join(record["name"] for record in selected_records
@@ -384,6 +394,7 @@ def create_app(root=None, settings_path=None, model_backend=None, converter=None
                     stream = model_api.stream_chat(
                         prompt, body.model, body.think, body.context_limit,
                         context_metadata=prompt_context,
+                        generation_lock=app.state.model_generation_lock,
                     )
                 else:
                     stream = model_api.stream_chat(prompt, body.model, body.think, body.context_limit)
