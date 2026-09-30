@@ -58,7 +58,7 @@ async def _disconnected_chat(app, topic, spec_version):
     gc.disable()
     try:
         await app(_scope(topic, body, spec_version), receive, send)
-    except Exception:
+    except Exception:  # noqa: BLE001 - the test asserts cleanup, whatever the app raised
         pass
     finally:
         await asyncio.sleep(0)

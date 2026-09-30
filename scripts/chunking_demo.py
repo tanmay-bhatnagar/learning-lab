@@ -14,6 +14,7 @@ import os
 import sys
 import uuid
 from io import BytesIO
+from itertools import pairwise
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
@@ -80,7 +81,7 @@ def synthetic_pdf() -> bytes:
     for label, x in boxes:
         pdf.rect(x, y, 96, 36)
         pdf.drawCentredString(x + 48, y + 14, label)
-    for left, right in zip(boxes, boxes[1:]):
+    for left, right in pairwise(boxes):
         x1 = left[1] + 96
         x2 = right[1]
         mid_y = y + 18

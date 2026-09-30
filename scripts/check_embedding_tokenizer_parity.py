@@ -71,7 +71,7 @@ def main() -> None:
     local_counts = [count_embedding_tokens(text, model) for text in texts]
     try:
         ollama_counts = asyncio.run(_ollama_counts(model, texts))
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - any Ollama failure is reported, not fatal
         ollama_counts = [None] * len(texts)
         ollama_error = f"{type(exc).__name__}: {exc}"
     else:

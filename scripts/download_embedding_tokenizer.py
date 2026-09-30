@@ -227,7 +227,7 @@ def main() -> None:
             print(json.dumps({"status": "ready", "path": str(target.resolve()), "source": "huggingface"}))
             return
         errors.append("Hugging Face download did not materialize all tokenizer files.")
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - falls through to the GGUF source
         errors.append(f"Hugging Face: {type(exc).__name__}: {exc}")
 
     gguf = _find_nomic_gguf()
@@ -255,7 +255,7 @@ def main() -> None:
         )
     except Exception as exc:
         errors.append(f"GGUF bootstrap: {type(exc).__name__}: {exc}")
-        raise SystemExit(json.dumps({"status": "error", "errors": errors}, indent=2))
+        raise SystemExit(json.dumps({"status": "error", "errors": errors}, indent=2)) from exc
 
 
 if __name__ == "__main__":

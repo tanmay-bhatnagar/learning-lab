@@ -145,7 +145,7 @@ def chunk_tokenizer(
         # Reserve prefix tokens and BERT [CLS]/[SEP] overhead for the eventual embed call.
         chunk_budget = max(16, chunk_token_limit - prefix_tokens - 2)
         return _load_hf_tokenizer(str(path), chunk_budget), warnings
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - tokenizer libraries raise arbitrary types; degrade with a warning
         warnings.append(
             f"Could not load offline tokenizer from {path} ({type(exc).__name__}: {exc}); "
             "using an approximate byte-based token estimate that cannot guarantee the model's token limit."

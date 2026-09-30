@@ -343,7 +343,7 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         evidence.update(status="stopped_by_user")
         return 0
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - records any failure in the evidence file
         evidence.update(status="failed", error=f"{type(exc).__name__}: {exc}")
         print(
             f"Verification failed: {exc}\nSee logs and evidence at {run_dir}",
