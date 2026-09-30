@@ -5,7 +5,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from lab.http.app import create_app
+from lab.web.app import create_app
 
 
 def _ollama_ready() -> bool:

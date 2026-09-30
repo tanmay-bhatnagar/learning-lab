@@ -36,8 +36,7 @@ def test_format_for_embedding_applies_prefix_once():
 
 
 def test_chunk_tokenizer_falls_back_without_files(monkeypatch, tmp_path: Path):
-    monkeypatch.setattr(embedding_config, "tokenizer_root", lambda: tmp_path)
-    tokenizer, warnings = embedding_config.chunk_tokenizer("nomic-embed-text")
+    tokenizer, warnings = embedding_config.chunk_tokenizer("nomic-embed-text", tokenizer_root_path=tmp_path)
     assert warnings
     assert tokenizer.count_tokens("abcd") == 1
 
@@ -102,8 +101,9 @@ def test_failed_tokenizer_load_uses_one_fallback_for_chunk_counting(monkeypatch)
         "_load_hf_tokenizer",
         lambda *args: (_ for _ in ()).throw(AssertionError("retried failed loader")),
     )
-    monkeypatch.setattr(embedding_config, "tokenizer_root", lambda: Path("/tokenizers"))
-    tokenizer, warnings = embedding_config.chunk_tokenizer("nomic-embed-text", chunk_token_limit=512)
+    tokenizer, warnings = embedding_config.chunk_tokenizer(
+        "nomic-embed-text", chunk_token_limit=512, tokenizer_root_path=Path("/tokenizers")
+    )
     monkeypatch.setattr(chunking, "chunk_embed_token_limit", lambda model: 10)
     record = {
         "text": "a" * 100,
@@ -175,13 +175,14 @@ def test_local_tokenizer_matches_ollama_when_available():
     import asyncio
     import httpx
 
-    from lab import models
     from lab.embedding_config import count_embedding_tokens
+    from lab.models import OllamaGateway
 
     model = "nomic-embed-text"
+    gateway = OllamaGateway()
 
     async def fetch(text: str) -> int | None:
-        async with models._client() as client:
+        async with gateway._client() as client:
             response = await client.post(
                 "/api/embed",
                 json={"model": model, "input": [text], "truncate": False, "keep_alive": 0},

@@ -204,8 +204,7 @@ def test_parse_pdf_bytes_returns_artifacts(monkeypatch):
 
 def test_parse_pdf_bytes_uses_env_artifacts_path(monkeypatch):
     _install_docling_mocks(monkeypatch)
-    docling_pipeline.configure("/cache/docling")
-    docling_pipeline.parse_pdf_bytes(b"%PDF-1.7\n")
+    docling_pipeline.parse_pdf_bytes(b"%PDF-1.7\n", artifacts_path="/cache/docling")
     assert FakePdfPipelineOptions.last_kwargs["artifacts_path"] == "/cache/docling"
 
 
@@ -327,8 +326,8 @@ def test_parse_pdf_bytes_surfaces_partial_success_warnings(monkeypatch):
     )
 
     artifacts = docling_pipeline.parse_pdf_bytes(b"%PDF-1.7\n")
-    assert artifacts.warnings[0] == "docling:partial_success"
-    assert "layout: skipped table (page 4)" in artifacts.warnings[1]
+    assert artifacts.warnings[0].message == "Docling reported partial_success."
+    assert artifacts.warnings[1].message == "layout: skipped table (page 4)"
 
 
 def test_chunk_docling_document_returns_json_ready_chunks(monkeypatch):
@@ -498,7 +497,7 @@ def test_parse_persist_applies_embed_limit_to_figure_captions(monkeypatch, tmp_p
         document=SimpleNamespace(pages={1: None, 2: None, 3: None, 4: None}),
     )
     monkeypatch.setattr(parse_pipeline, "parse_pdf_bytes", lambda *args, **kwargs: parsed)
-    monkeypatch.setattr(parse_pipeline, "chunk_tokenizer", lambda model: (tokenizer, []))
+    monkeypatch.setattr(parse_pipeline, "chunk_tokenizer", lambda model, **kwargs: (tokenizer, []))
     monkeypatch.setattr(
         parse_pipeline,
         "chunk_docling_document",
@@ -540,10 +539,10 @@ def test_parse_persist_applies_embed_limit_to_figure_captions(monkeypatch, tmp_p
 
 
 def test_extraction_diagnostics_distinguish_failure_limitation_and_unassessed():
-    assert parse_pipeline._extraction_diagnostics([])["status"] == "unassessed"
-    partial = parse_pipeline._extraction_diagnostics(["docling:partial_success"])
+    assert parse_pipeline._extraction_diagnostics([], [])["status"] == "unassessed"
+    partial = parse_pipeline._extraction_diagnostics(["partial_success"], ["Docling reported partial_success."])
     assert partial["status"] == "suspected_limitation"
-    failure = parse_pipeline._extraction_diagnostics(["layout: page conversion failed (page 2)"])
+    failure = parse_pipeline._extraction_diagnostics(["layout"], ["layout: page conversion failed (page 2)"])
     assert failure["status"] == "confirmed_failure"
     assert "fidelity is not established" in failure["note"]
 

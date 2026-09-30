@@ -26,7 +26,10 @@ def _client(tmp_path, model=None, **kwargs):
                 root,
                 settings,
                 model_backend=gateway,
-                converter=lambda data, parser: "# PDF\nEvidence text for citation test.",
+                parser_map={
+                    "markitdown": lambda data, parser: "# PDF\nEvidence text for citation test.",
+                    "anydoc": lambda data, parser: "# PDF\nEvidence text for citation test.",
+                },
                 **kwargs,
             )
         ),
@@ -189,7 +192,7 @@ def test_upload_record_transitions_error(tmp_path):
     def fail(*args):
         raise ValueError("Scanned PDF needs local OCR")
 
-    client = TestClient(create_app(root, settings, converter=fail))
+    client = TestClient(create_app(root, settings, parser_map={"markitdown": fail, "anydoc": fail}))
     topic = client.post("/api/topics", json={"name": "Fail"}).json()["id"]
     record = _upload(client, topic, parser="anydoc").json()
     assert record["status"] == "error"
@@ -346,7 +349,7 @@ API_ERRORS = [
                 root,
                 settings,
                 model_backend=FakeModel(),
-                converter=lambda d, p: "# x",
+                parser_map={"markitdown": lambda d, p: "# x", "anydoc": lambda d, p: "# x"},
                 max_upload_bytes=10,
             )
         ).post(
@@ -444,7 +447,7 @@ API_ERRORS = [
                 root,
                 settings,
                 model_backend=FakeModel(),
-                converter=lambda d, p: "# x",
+                parser_map={"markitdown": lambda d, p: "# x", "anydoc": lambda d, p: "# x"},
                 max_upload_bytes=10,
             )
         ).post(

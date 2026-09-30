@@ -34,7 +34,7 @@ def _synthetic_parse(monkeypatch, tmp_path):
     )
     pdf = b"%PDF-1.7 synthetic fixture bytes for hashing"
     monkeypatch.setattr(parse_pipeline, "parse_pdf_bytes", lambda *args, **kwargs: parsed)
-    monkeypatch.setattr(parse_pipeline, "chunk_tokenizer", lambda model: (tokenizer, []))
+    monkeypatch.setattr(parse_pipeline, "chunk_tokenizer", lambda model, **kwargs: (tokenizer, []))
     monkeypatch.setattr(
         parse_pipeline,
         "chunk_docling_document",

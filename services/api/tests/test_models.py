@@ -7,7 +7,8 @@ import unittest
 from unittest.mock import patch
 
 import httpx
-from lab import models
+from lab.context import prepare_context
+from lab.models import OllamaGateway
 
 
 class Chunks(httpx.AsyncByteStream):
@@ -51,8 +52,11 @@ class ModelTests(unittest.IsolatedAsyncioTestCase):
             self.streams.append(stream)
             return httpx.Response(self.status, stream=stream)
 
+        self.gateway = OllamaGateway("http://test")
         self.factory = patch.object(
-            models, "_client", lambda: httpx.AsyncClient(base_url="http://test", transport=httpx.MockTransport(handle))
+            OllamaGateway,
+            "_client",
+            lambda self: httpx.AsyncClient(base_url="http://test", transport=httpx.MockTransport(handle)),
         )
         self.factory.start()
         self.addCleanup(self.factory.stop)
@@ -61,7 +65,7 @@ class ModelTests(unittest.IsolatedAsyncioTestCase):
     async def collect(self, model="qwen3.5:4b-q8_0", think=False, messages=None):
         return [
             event
-            async for event in models.stream_chat(
+            async for event in self.gateway.stream_chat(
                 messages if messages is not None else [{"role": "user", "content": "Hi"}],
                 model,
                 think,
@@ -70,7 +74,7 @@ class ModelTests(unittest.IsolatedAsyncioTestCase):
         ]
 
     async def test_dynamic_discovery_and_metadata(self):
-        result = await models.list_models()
+        result = await self.gateway.list_models()
         self.assertEqual(
             result,
             {
@@ -90,7 +94,7 @@ class ModelTests(unittest.IsolatedAsyncioTestCase):
             },
         )
         self.tags.append({"name": "deepseek-r1:14b"})
-        self.assertEqual(len((await models.list_models())["models"]), 2)
+        self.assertEqual(len((await self.gateway.list_models())["models"]), 2)
         self.assertEqual(self.requests[1], ("/api/show", {"model": "qwen3.5:4b-q8_0"}))
 
     async def test_capabilities_gate_controls(self):
@@ -106,7 +110,7 @@ class ModelTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(name=name):
                 self.tags = [{"name": name}]
                 self.info = info
-                self.assertEqual((await models.list_models())["models"][0]["thinking"], expected)
+                self.assertEqual((await self.gateway.list_models())["models"][0]["thinking"], expected)
 
     async def test_split_ndjson_thinking_content_actual_usage_and_options(self):
         events = await self.collect()
@@ -170,7 +174,7 @@ class ModelTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(sent[0]["content"])
         self.assertTrue(history[0]["content"].endswith(sent[0]["content"]))
         self.assertEqual(history, original)
-        expected = models.prepare_context(history)[1]["used"] + 6
+        expected = prepare_context(history)[1]["used"] + 6
         self.assertEqual(context["used"], expected)
 
     async def test_actual_zero_and_partial_counts(self):
@@ -200,27 +204,32 @@ class ModelTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_discovery_errors_keep_available_models(self):
         self.show_status = 500
-        result = await models.list_models()
+        result = await self.gateway.list_models()
         self.assertEqual(result["models"], [])
         self.assertIn("error", result)
         self.status = 503
-        self.assertEqual((await models.list_models())["models"], [])
+        self.assertEqual((await self.gateway.list_models())["models"], [])
 
     async def test_connect_failure_and_invalid_context(self):
         def fail(request):
             raise httpx.ConnectError("offline", request=request)
 
         with patch.object(
-            models, "_client", lambda: httpx.AsyncClient(base_url="http://test", transport=httpx.MockTransport(fail))
+            OllamaGateway,
+            "_client",
+            lambda self: httpx.AsyncClient(base_url="http://test", transport=httpx.MockTransport(fail)),
         ):
-            self.assertIn("error", await models.list_models())
+            offline = OllamaGateway("http://test")
+            self.assertIn("error", await offline.list_models())
             self.assertEqual((await self.collect())[-1]["type"], "error")
-        events = [e async for e in models.stream_chat([], "x", context_limit=0, generation_lock=self.generation_lock)]
+        events = [
+            e async for e in self.gateway.stream_chat([], "x", context_limit=0, generation_lock=self.generation_lock)
+        ]
         self.assertEqual(events[0]["type"], "error")
         self.assertEqual(self.requests, [])
 
     async def test_consumer_close_releases_http_stream(self):
-        stream = models.stream_chat(
+        stream = self.gateway.stream_chat(
             [{"role": "user", "content": "Hi"}], "qwen3.5:4b-q8_0", generation_lock=self.generation_lock
         )
         self.assertEqual((await anext(stream))["type"], "thinking")
@@ -229,7 +238,7 @@ class ModelTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.generation_lock.locked())
 
     async def test_generation_requests_are_serialized(self):
-        first = models.stream_chat(
+        first = self.gateway.stream_chat(
             [{"role": "user", "content": "first"}], "qwen3.5:4b-q8_0", generation_lock=self.generation_lock
         )
         await anext(first)
@@ -279,7 +288,7 @@ class ModelTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(events[-1]["type"], "error")
                 self.assertIn("Remote/cloud", events[-1]["message"])
                 self.assertNotIn("/api/chat", [path for path, _ in self.requests])
-                self.assertEqual((await models.list_models())["models"], [])
+                self.assertEqual((await self.gateway.list_models())["models"], [])
 
     async def test_metadata_failure_never_reaches_chat(self):
         self.show_status = 503
@@ -309,7 +318,7 @@ class ModelTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_app_context_ceiling_ignores_model_native_context(self):
         self.info["model_info"] = {"small.context_length": 4096, "large.context_length": 262144}
-        self.assertEqual((await models.list_models())["models"][0]["max_context_length"], 32768)
+        self.assertEqual((await self.gateway.list_models())["models"][0]["max_context_length"], 32768)
         events = await self.collect()
         self.assertEqual(events[-1]["type"], "done")
         self.assertEqual(self.requests[-1][1]["options"]["num_ctx"], 32768)

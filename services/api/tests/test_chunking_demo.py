@@ -65,15 +65,15 @@ def test_require_docling_artifacts_empty_dir(demo, monkeypatch, tmp_path):
 def test_embedder_passes_one_generation_lock(demo, monkeypatch):
     import asyncio
 
-    from lab import models
+    from lab.models import OllamaGateway
 
     locks = []
 
-    async def embed_texts(texts, model, *, generation_lock):
+    async def embed_texts(self, texts, model, *, generation_lock):
         locks.append(generation_lock)
         return [[0.0] for _ in texts]
 
-    monkeypatch.setattr(models, "embed_texts", embed_texts)
+    monkeypatch.setattr(OllamaGateway, "embed_texts", embed_texts)
     embed = demo._embedder()
     assert asyncio.run(embed(["a"], "nomic-embed-text")) == [[0.0]]
     asyncio.run(embed(["b"], "nomic-embed-text"))

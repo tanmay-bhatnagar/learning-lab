@@ -1,11 +1,36 @@
 import importlib.util
 import os
+import subprocess
+import sys
 from pathlib import Path
 
-SCRIPT = Path(__file__).resolve().parents[3] / "scripts/verify_workspace.py"
-SPEC = importlib.util.spec_from_file_location("verify_workspace", SCRIPT)
-verify = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(verify)
+ROOT = Path(__file__).resolve().parents[3]
+SCRIPTS = ROOT / "scripts"
+
+
+def _load_module(name: str):
+    spec = importlib.util.spec_from_file_location(name, SCRIPTS / f"{name}.py")
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+process_helpers = _load_module("process_helpers")
+sys.modules["process_helpers"] = process_helpers
+verify = _load_module("verify_workspace")
+
+
+def test_scripts_run_by_path():
+    for script in ("dev.py", "verify_workspace.py"):
+        completed = subprocess.run(
+            [sys.executable, str(SCRIPTS / script), "--help"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert completed.returncode == 0, completed.stderr
 
 
 def test_isolated_environment_overrides_personal_paths(monkeypatch, tmp_path):
@@ -55,7 +80,7 @@ def test_shutdown_only_touches_owned_processes():
     owned = [Process(True), Process(False)]
     unrelated = Process(True)
 
-    verify.stop_processes(owned)
+    process_helpers.stop_processes(owned)
 
     assert owned[0].terminated and owned[0].waited
     assert not owned[1].terminated and owned[1].waited

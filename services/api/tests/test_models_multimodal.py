@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import patch
 
 import httpx
-from lab import models
+from lab.models import OllamaGateway
 from lab.errors import EmbeddingUnavailable
 
 
@@ -54,8 +54,11 @@ class MultimodalModelTests(unittest.IsolatedAsyncioTestCase):
             self.streams.append(stream)
             return httpx.Response(self.status, stream=stream)
 
+        self.gateway = OllamaGateway("http://test")
         self.factory = patch.object(
-            models, "_client", lambda: httpx.AsyncClient(base_url="http://test", transport=httpx.MockTransport(handle))
+            OllamaGateway,
+            "_client",
+            lambda self: httpx.AsyncClient(base_url="http://test", transport=httpx.MockTransport(handle)),
         )
         self.factory.start()
         self.addCleanup(self.factory.stop)
@@ -64,7 +67,7 @@ class MultimodalModelTests(unittest.IsolatedAsyncioTestCase):
     async def collect(self, model="qwen3.5:4b-q8_0", messages=None):
         return [
             event
-            async for event in models.stream_chat(
+            async for event in self.gateway.stream_chat(
                 messages if messages is not None else [{"role": "user", "content": "Hi"}],
                 model,
                 generation_lock=self.generation_lock,
@@ -73,20 +76,22 @@ class MultimodalModelTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_list_models_exposes_vision_capability(self):
         self.info = {"capabilities": ["completion", "vision"]}
-        result = await models.list_models()
+        result = await self.gateway.list_models()
         self.assertTrue(result["models"][0]["vision"])
         self.info = {"capabilities": ["completion"]}
-        result = await models.list_models()
+        result = await self.gateway.list_models()
         self.assertFalse(result["models"][0]["vision"])
 
     async def test_list_models_hides_embedding_only_models(self):
         self.tags = [{"name": "nomic-embed-text:latest"}]
         self.info = {"capabilities": ["embedding"]}
-        self.assertEqual((await models.list_models())["models"], [])
+        self.assertEqual((await self.gateway.list_models())["models"], [])
 
     async def test_embed_texts_batch_payload_and_validation(self):
         self.tags = [{"name": "nomic-embed-text:latest"}]
-        vectors = await models.embed_texts(["alpha", "beta"], "nomic-embed-text", generation_lock=self.generation_lock)
+        vectors = await self.gateway.embed_texts(
+            ["alpha", "beta"], "nomic-embed-text", generation_lock=self.generation_lock
+        )
         self.assertEqual(vectors, [[0.1, 0.2], [0.3, 0.4]])
         payload = next(body for path, body in self.requests if path == "/api/embed")
         self.assertEqual(
@@ -107,17 +112,19 @@ class MultimodalModelTests(unittest.IsolatedAsyncioTestCase):
             return httpx.Response(400, json={"error": "the input length exceeds the context length"})
 
         with patch.object(
-            models, "_client", lambda: httpx.AsyncClient(base_url="http://test", transport=httpx.MockTransport(handle))
+            OllamaGateway,
+            "_client",
+            lambda self: httpx.AsyncClient(base_url="http://test", transport=httpx.MockTransport(handle)),
         ):
             with self.assertRaises(ValueError) as ctx:
-                await models.embed_texts(["too long"], "nomic-embed-text", generation_lock=self.generation_lock)
+                await self.gateway.embed_texts(["too long"], "nomic-embed-text", generation_lock=self.generation_lock)
             self.assertIn("context limit", str(ctx.exception))
             self.assertNotIsInstance(ctx.exception, EmbeddingUnavailable)
 
     async def test_embed_texts_reports_missing_model_as_unavailable(self):
         self.tags = [{"name": "qwen3.5:4b-q8_0"}]
         with self.assertRaises(EmbeddingUnavailable) as ctx:
-            await models.embed_texts(["one"], "nomic-embed-text", generation_lock=self.generation_lock)
+            await self.gateway.embed_texts(["one"], "nomic-embed-text", generation_lock=self.generation_lock)
         self.assertIn("ollama pull nomic-embed-text", str(ctx.exception))
         self.assertNotIn("/api/embed", [path for path, _ in self.requests])
 
@@ -138,15 +145,15 @@ class MultimodalModelTests(unittest.IsolatedAsyncioTestCase):
             with (
                 self.subTest(handler=handler.__name__),
                 patch.object(
-                    models,
+                    OllamaGateway,
                     "_client",
-                    lambda handler=handler: httpx.AsyncClient(
+                    lambda self, handler=handler: httpx.AsyncClient(
                         base_url="http://test", transport=httpx.MockTransport(handler)
                     ),
                 ),
             ):
                 with self.assertRaises(EmbeddingUnavailable):
-                    await models.embed_texts(["one"], "nomic-embed-text", generation_lock=self.generation_lock)
+                    await self.gateway.embed_texts(["one"], "nomic-embed-text", generation_lock=self.generation_lock)
 
     async def test_embed_texts_rejects_malformed_vectors(self):
         self.tags = [{"name": "nomic-embed-text"}]
@@ -162,7 +169,7 @@ class MultimodalModelTests(unittest.IsolatedAsyncioTestCase):
                 self.requests.clear()
                 self.embed_response = response
                 with self.assertRaises(ValueError):
-                    await models.embed_texts(["one"], "nomic-embed-text", generation_lock=self.generation_lock)
+                    await self.gateway.embed_texts(["one"], "nomic-embed-text", generation_lock=self.generation_lock)
 
     async def test_embed_requests_are_serialized(self):
         self.tags = [{"name": "nomic-embed-text"}]
@@ -183,19 +190,21 @@ class MultimodalModelTests(unittest.IsolatedAsyncioTestCase):
             return httpx.Response(self.status, json={"embeddings": [[0.1, 0.2] for _ in range(count)]})
 
         with patch.object(
-            models,
+            OllamaGateway,
             "_client",
-            lambda: httpx.AsyncClient(base_url="http://test", transport=httpx.MockTransport(slow_handle)),
+            lambda self: httpx.AsyncClient(base_url="http://test", transport=httpx.MockTransport(slow_handle)),
         ):
             first = asyncio.create_task(
-                models.embed_texts(["first"], "nomic-embed-text", generation_lock=self.generation_lock)
+                self.gateway.embed_texts(["first"], "nomic-embed-text", generation_lock=self.generation_lock)
             )
             await self.embed_started.wait()
             second_started = asyncio.Event()
 
             async def second():
                 second_started.set()
-                return await models.embed_texts(["second"], "nomic-embed-text", generation_lock=self.generation_lock)
+                return await self.gateway.embed_texts(
+                    ["second"], "nomic-embed-text", generation_lock=self.generation_lock
+                )
 
             second_task = asyncio.create_task(second())
             await second_started.wait()

@@ -3,13 +3,13 @@ import json
 from fastapi.testclient import TestClient
 
 import lab.main as main_module
-from lab import models
 from lab.main import create_app
+from lab.models import OllamaGateway
 from lab.storage import write_json, write_text
-from tests.fakes import FakeModel
+from tests.fakes import FakeModel, UnavailableEmbedFakeModel
 
 
-def fake_structured_parser(store, topic, *, data, filename, original_name, file_id, embedding_model=""):
+def fake_structured_parser(store, topic, *, data, filename, original_name, file_id, embedding_model="", **kwargs):
     base = original_name[:-4]
     markdown_name = base + ".md"
     docling_name = base + ".docling.json"
@@ -62,7 +62,7 @@ def fake_structured_parser(store, topic, *, data, filename, original_name, file_
 def test_docling_upload_indexes_and_chat_retrieves_bounded_evidence(tmp_path):
     root = tmp_path / "Learning"
     settings = tmp_path / "state" / "settings.json"
-    model = FakeModel(token_text="grounded answer")
+    model = UnavailableEmbedFakeModel(token_text="grounded answer")
     client = TestClient(
         create_app(
             root,
@@ -115,7 +115,8 @@ def test_docling_upload_indexes_and_chat_retrieves_bounded_evidence(tmp_path):
     ).json()
     assert fallback["mode"] == "fallback"
     assert len(fallback["hits"]) == 1
-    assert "bounded opening chunks" in fallback["warning"]
+    assert fallback["warning"]
+    assert "bounded opening chunks" in fallback["warning"] or "keyword retrieval was used" in fallback["warning"]
 
 
 def test_chat_citations_follow_real_model_context_trimming_with_legacy_attachment(tmp_path, monkeypatch):
@@ -139,7 +140,9 @@ def test_chat_citations_follow_real_model_context_trimming_with_legacy_attachmen
         raise AssertionError(request.url.path)
 
     client_factory = patch.object(
-        models, "_client", lambda: httpx.AsyncClient(base_url="http://test", transport=httpx.MockTransport(handle))
+        OllamaGateway,
+        "_client",
+        lambda self: httpx.AsyncClient(base_url="http://test", transport=httpx.MockTransport(handle)),
     )
     client_factory.start()
 
@@ -301,7 +304,9 @@ def test_missing_embedding_model_degrades_upload_trace_and_chat_to_keywords(tmp_
         ).json()
 
     with patch.object(
-        models, "_client", lambda: httpx.AsyncClient(base_url="http://test", transport=httpx.MockTransport(handle))
+        OllamaGateway,
+        "_client",
+        lambda self: httpx.AsyncClient(base_url="http://test", transport=httpx.MockTransport(handle)),
     ):
         client = TestClient(
             create_app(
@@ -559,7 +564,7 @@ def test_index_failure_keeps_successful_docling_artifacts_available(tmp_path, mo
     async def fail_index(*args, **kwargs):
         raise RuntimeError("database unavailable")
 
-    import lab.http.files as files_module
+    import lab.web.files as files_module
 
     monkeypatch.setattr(files_module, "index_chunks", fail_index)
     root = tmp_path / "Learning"
