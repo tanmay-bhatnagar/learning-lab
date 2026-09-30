@@ -21,7 +21,7 @@ These rules apply to development in this repository. They do not grant the appli
 
 ## Delegate and verify
 
-- The user prefers local work because subagents consume usage limits. Use subagents only when Tanmay asks for delegation. When authorized, give each worker a goal, acceptance criteria, owned paths, shared contracts, and required evidence; use `docs/task-template.md` when a written handoff helps.
+- Within a plan Tanmay has approved, the coordinator may start any role without asking again. Outside an approved plan, delegate only when he asks. Do not use Composer models for research, review, or debug; they are acceptable for code. Give each worker a goal, acceptance criteria, owned paths, shared contracts, and required evidence; use `docs/task-template.md` when a written handoff helps.
 - One writer per path. Agree on interfaces before parallel edits. Use isolated checkouts when overlapping work cannot be avoided. The coordinator owns integration and inspects every worker result.
 - Run `.venv/bin/python scripts/check_engineering.py`, relevant tests, and the web build for affected UI/contracts. A passing build is not runtime proof. Use the usage skill for changed user flows.
 - Use synthetic fixtures and isolated roots for tests. Never drive a personal topic as test data. Keep local evidence under ignored `.local/verification/`.

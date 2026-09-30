@@ -246,7 +246,7 @@ Decided by Tanmay on 1 October 2026:
 
 - Decision 1: Prettier, ESLint with `react-hooks`, and Vitest with Testing Library, as recommended.
 - Decision 3: when a record in `processing` is read after an interruption, mark it `error` with the reason "interrupted" and keep every artifact.
-- Decision 4: the coordinator may start any role within an approved plan. `AGENTS.md` still has to be updated to say so.
+- Decision 4: the coordinator may start any role within an approved plan. This is recorded in `AGENTS.md`.
 - Decision 2: use `zod` schemas in `api.ts` as the single source of both TypeScript types and runtime checks, including NDJSON stream events.
 - Decision 5: automatic formatting only (Prettier and `ruff format`). There are no enforced limits on line, file, function or complexity size. Split files when they become a real problem, never to satisfy a number. The structural refactor slices below stand on their own design merits.
 
