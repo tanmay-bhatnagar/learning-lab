@@ -8,7 +8,7 @@ import {
   sourcesButtonLabel,
   sourcesCount,
 } from '../src/citationsHelpers';
-import { originalPdfUrl } from '../src/api';
+import { originalPdfUrl } from '../src/api/urls';
 
 test('sources helpers count citations and build button labels', () => {
   const retrieval = { mode: 'keyword', citations: [{ chunk_id: 'a' }, { chunk_id: 'b' }] };

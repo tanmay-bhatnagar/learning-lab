@@ -1,4 +1,4 @@
-import type { FileChunk, LabFile, RetrievalTraceRequest, TraceComponent } from './api';
+import type { FileChunk, LabFile, RetrievalTraceRequest, TraceComponent } from './api/types';
 import { retrievalModeLabel } from './domain/retrievalMode';
 import type { RetrievalTraceMode } from './api/types';
 

@@ -11,7 +11,7 @@ import {
   resolveAssetId,
   traceRequest,
 } from '../src/retrievalTraceHelpers';
-import { assetApiUrl } from '../src/api';
+import { assetApiUrl } from '../src/api/urls';
 
 const indexed = { id: 'a', name: 'paper.pdf', status: 'ready', parser: 'docling', index_status: 'ready' };
 const legacy = { id: 'b', name: 'notes.pdf', status: 'ready', parser: 'markitdown', index_status: undefined };

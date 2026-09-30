@@ -1,4 +1,4 @@
-import type { Model, Settings } from './api';
+import type { Model, Settings } from './api/types';
 
 export const APP_CONTEXT_MAX = 32768;
 export const LEGACY_CONTEXT_LIMIT = 8192;

@@ -1,7 +1,7 @@
 import React, { useId, useState } from 'react';
 import { BookOpen, ChevronDown } from 'lucide-react';
-import type { Citation, LabFile, MessageRetrieval } from './api';
-import { originalPdfUrl } from './api';
+import type { Citation, LabFile, MessageRetrieval } from './api/types';
+import { originalPdfUrl } from './api/urls';
 import { headingsLabel, pagesLabel } from './retrievalTraceHelpers';
 import { citationChunkLabel, hasSources, modeBadgeLabel, sourcesButtonLabel } from './citationsHelpers';
 import { VisualAssets } from './components/VisualAssets';

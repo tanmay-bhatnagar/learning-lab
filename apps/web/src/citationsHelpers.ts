@@ -1,4 +1,4 @@
-import type { MessageRetrieval, RetrievalTraceMode } from './api';
+import type { MessageRetrieval, RetrievalTraceMode } from './api/types';
 import { retrievalModeLabel } from './domain/retrievalMode';
 
 export function sourcesCount(retrieval: MessageRetrieval | undefined): number {

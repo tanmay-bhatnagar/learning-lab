@@ -1,5 +1,5 @@
 import type { LabFile } from '../api/types';
-import { assetApiUrl } from '../api';
+import { assetApiUrl } from '../api/urls';
 import { resolveAssetId } from '../retrievalTraceHelpers';
 
 export function VisualAssets({

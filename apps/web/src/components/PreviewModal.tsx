@@ -1,5 +1,5 @@
 import { ExternalLink, FileText, LoaderCircle, X } from 'lucide-react';
-import { fileOriginalPath } from '../api';
+import { fileOriginalPath } from '../api/urls';
 import type { LabFile } from '../api/types';
 import { RichText } from './RichText';
 

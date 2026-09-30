@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronRight, FileText, LoaderCircle, ScanSearch } from 'lucide-react';
-import { api, fileChunksPath, json, retrievalTracePath } from './api';
-import type { FileChunk, LabFile, RetrievalTraceHit, RetrievalTraceResponse } from './api';
+import { api, json } from './api/client';
+import { fileChunksPath, retrievalTracePath } from './api/urls';
+import type { FileChunk, LabFile, RetrievalTraceHit, RetrievalTraceResponse } from './api/types';
 import { fileChunksResponseSchema, retrievalTraceResponseSchema } from './api/types';
 import {
   chunkDisplayText,
