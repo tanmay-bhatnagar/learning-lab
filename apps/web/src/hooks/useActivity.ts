@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
-import { activityForOp, canStart, type Activity, type ActivityOp } from '../state/activity';
+import { activityForOp, isBusy, type Activity, type ActivityOp } from '../state/activity';
 
 export function useActivity() {
   const [activity, setActivity] = useState<Activity>('idle');
@@ -7,7 +7,7 @@ export function useActivity() {
   const mirror = useRef<Activity>('idle');
 
   const begin = useCallback((op: ActivityOp): boolean => {
-    if (!canStart(mirror.current, op)) return false;
+    if (isBusy(mirror.current)) return false;
     const next = activityForOp(op);
     mirror.current = next;
     setActivity(next);

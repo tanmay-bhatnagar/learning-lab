@@ -44,6 +44,7 @@ export function useTopicSession(
   useEffect(() => {
     const controller = new AbortController();
     if (!topic) return () => controller.abort();
+    setError('');
 
     Promise.all([
       api(topicMessagesPath(topic), messagesResponseSchema, { signal: controller.signal }),

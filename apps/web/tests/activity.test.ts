@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { activityForOp, canStart, isBusy, uploadBlockedReason } from '../src/state/activity';
+import { activityForOp, isBusy, uploadBlockedReason } from '../src/state/activity';
 
 describe('activity', () => {
   test('activityForOp maps operations to activity labels', () => {
@@ -14,15 +14,6 @@ describe('activity', () => {
     expect(isBusy('uploading')).toBe(true);
     expect(isBusy('savingSettings')).toBe(true);
     expect(isBusy('savingGoal')).toBe(true);
-  });
-
-  test('canStart allows any operation only when idle', () => {
-    expect(canStart('idle', 'send')).toBe(true);
-    expect(canStart('idle', 'upload')).toBe(true);
-    expect(canStart('idle', 'saveSettings')).toBe(true);
-    expect(canStart('sending', 'upload')).toBe(false);
-    expect(canStart('uploading', 'saveSettings')).toBe(false);
-    expect(canStart('savingGoal', 'send')).toBe(false);
   });
 
   test('uploadBlockedReason mirrors upload guard messages', () => {

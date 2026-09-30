@@ -20,11 +20,6 @@ export function isBusy(activity: Activity): boolean {
   return activity !== 'idle';
 }
 
-export function canStart(activity: Activity, op: ActivityOp): boolean {
-  void op;
-  return activity === 'idle';
-}
-
 export function uploadBlockedReason(
   activity: Activity,
   options: { topicReady: boolean; hasTopic: boolean },

@@ -121,7 +121,10 @@ export function useAppState() {
     bootstrap.setTopic(id);
   };
 
-  const reloadTopic = () => session.reload();
+  const reloadTopic = () => {
+    setPreview(null);
+    session.reload();
+  };
 
   return {
     page,
