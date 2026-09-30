@@ -52,6 +52,8 @@ def test_index_chunks_applies_document_prefix(tmp_path):
 
 
 def test_search_applies_query_prefix(tmp_path):
+    from lab.index import TopicIndex
+
     captured: list[list[str]] = []
 
     async def embedder(texts: list[str], model: str):
@@ -60,7 +62,10 @@ def test_search_applies_query_prefix(tmp_path):
 
     class Store:
         def file_path(self, topic, name):
-            return tmp_path / "missing.sqlite"
+            return tmp_path / "retrieval.sqlite"
+
+    with TopicIndex(tmp_path / "retrieval.sqlite"):
+        pass
 
     result = asyncio.run(
         search(

@@ -9,6 +9,9 @@ from typing import Any, Awaitable, Callable
 from .embedding_config import embedding_index_key, format_for_embedding
 from .index import TopicIndex
 from .contracts import Citation, IndexedChunk
+
+# Typed retrieval hit returned from TopicIndex search paths.
+RetrievalHit = IndexedChunk
 from .errors import EmbeddingUnavailable
 from .storage import read_bytes
 
@@ -70,6 +73,10 @@ async def search(
     embedder: Embedder | None = None,
 ) -> dict[str, Any]:
     """Search keyword and embedding indexes with deterministic RRF fusion."""
+    path = topic_index_path(store, topic)
+    if not path.exists():
+        return {"hits": [], "mode": "none", "warning": "This topic has not been indexed yet."}
+
     vector = None
     warning = None
     if embedding_model and embedder:
@@ -83,9 +90,7 @@ async def search(
             # Query embedding is best-effort: long questions or a missing model fall back to keywords.
             warning = f"Semantic search unavailable; keyword retrieval was used: {exc}"
 
-    path = topic_index_path(store, topic)
-    if not path.exists():
-        return {"hits": [], "mode": "none", "warning": "This topic has not been indexed yet."}
+    used_opening_chunks_fallback = False
     with TopicIndex(path) as index:
         hits = index.hybrid_search(
             query,
@@ -96,6 +101,7 @@ async def search(
         )
         if not hits and file_ids:
             hits = index.get_chunks(file_ids=file_ids)[: min(limit, 2)]
+            used_opening_chunks_fallback = bool(hits)
             for rank, hit in enumerate(hits, start=1):
                 hit["trace"] = {
                     "keyword": {"rank": None, "score": None},
@@ -104,16 +110,8 @@ async def search(
                 }
             warning = warning or "No query match; using bounded opening chunks from the selected file."
     semantic = any(hit.get("trace", {}).get("embedding", {}).get("rank") is not None for hit in hits)
-    mode = (
-        "hybrid"
-        if semantic
-        else (
-            "fallback"
-            if hits and all(hit.get("trace", {}).get("fusion", {}).get("score") == 0.0 for hit in hits)
-            else "keyword"
-        )
-    )
-    if vector is not None and hits and not semantic and mode != "fallback":
+    mode = "hybrid" if semantic else ("fallback" if used_opening_chunks_fallback else "keyword")
+    if vector is not None and hits and not semantic and not used_opening_chunks_fallback:
         warning = warning or (
             f"No stored embeddings match {embedding_index_key(embedding_model)}; keyword retrieval was used. "
             "Re-upload files indexed before a change of embedding model or format."
@@ -122,6 +120,25 @@ async def search(
     if warning:
         result["warning"] = warning
     return result
+
+
+def _load_hit_images(
+    store, topic: str, hit: IndexedChunk, *, used_assets: set[str], image_count: int, max_images: int
+) -> tuple[list[str], list[str]]:
+    images: list[str] = []
+    attached: list[str] = []
+    if image_count >= max_images:
+        return images, attached
+    for asset_name in hit.get("asset_ids") or []:
+        if asset_name in used_assets or image_count + len(images) >= max_images:
+            continue
+        data = read_bytes(store.file_path(topic, asset_name))
+        if len(data) > 8 * 1024 * 1024:
+            continue
+        images.append(base64.b64encode(data).decode("ascii"))
+        used_assets.add(asset_name)
+        attached.append(asset_name)
+    return images, attached
 
 
 def evidence_messages(
@@ -145,17 +162,10 @@ def evidence_messages(
         message: dict[str, Any] = {"role": "user", "content": content}
         attached: list[str] = []
         if include_images:
-            images: list[str] = []
-            for asset_name in hit.get("asset_ids") or []:
-                if asset_name in used_assets or image_count >= max_images:
-                    continue
-                data = read_bytes(store.file_path(topic, asset_name))
-                if len(data) > 8 * 1024 * 1024:
-                    continue
-                images.append(base64.b64encode(data).decode("ascii"))
-                used_assets.add(asset_name)
-                attached.append(asset_name)
-                image_count += 1
+            images, attached = _load_hit_images(
+                store, topic, hit, used_assets=used_assets, image_count=image_count, max_images=max_images
+            )
+            image_count += len(images)
             if images:
                 message["images"] = images
         messages.append(message)
