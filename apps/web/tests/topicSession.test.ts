@@ -1,34 +1,31 @@
 import { describe, expect, test } from 'vitest';
-import { filesRefreshed, topicLoaded, topicRequested } from '../src/state/topicSession';
+import {
+  filesRefreshed,
+  goalSaved,
+  inputChanged,
+  topicLoaded,
+  topicRequested,
+  topicSessionReducer,
+} from '../src/state/topicSession';
 
 describe('topicSession', () => {
   test('topicRequested clears session fields and marks loading', () => {
-    const next = topicRequested({
-      messages: [{ role: 'user', content: 'old' }],
-      files: [{ id: 'f', name: 'a.pdf', status: 'ready', parser: 'docling' }],
-      selected: ['f'],
-      context: { used: 1 },
-      learningGoal: 'goal',
-      goalDraft: 'draft',
-      goalNotice: 'saved',
-      topicReady: true,
-      topicLoading: false,
-      preview: null,
-      input: 'typed',
-    });
+    const next = topicRequested();
     expect(next.messages).toEqual([]);
     expect(next.topicLoading).toBe(true);
     expect(next.input).toBe('');
   });
 
-  test('topicLoaded restores server state', () => {
-    const next = topicLoaded(topicRequested({ ...empty(), topicLoading: true }), {
+  test('topicLoaded preserves in-flight input across load completion', () => {
+    const loading = { ...topicRequested(), input: '' };
+    const withInput = inputChanged(loading, 'typed during load');
+    const next = topicLoaded(withInput, {
       messages: [{ role: 'user', content: 'loaded' }],
       context: { used: 2 },
       files: [{ id: 'f', name: 'a.pdf', status: 'ready', parser: 'docling' }],
       topic: { id: 't', name: 'T', learning_goal: 'Learn' },
     });
-    expect(next.messages[0].content).toBe('loaded');
+    expect(next.input).toBe('typed during load');
     expect(next.goalDraft).toBe('Learn');
     expect(next.topicReady).toBe(true);
   });
@@ -38,6 +35,20 @@ describe('topicSession', () => {
       { id: 'keep', name: 'stay.pdf', status: 'ready', parser: 'docling' },
     ]);
     expect(next.selected).toEqual(['keep']);
+  });
+
+  test('goalSaved updates draft and notice', () => {
+    const next = goalSaved(empty(), 'Saved goal');
+    expect(next.learningGoal).toBe('Saved goal');
+    expect(next.goalNotice).toMatch(/saved/i);
+  });
+
+  test('selectionChanged replaces selected ids', () => {
+    const next = topicSessionReducer(
+      { ...empty(), selected: ['a'] },
+      { type: 'selectionChanged', selected: ['a', 'b'] },
+    );
+    expect(next.selected).toEqual(['a', 'b']);
   });
 });
 
@@ -52,7 +63,6 @@ function empty() {
     goalNotice: '',
     topicReady: false,
     topicLoading: false,
-    preview: null,
     input: '',
   };
 }

@@ -2,33 +2,32 @@ export type Activity = 'idle' | 'sending' | 'uploading' | 'savingSettings' | 'sa
 
 export type ActivityOp = 'send' | 'upload' | 'saveSettings' | 'saveGoal' | 'createTopic' | 'selectModel';
 
-export type ActivityInput = {
-  sending: boolean;
-  uploading: boolean;
-  saving: boolean;
-  goalSaving: boolean;
-  creating: boolean;
-  streamLocked: boolean;
-  uploadLocked: boolean;
-  persistenceLocked: boolean;
-};
-
-export function deriveActivity(input: ActivityInput): Activity {
-  if (input.sending || input.streamLocked) return 'sending';
-  if (input.uploading || input.uploadLocked) return 'uploading';
-  if (input.saving || input.persistenceLocked) return 'savingSettings';
-  if (input.goalSaving) return 'savingGoal';
-  if (input.creating) return 'creatingTopic';
-  return 'idle';
+export function activityForOp(op: ActivityOp): Activity {
+  switch (op) {
+    case 'send':
+      return 'sending';
+    case 'upload':
+      return 'uploading';
+    case 'saveSettings':
+    case 'selectModel':
+      return 'savingSettings';
+    case 'saveGoal':
+      return 'savingGoal';
+    case 'createTopic':
+      return 'creatingTopic';
+  }
 }
 
 export function isBusy(activity: Activity): boolean {
-  return activity !== 'idle';
+  return (
+    activity === 'sending' || activity === 'uploading' || activity === 'savingSettings' || activity === 'savingGoal'
+  );
 }
 
 export function canStart(activity: Activity, op: ActivityOp): boolean {
-  void op;
-  return activity === 'idle';
+  if (activity === 'idle') return true;
+  if (activity === 'creatingTopic' && op === 'createTopic') return false;
+  return false;
 }
 
 export function uploadBlockedReason(
@@ -38,5 +37,6 @@ export function uploadBlockedReason(
   if (!options.hasTopic) return 'Choose a topic before adding PDFs.';
   if (!options.topicReady) return 'Wait for this topic to finish loading before adding files.';
   if (isBusy(activity)) return 'Finish the current action before adding files.';
+  if (activity === 'creatingTopic') return 'Finish the current action before adding files.';
   return null;
 }

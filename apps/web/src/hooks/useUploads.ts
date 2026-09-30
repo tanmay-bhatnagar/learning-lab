@@ -1,18 +1,29 @@
 import { useCallback, useRef, useState, type RefObject } from 'react';
-import { api, topicFilesPath } from '../api';
+import { api } from '../api/client';
+import { topicFilesPath } from '../api/urls';
 import { labFileSchema, type LabFile } from '../api/types';
 import { errorText } from '../lib/errors';
+import { uploadBlockedReason, type Activity } from '../state/activity';
 import { validatePdfs } from '../uploads';
+import type { useActivity } from './useActivity';
 
-export function useUploads(topic: string, topicRef: RefObject<string>) {
-  const [uploading, setUploading] = useState(false);
+type ActivityApi = Pick<ReturnType<typeof useActivity>, 'begin' | 'end'>;
+
+export function useUploads(
+  topic: string,
+  topicRef: RefObject<string>,
+  activity: Activity,
+  topicReady: boolean,
+  activityApi: ActivityApi,
+) {
   const [dragging, setDragging] = useState(false);
   const [dropBlocked, setDropBlocked] = useState(false);
   const [dropFeedback, setDropFeedback] = useState('');
-  const uploadLock = useRef(false);
   const dragDepth = useRef(0);
   const dropFeedbackTimer = useRef<number | null>(null);
   const uploadInput = useRef<HTMLInputElement>(null);
+
+  const uploadBlocked = uploadBlockedReason(activity, { topicReady, hasTopic: !!topic });
 
   const showDropFeedback = useCallback((message: string) => {
     setDropFeedback(message);
@@ -27,20 +38,18 @@ export function useUploads(topic: string, topicRef: RefObject<string>) {
     async (
       list: FileList | File[] | null,
       parser: string,
-      blocked: string | null,
       setError: (message: string) => void,
       appendFile: (file: LabFile) => void,
     ) => {
       if (!list?.length || !topic) return;
-      if (blocked) {
+      if (uploadBlocked) {
         setDropBlocked(true);
-        showDropFeedback(blocked);
+        showDropFeedback(uploadBlocked);
         return;
       }
-      uploadLock.current = true;
+      if (!activityApi.begin('upload')) return;
       const target = topic;
       const batch = Array.from(list);
-      setUploading(true);
       setDragging(false);
       setDropBlocked(false);
       dragDepth.current = 0;
@@ -56,17 +65,17 @@ export function useUploads(topic: string, topicRef: RefObject<string>) {
           if (topicRef.current === target) appendFile(result);
         }
       } catch (e) {
+        if (topicRef.current !== target) return;
         const message = errorText(e);
         setError(message);
         showDropFeedback(message);
         setDropBlocked(true);
       } finally {
-        uploadLock.current = false;
-        setUploading(false);
+        activityApi.end();
         if (uploadInput.current) uploadInput.current.value = '';
       }
     },
-    [topic, topicRef, showDropFeedback],
+    [topic, topicRef, uploadBlocked, showDropFeedback, activityApi],
   );
 
   const dispose = useCallback(() => {
@@ -74,7 +83,6 @@ export function useUploads(topic: string, topicRef: RefObject<string>) {
   }, []);
 
   return {
-    uploading,
     dragging,
     setDragging,
     dropBlocked,
@@ -82,7 +90,7 @@ export function useUploads(topic: string, topicRef: RefObject<string>) {
     dropFeedback,
     dragDepthRef: dragDepth,
     uploadInput,
-    uploadLock,
+    uploadBlocked,
     upload,
     showDropFeedback,
     dispose,

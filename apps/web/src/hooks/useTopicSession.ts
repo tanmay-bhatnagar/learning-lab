@@ -1,49 +1,48 @@
-import { useCallback, useEffect, useState } from 'react';
-import { api, json, learningGoalPath, topicFilesPath, topicMessagesPath, topicPath } from '../api';
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
+import { api, json } from '../api/client';
+import { learningGoalPath, topicFilesPath, topicMessagesPath, topicPath } from '../api/urls';
 import {
   filesResponseSchema,
   learningGoalResponseSchema,
   messagesResponseSchema,
   topicSchema,
-  type Context,
   type LabFile,
-  type Message,
 } from '../api/types';
 import { aborted, errorText } from '../lib/errors';
-import { filesRefreshed, goalSaved } from '../state/topicSession';
+import { canSaveLearningGoal } from '../learningGoal';
+import { isBusy, type Activity } from '../state/activity';
+import { emptyTopicSession, topicSessionReducer } from '../state/topicSession';
+import type { useActivity } from './useActivity';
 
-type SessionSlice = {
-  messages: Message[];
-  files: LabFile[];
-  selected: string[];
-  context: Context;
-  learningGoal: string;
-  goalDraft: string;
-  goalNotice: string;
-  topicLoading: boolean;
-  topicReady: boolean;
-  input: string;
-};
+type ActivityApi = Pick<ReturnType<typeof useActivity>, 'begin' | 'end'>;
 
-const emptySession = (): SessionSlice => ({
-  messages: [],
-  files: [],
-  selected: [],
-  context: {},
-  learningGoal: '',
-  goalDraft: '',
-  goalNotice: '',
-  topicLoading: false,
-  topicReady: false,
-  input: '',
-});
+export function useTopicSession(
+  topic: string,
+  setError: (message: string) => void,
+  activity: Activity,
+  activityApi: ActivityApi,
+) {
+  const [state, dispatch] = useReducer(topicSessionReducer, emptyTopicSession());
+  const [trackedTopic, setTrackedTopic] = useState(topic);
+  const [reloadToken, setReloadToken] = useState(0);
+  const topicRef = useRef(topic);
+  const refreshController = useRef<AbortController | null>(null);
 
-export function useTopicSession(topic: string, revision: number, setError: (message: string) => void) {
-  const [session, setSession] = useState<SessionSlice>(emptySession);
+  useEffect(() => {
+    topicRef.current = topic;
+  }, [topic]);
+  if (topic !== trackedTopic) {
+    setTrackedTopic(topic);
+    dispatch({ type: 'topicRequested' });
+  }
+
+  const reload = useCallback(() => {
+    dispatch({ type: 'topicRequested' });
+    setReloadToken((value) => value + 1);
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
-    setSession({ ...emptySession(), topicLoading: !!topic });
     if (!topic) return () => controller.abort();
 
     Promise.all([
@@ -52,80 +51,105 @@ export function useTopicSession(topic: string, revision: number, setError: (mess
       api(topicPath(topic), topicSchema, { signal: controller.signal }),
     ])
       .then(([history, attachments, topicData]) => {
-        const goal = topicData.learning_goal || '';
-        setSession({
-          messages: history.messages,
-          context: history.context || {},
-          files: attachments.files,
-          selected: [],
-          learningGoal: goal,
-          goalDraft: goal,
-          goalNotice: '',
-          topicLoading: false,
-          topicReady: true,
-          input: '',
+        if (controller.signal.aborted || topicRef.current !== topic) return;
+        dispatch({
+          type: 'topicLoaded',
+          payload: {
+            messages: history.messages,
+            context: history.context || {},
+            files: attachments.files,
+            topic: topicData,
+          },
         });
       })
       .catch((e) => {
-        if (!aborted(e)) setError(errorText(e));
-        setSession((previous) => ({ ...previous, topicLoading: false, topicReady: false }));
+        if (aborted(e) || topicRef.current !== topic) return;
+        setError(errorText(e));
+        dispatch({ type: 'topicFailed' });
       });
 
     return () => controller.abort();
-  }, [topic, revision, setError]);
+  }, [topic, reloadToken, setError]);
 
   const refreshFiles = useCallback(async () => {
-    if (!topic) return;
+    if (!topic || isBusy(activity)) return;
+    refreshController.current?.abort();
+    const controller = new AbortController();
+    refreshController.current = controller;
+    const target = topic;
     try {
-      const attachments = await api(topicFilesPath(topic), filesResponseSchema);
-      setSession((previous) => {
-        const refreshed = filesRefreshed({ ...previous, preview: null, input: previous.input }, attachments.files);
-        return { ...previous, files: refreshed.files, selected: refreshed.selected };
-      });
+      const attachments = await api(topicFilesPath(target), filesResponseSchema, { signal: controller.signal });
+      if (controller.signal.aborted || topicRef.current !== target) return;
+      dispatch({ type: 'filesRefreshed', files: attachments.files });
     } catch (e) {
+      if (aborted(e) || topicRef.current !== target) return;
       setError(errorText(e));
+    } finally {
+      if (refreshController.current === controller) refreshController.current = null;
     }
-  }, [topic, setError]);
+  }, [topic, activity, setError]);
 
   const saveLearningGoal = useCallback(
-    async (draft: string) => {
-      const saved = await api(
-        learningGoalPath(topic),
-        learningGoalResponseSchema,
-        json({ learning_goal: draft }, 'PUT'),
-      );
-      setSession((previous) => goalSaved(previous, saved.learning_goal));
+    async (event: React.FormEvent) => {
+      event.preventDefault();
+      const savable = canSaveLearningGoal({
+        hasTopic: !!topic,
+        topicReady: state.topicReady,
+        busy: isBusy(activity),
+        draft: state.goalDraft,
+        saved: state.learningGoal,
+      });
+      if (!savable || !activityApi.begin('saveGoal')) return;
+      const target = topic;
+      try {
+        const saved = await api(
+          learningGoalPath(target),
+          learningGoalResponseSchema,
+          json({ learning_goal: state.goalDraft }, 'PUT'),
+        );
+        if (topicRef.current !== target) return;
+        dispatch({ type: 'goalSaved', learningGoal: saved.learning_goal });
+      } catch (e) {
+        if (topicRef.current !== target) return;
+        setError(errorText(e));
+      } finally {
+        activityApi.end();
+      }
     },
-    [topic],
+    [topic, state.topicReady, state.goalDraft, state.learningGoal, activity, activityApi, setError],
   );
 
-  const createTopic = useCallback(async (name: string) => {
-    return api('/topics', topicSchema, json({ name }));
+  const createTopic = useCallback(
+    async (event: React.FormEvent, name: string) => {
+      event.preventDefault();
+      if (!name.trim() || !activityApi.begin('createTopic')) return null;
+      try {
+        return await api('/topics', topicSchema, json({ name: name.trim() }));
+      } catch (e) {
+        setError(errorText(e));
+        return null;
+      } finally {
+        activityApi.end();
+      }
+    },
+    [activityApi, setError],
+  );
+
+  const appendFile = useCallback((file: LabFile) => {
+    dispatch({ type: 'fileUploaded', file });
   }, []);
 
   return {
-    ...session,
-    setSession,
-    setMessages: (value: Message[] | ((previous: Message[]) => Message[])) =>
-      setSession((previous) => ({
-        ...previous,
-        messages: typeof value === 'function' ? value(previous.messages) : value,
-      })),
-    setFiles: (value: LabFile[] | ((previous: LabFile[]) => LabFile[])) =>
-      setSession((previous) => ({
-        ...previous,
-        files: typeof value === 'function' ? value(previous.files) : value,
-      })),
-    setSelected: (value: string[] | ((previous: string[]) => string[])) =>
-      setSession((previous) => ({
-        ...previous,
-        selected: typeof value === 'function' ? value(previous.selected) : value,
-      })),
-    setContext: (value: Context) => setSession((previous) => ({ ...previous, context: value })),
-    setInput: (value: string) => setSession((previous) => ({ ...previous, input: value })),
-    setGoalDraft: (value: string) => setSession((previous) => ({ ...previous, goalDraft: value })),
+    ...state,
+    dispatch,
+    setInput: (value: string) => dispatch({ type: 'inputChanged', value }),
+    setGoalDraft: (value: string) => dispatch({ type: 'goalDraftChanged', value }),
+    reload,
     refreshFiles,
     saveLearningGoal,
     createTopic,
+    appendFile,
   };
 }
+
+export type TopicSession = ReturnType<typeof useTopicSession>;
