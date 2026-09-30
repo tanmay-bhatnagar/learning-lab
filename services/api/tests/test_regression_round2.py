@@ -186,7 +186,7 @@ def test_unusual_parser_exception_becomes_conversion_error(tmp_path, monkeypatch
     assert record["error"] == "Conversion failed (OddFailure); check the PDF or use local OCR for scanned pages."
 
 
-def test_domain_error_mid_stream_yields_error_and_releases_lock(tmp_path, monkeypatch):
+def test_incomplete_finish_save_error_propagates_and_releases_lock(tmp_path):
     class CorruptStore:
         def __init__(self, inner):
             self.inner = inner
@@ -201,18 +201,66 @@ def test_domain_error_mid_stream_yields_error_and_releases_lock(tmp_path, monkey
 
     root = tmp_path / "Learning"
     settings = tmp_path / "settings.json"
-    app = create_app(root, settings, model_backend=FakeModel())
+    app = create_app(root, settings, model_backend=FakeModel(fail=True))
     app.state.deps.store = CorruptStore(app.state.deps.store)
-    client = TestClient(app)
+    client = TestClient(app, raise_server_exceptions=True)
     topic = client.post("/api/topics", json={"name": "Chat"}).json()["id"]
-    response = client.post(
-        f"/api/topics/{topic}/chat",
-        json={"message": "hello", "model": "fake", "think": False},
-    )
-    events = [json.loads(line) for line in response.text.splitlines() if line.strip()]
-    assert events[-1]["type"] == "error"
-    assert "Chat failed" in events[-1]["message"]
+    with pytest.raises(RuntimeError, match="response already started") as exc_info:
+        client.post(
+            f"/api/topics/{topic}/chat",
+            json={"message": "hello", "model": "fake", "think": False},
+        )
+    assert isinstance(exc_info.value.__cause__, CorruptData)
     assert not app.state.deps.locks[topic].locked()
+
+
+def test_markitdown_upload_succeeds_with_corrupt_settings_file(tmp_path):
+    def convert(_data, _parser):
+        return "# Extracted\n"
+
+    settings = tmp_path / "settings.json"
+    settings.write_text("{not valid json")
+    client = TestClient(
+        create_app(
+            tmp_path / "Learning",
+            settings,
+            parser_map={"markitdown": convert, "anydoc": convert},
+        )
+    )
+    topic = client.post("/api/topics", json={"name": "Settings"}).json()["id"]
+    response = client.post(
+        f"/api/topics/{topic}/files",
+        files={"file": ("paper.pdf", b"%PDF-1.7\n", "application/pdf")},
+        data={"parser": "markitdown"},
+    )
+    assert response.status_code == 201
+    assert response.json()["status"] == "ready"
+
+
+def test_docling_upload_records_corrupt_settings_as_conversion_error(tmp_path):
+    settings = tmp_path / "settings.json"
+    settings.write_text("{not valid json")
+
+    def never_called(*args, **kwargs):
+        raise AssertionError("structured parser must not run when settings are corrupt")
+
+    client = TestClient(
+        create_app(
+            tmp_path / "Learning",
+            settings,
+            structured_parser=never_called,
+        )
+    )
+    topic = client.post("/api/topics", json={"name": "Settings"}).json()["id"]
+    response = client.post(
+        f"/api/topics/{topic}/files",
+        files={"file": ("paper.pdf", b"%PDF-1.7\n", "application/pdf")},
+        data={"parser": "docling"},
+    )
+    assert response.status_code == 201
+    record = response.json()
+    assert record["status"] == "error"
+    assert record["error"] == "Conversion failed (CorruptData); check the PDF or use local OCR for scanned pages."
 
 
 def test_tags_http_error_preserves_ollama_chat_failed_message():

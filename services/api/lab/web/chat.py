@@ -133,10 +133,7 @@ def router(deps: AppDeps) -> APIRouter:
                         if not complete:
                             assistant["incomplete"] = True
                             session_updated = append_assistant_message(session, assistant)
-                            try:
-                                deps.store.save_session(topic, session_updated)
-                            except Exception:  # noqa: BLE001 - best-effort incomplete save after stream failure
-                                pass
+                            deps.store.save_session(topic, session_updated)
                 finally:
                     lease.release()
 
