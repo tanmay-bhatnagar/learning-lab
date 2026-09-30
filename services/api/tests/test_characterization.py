@@ -7,7 +7,6 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
-from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from lab.file_records import mark_interrupted
@@ -262,7 +261,9 @@ def test_lock_released_on_busy_rejection(tmp_path):
         with ThreadPoolExecutor(max_workers=1) as pool:
             future = pool.submit(_chat, client, topic)
             assert started.wait(timeout=5)
-            assert _chat(client, topic).status_code == 409
+            busy = _chat(client, topic)
+            assert busy.status_code == 409
+            assert busy.json()["detail"] == "This topic is busy. Wait for its current upload or reply to finish."
             release.set()
             assert future.result(timeout=5).status_code == 200
 
@@ -274,13 +275,13 @@ API_ERRORS = [
     # storage.py valid_id — tested via test_api.test_safe_ids; HTTP layer returns same message
     # storage.py symlink
     pytest.param(
-        lambda client, topic, root, settings: (_ for _ in ()).throw(
-            HTTPException(403, "Symlink paths are not allowed.")
-        ),
+        lambda client, topic, root, settings: (
+            (root / "linked").symlink_to(root.parent, target_is_directory=True),
+            client.get("/api/topics/linked/files"),
+        )[1],
         403,
         "Symlink paths are not allowed.",
         id="symlink-path",
-        marks=pytest.mark.skip(reason="direct Store test in test_api.py"),
     ),
     # storage.py topic not found
     pytest.param(
@@ -400,14 +401,6 @@ API_ERRORS = [
         "Visual asset not found for this file.",
         id="asset-not-found",
     ),
-    # main.py topic busy
-    pytest.param(
-        lambda client, topic, root, settings: None,  # handled in test_lock_released_on_busy_rejection
-        409,
-        "This topic is busy. Wait for its current upload or reply to finish.",
-        id="topic-busy",
-        marks=pytest.mark.skip(reason="covered by lock release test"),
-    ),
     # main.py attachment not ready
     pytest.param(
         lambda client, topic, root, settings: (
@@ -474,8 +467,6 @@ def api_setup(tmp_path):
 @pytest.mark.parametrize("trigger,status,detail", API_ERRORS)
 def test_api_error_status_and_message(api_setup, trigger, status, detail):
     client, topic, root, settings, _ = api_setup
-    if trigger is None:
-        pytest.skip("handled elsewhere")
     response = trigger(client, topic, root, settings)
     assert response.status_code == status, response.text
     if detail:
