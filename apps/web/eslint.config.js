@@ -14,7 +14,7 @@ export default defineConfig(
   },
   // Pre-existing violations; the frontend refactor removes these entries as it fixes them.
   {
-    files: ['src/main.tsx'],
+    files: ['src/App.tsx'],
     rules: { 'react-hooks/refs': 'off', 'react-hooks/set-state-in-effect': 'off', 'no-empty': 'off' },
   },
   { files: ['src/api.ts'], rules: { 'no-empty': 'off' } },
