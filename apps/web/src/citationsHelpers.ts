@@ -14,14 +14,22 @@ export function sourcesButtonLabel(count: number): string {
 
 export function modeBadgeLabel(mode: RetrievalTraceMode | undefined): string {
   switch (mode) {
-    case 'hybrid': return 'Hybrid (keyword + embeddings + RRF)';
-    case 'keyword': return 'Keyword only';
-    case 'fallback': return 'Fallback opening chunks';
-    default: return 'No retrieval';
+    case 'hybrid':
+      return 'Hybrid (keyword + embeddings + RRF)';
+    case 'keyword':
+      return 'Keyword only';
+    case 'fallback':
+      return 'Fallback opening chunks';
+    default:
+      return 'No retrieval';
   }
 }
 
-export function citationLocation(fileName: string, headings: string[] | undefined, pages: number[] | undefined): string {
+export function citationLocation(
+  fileName: string,
+  headings: string[] | undefined,
+  pages: number[] | undefined,
+): string {
   const parts = [fileName];
   if (headings?.length) parts.push(headings.join(' › '));
   if (pages?.length) parts.push(pages.length === 1 ? `Page ${pages[0]}` : `Pages ${pages.join(', ')}`);

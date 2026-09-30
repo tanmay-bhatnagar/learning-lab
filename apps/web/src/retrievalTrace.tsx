@@ -3,8 +3,16 @@ import { ChevronRight, FileText, LoaderCircle, ScanSearch } from 'lucide-react';
 import { api, fileChunksPath, json, retrievalTracePath } from './api';
 import type { FileChunk, LabFile, RetrievalTraceHit, RetrievalTraceResponse } from './api';
 import {
-  assetApiUrl, chunkDisplayText, formatRank, formatTraceScore, headingsLabel, indexedSelectedIds,
-  modeLabel, pagesLabel, resolveAssetId, traceRequest,
+  assetApiUrl,
+  chunkDisplayText,
+  formatRank,
+  formatTraceScore,
+  headingsLabel,
+  indexedSelectedIds,
+  modeLabel,
+  pagesLabel,
+  resolveAssetId,
+  traceRequest,
 } from './retrievalTraceHelpers';
 
 type LoadedChunks = { fileId: string; fileName: string; chunks: FileChunk[] };
@@ -24,18 +32,29 @@ function TraceMetric({ label, rank, score, hint }: { label: string; rank: string
     <div className="trace-metric">
       <span className="trace-metric-label">{label}</span>
       <strong>{rank}</strong>
-      <span className="trace-metric-score">{score}{hint ? <small>{hint}</small> : null}</span>
+      <span className="trace-metric-score">
+        {score}
+        {hint ? <small>{hint}</small> : null}
+      </span>
     </div>
   );
 }
 
-function AssetThumbnails({ topic, file, assetRefs }: { topic: string; file: LabFile | undefined; assetRefs: string[] }) {
+function AssetThumbnails({
+  topic,
+  file,
+  assetRefs,
+}: {
+  topic: string;
+  file: LabFile | undefined;
+  assetRefs: string[];
+}) {
   if (!assetRefs.length) return null;
   return (
     <div className="trace-assets" aria-label="Linked visuals">
-      {assetRefs.map(ref => {
+      {assetRefs.map((ref) => {
         const assetId = resolveAssetId(file, ref);
-        const asset = file?.assets?.find(item => item.id === assetId || item.name === ref);
+        const asset = file?.assets?.find((item) => item.id === assetId || item.name === ref);
         if (!assetId) {
           return (
             <figure className="trace-asset trace-asset-missing" key={ref}>
@@ -47,9 +66,15 @@ function AssetThumbnails({ topic, file, assetRefs }: { topic: string; file: LabF
         return (
           <figure className="trace-asset" key={assetId}>
             <a href={assetApiUrl(topic, file!.id, assetId)} target="_blank" rel="noopener noreferrer">
-              <img src={assetApiUrl(topic, file!.id, assetId)} alt={asset?.caption || asset?.kind || 'Document visual'} loading="lazy" />
+              <img
+                src={assetApiUrl(topic, file!.id, assetId)}
+                alt={asset?.caption || asset?.kind || 'Document visual'}
+                loading="lazy"
+              />
             </a>
-            <figcaption>{asset?.caption || `${asset?.kind || 'visual'}${asset?.page != null ? ` · p.${asset.page}` : ''}`}</figcaption>
+            <figcaption>
+              {asset?.caption || `${asset?.kind || 'visual'}${asset?.page != null ? ` · p.${asset.page}` : ''}`}
+            </figcaption>
           </figure>
         );
       })}
@@ -57,19 +82,46 @@ function AssetThumbnails({ topic, file, assetRefs }: { topic: string; file: LabF
   );
 }
 
-function HitCard({ hit, file, topic, evidenceRank }: { hit: RetrievalTraceHit; file: LabFile | undefined; topic: string; evidenceRank: number }) {
+function HitCard({
+  hit,
+  file,
+  topic,
+  evidenceRank,
+}: {
+  hit: RetrievalTraceHit;
+  file: LabFile | undefined;
+  topic: string;
+  evidenceRank: number;
+}) {
   const assetRefs = hit.asset_ids?.length ? hit.asset_ids : [];
   return (
     <article className="trace-hit" aria-labelledby={`hit-${hit.chunk_id}`}>
       <header className="trace-hit-header">
         <span className="trace-evidence-badge">Evidence #{evidenceRank}</span>
         <h3 id={`hit-${hit.chunk_id}`}>{hit.file_name}</h3>
-        <p className="trace-hit-meta">{headingsLabel(hit.headings)} · {pagesLabel(hit.pages)} · chunk {hit.chunk_index + 1}</p>
+        <p className="trace-hit-meta">
+          {headingsLabel(hit.headings)} · {pagesLabel(hit.pages)} · chunk {hit.chunk_index + 1}
+        </p>
       </header>
       <div className="trace-metrics" role="group" aria-label="Retrieval ranks and scores">
-        <TraceMetric label="Keyword" rank={formatRank(hit.trace.keyword.rank)} score={formatTraceScore(hit.trace.keyword, 'keyword')} hint="BM25, lower is better" />
-        <TraceMetric label="Embedding" rank={formatRank(hit.trace.embedding.rank)} score={formatTraceScore(hit.trace.embedding, 'embedding')} hint="cosine, higher is better" />
-        <TraceMetric label="RRF fusion" rank={formatRank(hit.trace.fusion.rank)} score={formatTraceScore(hit.trace.fusion, 'fusion')} hint="higher is better" />
+        <TraceMetric
+          label="Keyword"
+          rank={formatRank(hit.trace.keyword.rank)}
+          score={formatTraceScore(hit.trace.keyword, 'keyword')}
+          hint="BM25, lower is better"
+        />
+        <TraceMetric
+          label="Embedding"
+          rank={formatRank(hit.trace.embedding.rank)}
+          score={formatTraceScore(hit.trace.embedding, 'embedding')}
+          hint="cosine, higher is better"
+        />
+        <TraceMetric
+          label="RRF fusion"
+          rank={formatRank(hit.trace.fusion.rank)}
+          score={formatTraceScore(hit.trace.fusion, 'fusion')}
+          hint="higher is better"
+        />
       </div>
       <pre className="trace-chunk-text">{hit.text}</pre>
       <AssetThumbnails topic={topic} file={file} assetRefs={assetRefs} />
@@ -78,15 +130,26 @@ function HitCard({ hit, file, topic, evidenceRank }: { hit: RetrievalTraceHit; f
 }
 
 function SourceChunkCard({
-  chunk, file, topic, selected,
-}: { chunk: FileChunk; file: LabFile; topic: string; selected: boolean }) {
+  chunk,
+  file,
+  topic,
+  selected,
+}: {
+  chunk: FileChunk;
+  file: LabFile;
+  topic: string;
+  selected: boolean;
+}) {
   const text = chunkDisplayText(chunk);
   const assetRefs = chunk.asset_names?.length ? chunk.asset_names : [];
   return (
     <article className={`trace-source-chunk ${selected ? 'selected' : ''}`}>
       <header>
         <strong>{file.name}</strong>
-        <span>{headingsLabel(chunk.headings)} · {pagesLabel(chunk.pages)}{chunk.chunk_id ? ` · ${chunk.chunk_id}` : ''}</span>
+        <span>
+          {headingsLabel(chunk.headings)} · {pagesLabel(chunk.pages)}
+          {chunk.chunk_id ? ` · ${chunk.chunk_id}` : ''}
+        </span>
         {selected && <span className="trace-selected-chip">Selected evidence</span>}
       </header>
       <pre>{text || '(empty chunk)'}</pre>
@@ -103,12 +166,9 @@ export function RetrievalTracePanel({ topic, files, selected, topK, busy, topicR
   const [loadedChunks, setLoadedChunks] = useState<LoadedChunks[]>([]);
 
   const indexedIds = useMemo(() => indexedSelectedIds(files, selected), [files, selected]);
-  const filesById = useMemo(() => new Map(files.map(file => [file.id, file])), [files]);
-  const selectedNames = useMemo(
-    () => indexedIds.map(id => filesById.get(id)?.name || id),
-    [indexedIds, filesById],
-  );
-  const evidenceIds = useMemo(() => new Set(result?.hits.map(hit => hit.chunk_id) ?? []), [result]);
+  const filesById = useMemo(() => new Map(files.map((file) => [file.id, file])), [files]);
+  const selectedNames = useMemo(() => indexedIds.map((id) => filesById.get(id)?.name || id), [indexedIds, filesById]);
+  const evidenceIds = useMemo(() => new Set(result?.hits.map((hit) => hit.chunk_id) ?? []), [result]);
 
   async function runTrace(event: React.FormEvent) {
     event.preventDefault();
@@ -121,7 +181,7 @@ export function RetrievalTracePanel({ topic, files, selected, topK, busy, topicR
     try {
       const [trace, ...chunkSets] = await Promise.all([
         api<RetrievalTraceResponse>(retrievalTracePath(topic), json(body)),
-        ...indexedIds.map(async fileId => {
+        ...indexedIds.map(async (fileId) => {
           const file = filesById.get(fileId);
           const payload = await api<{ chunks: FileChunk[] }>(fileChunksPath(topic, fileId));
           return { fileId, fileName: file?.name || fileId, chunks: payload.chunks };
@@ -154,20 +214,34 @@ export function RetrievalTracePanel({ topic, files, selected, topK, busy, topicR
         <div className="trace-empty" role="status">
           <ScanSearch size={28} />
           <p>Select one or more indexed PDFs on the Attached files tab, then return here to trace retrieval.</p>
-          <button type="button" className="primary" disabled={busy} onClick={onOpenFiles}>Choose files</button>
+          <button type="button" className="primary" disabled={busy} onClick={onOpenFiles}>
+            Choose files
+          </button>
         </div>
       ) : indexedIds.length === 0 ? (
         <div className="trace-empty" role="status">
           <ScanSearch size={28} />
-          <p>{selected.length} file{selected.length === 1 ? '' : 's'} selected, but none are indexed yet. Docling uploads with a ready index are required.</p>
-          <button type="button" className="secondary" disabled={busy} onClick={onOpenFiles}>Review attached files</button>
+          <p>
+            {selected.length} file{selected.length === 1 ? '' : 's'} selected, but none are indexed yet. Docling uploads
+            with a ready index are required.
+          </p>
+          <button type="button" className="secondary" disabled={busy} onClick={onOpenFiles}>
+            Review attached files
+          </button>
         </div>
       ) : (
         <>
           <section className="trace-selection" aria-label="Indexed files in scope">
             <span className="eyebrow">INDEXED SELECTION</span>
-            <ul>{selectedNames.map(name => <li key={name}>{name}</li>)}</ul>
-            <p className="muted small">Only these {indexedIds.length} indexed file{indexedIds.length === 1 ? '' : 's'} will be sent to the trace endpoint.</p>
+            <ul>
+              {selectedNames.map((name) => (
+                <li key={name}>{name}</li>
+              ))}
+            </ul>
+            <p className="muted small">
+              Only these {indexedIds.length} indexed file{indexedIds.length === 1 ? '' : 's'} will be sent to the trace
+              endpoint.
+            </p>
           </section>
 
           <form className="trace-form" onSubmit={runTrace}>
@@ -179,7 +253,7 @@ export function RetrievalTracePanel({ topic, files, selected, topK, busy, topicR
                 value={query}
                 disabled={running || busy || !topicReady}
                 rows={3}
-                onChange={e => setQuery(e.target.value)}
+                onChange={(e) => setQuery(e.target.value)}
               />
             </label>
             <div className="trace-form-actions">
@@ -193,7 +267,11 @@ export function RetrievalTracePanel({ topic, files, selected, topK, busy, topicR
         </>
       )}
 
-      {error && <p className="field-error" role="alert">{error}</p>}
+      {error && (
+        <p className="field-error" role="alert">
+          {error}
+        </p>
+      )}
 
       {running && (
         <div className="center-state trace-loading" role="status">
@@ -207,19 +285,42 @@ export function RetrievalTracePanel({ topic, files, selected, topK, busy, topicR
           <section className="trace-summary" aria-live="polite">
             <h3>Trace summary</h3>
             <dl>
-              <div><dt>Mode</dt><dd>{modeLabel(result.mode)}</dd></div>
-              <div><dt>Query</dt><dd>{result.query}</dd></div>
-              <div><dt>Evidence hits</dt><dd>{result.hits.length}</dd></div>
+              <div>
+                <dt>Mode</dt>
+                <dd>{modeLabel(result.mode)}</dd>
+              </div>
+              <div>
+                <dt>Query</dt>
+                <dd>{result.query}</dd>
+              </div>
+              <div>
+                <dt>Evidence hits</dt>
+                <dd>{result.hits.length}</dd>
+              </div>
             </dl>
-            {result.warning && <p className="trace-warning" role="status">{result.warning}</p>}
+            {result.warning && (
+              <p className="trace-warning" role="status">
+                {result.warning}
+              </p>
+            )}
           </section>
 
           <section className="trace-section" aria-labelledby="trace-evidence-title">
             <h3 id="trace-evidence-title">Selected evidence</h3>
             <p className="muted small">Chunks that would be injected into chat, ordered by RRF fusion rank.</p>
-            {result.hits.length ? result.hits.map((hit, index) => (
-              <HitCard key={hit.chunk_id} hit={hit} file={filesById.get(hit.file_id)} topic={topic} evidenceRank={index + 1} />
-            )) : <p className="muted">No evidence chunks were returned for this query.</p>}
+            {result.hits.length ? (
+              result.hits.map((hit, index) => (
+                <HitCard
+                  key={hit.chunk_id}
+                  hit={hit}
+                  file={filesById.get(hit.file_id)}
+                  topic={topic}
+                  evidenceRank={index + 1}
+                />
+              ))
+            ) : (
+              <p className="muted">No evidence chunks were returned for this query.</p>
+            )}
           </section>
 
           {loadedChunks.length > 0 && (
@@ -227,7 +328,7 @@ export function RetrievalTracePanel({ topic, files, selected, topK, busy, topicR
               <h3 id="trace-source-title">Source chunks</h3>
               <p className="muted small">All indexed chunks loaded from the selected files for comparison.</p>
               <div className="trace-source-list">
-                {loadedChunks.flatMap(entry => {
+                {loadedChunks.flatMap((entry) => {
                   const file = filesById.get(entry.fileId);
                   if (!file) return [];
                   return entry.chunks.map((chunk, index) => (

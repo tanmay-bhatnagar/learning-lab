@@ -1,17 +1,19 @@
-import type {
-  FileChunk, LabFile, RetrievalTraceRequest, RetrievalTraceResponse, TraceComponent,
-} from './api';
+import type { FileChunk, LabFile, RetrievalTraceRequest, RetrievalTraceResponse, TraceComponent } from './api';
 
 export function isIndexedFile(file: LabFile): boolean {
   return file.index_status === 'ready' && file.status === 'ready';
 }
 
 export function indexedSelectedIds(files: LabFile[], selected: string[]): string[] {
-  const byId = new Map(files.map(file => [file.id, file]));
-  return [...new Set(selected.filter(id => {
-    const file = byId.get(id);
-    return file ? isIndexedFile(file) : false;
-  }))];
+  const byId = new Map(files.map((file) => [file.id, file]));
+  return [
+    ...new Set(
+      selected.filter((id) => {
+        const file = byId.get(id);
+        return file ? isIndexedFile(file) : false;
+      }),
+    ),
+  ];
 }
 
 export function traceRequest(query: string, fileIds: string[], topK: number): RetrievalTraceRequest {
@@ -20,9 +22,9 @@ export function traceRequest(query: string, fileIds: string[], topK: number): Re
 
 export function resolveAssetId(file: LabFile | undefined, assetRef: string): string | null {
   if (!file?.assets?.length || !assetRef) return null;
-  const direct = file.assets.find(asset => asset.id === assetRef);
+  const direct = file.assets.find((asset) => asset.id === assetRef);
   if (direct) return direct.id;
-  const byName = file.assets.find(asset => asset.name === assetRef);
+  const byName = file.assets.find((asset) => asset.name === assetRef);
   return byName?.id ?? null;
 }
 
@@ -50,10 +52,14 @@ export function chunkDisplayText(chunk: Pick<FileChunk, 'contextualized_text' | 
 
 export function modeLabel(mode: RetrievalTraceResponse['mode']): string {
   switch (mode) {
-    case 'hybrid': return 'Hybrid (keyword + embeddings + RRF)';
-    case 'keyword': return 'Keyword only';
-    case 'fallback': return 'Fallback opening chunks';
-    default: return 'No matches';
+    case 'hybrid':
+      return 'Hybrid (keyword + embeddings + RRF)';
+    case 'keyword':
+      return 'Keyword only';
+    case 'fallback':
+      return 'Fallback opening chunks';
+    default:
+      return 'No matches';
   }
 }
 
