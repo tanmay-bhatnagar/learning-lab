@@ -2,7 +2,13 @@ import type { Model, Settings } from './api';
 
 export const APP_CONTEXT_MAX = 32768;
 export const LEGACY_CONTEXT_LIMIT = 8192;
-export const DEFAULT_SETTINGS: Settings = { model: '', context_limit: APP_CONTEXT_MAX, parser: 'anydoc' };
+export const DEFAULT_SETTINGS: Settings = {
+  model: '',
+  context_limit: APP_CONTEXT_MAX,
+  parser: 'docling',
+  embedding_model: 'nomic-embed-text',
+  retrieval_top_k: 6,
+};
 
 export function modelContextMax(_model?: Model): number {
   return APP_CONTEXT_MAX;

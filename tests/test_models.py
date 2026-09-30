@@ -66,7 +66,8 @@ class ModelTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, {'models': [{
             'id': 'qwen3.5:4b-q8_0', 'name': 'qwen3.5:4b-q8_0', 'size_bytes': 123,
             'parameter_size': '4B', 'quantization': 'Q8_0', 'thinking': {'type': 'toggle'},
-            'display_name': 'Qwen 3.5 · 4B · 8-bit', 'max_context_length': 32768}]})
+            'display_name': 'Qwen 3.5 · 4B · 8-bit', 'max_context_length': 32768,
+            'vision': False}]})
         self.tags.append({'name': 'deepseek-r1:14b'})
         self.assertEqual(len((await models.list_models())['models']), 2)
         self.assertEqual(self.requests[1], ('/api/show', {'model': 'qwen3.5:4b-q8_0'}))

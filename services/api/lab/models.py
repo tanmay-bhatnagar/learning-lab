@@ -40,6 +40,47 @@ def _is_remote(model: str, info: dict) -> bool:
                 name.endswith('-cloud') or name.endswith(':cloud'))
 
 
+def _vision(info: dict) -> bool:
+    return 'vision' in info.get('capabilities', [])
+
+
+def _message_images(message: dict) -> list[str]:
+    images = message.get('images')
+    if not images:
+        return []
+    if not isinstance(images, list) or any(type(image) is not str or not image for image in images):
+        raise ValueError('Message images must be a list of base64 strings')
+    return images
+
+
+def _messages_have_images(messages: list[dict]) -> bool:
+    return any(_message_images(message) for message in messages)
+
+
+def _validate_embeddings(texts: list[str], body) -> list[list[float]]:
+    if not isinstance(body, dict):
+        raise ValueError('Invalid Ollama embed response')
+    embeddings = body.get('embeddings')
+    if not isinstance(embeddings, list) or len(embeddings) != len(texts):
+        raise ValueError('Invalid Ollama embed response')
+    validated = []
+    dimension = None
+    for vector in embeddings:
+        if not isinstance(vector, list) or not vector:
+            raise ValueError('Invalid Ollama embed vector')
+        if dimension is None:
+            dimension = len(vector)
+        elif len(vector) != dimension:
+            raise ValueError('Invalid Ollama embed vector dimensions')
+        numbers = []
+        for value in vector:
+            if type(value) not in (int, float):
+                raise ValueError('Invalid Ollama embed vector')
+            numbers.append(float(value))
+        validated.append(numbers)
+    return validated
+
+
 async def _tags(client):
     response = await client.get('/api/tags')
     response.raise_for_status()
@@ -56,6 +97,15 @@ async def _show(client, model):
     if not isinstance(info, dict):
         raise ValueError('Invalid Ollama model metadata')
     return info
+
+
+def _find_tag(tags: list[dict], model: str):
+    """Resolve Ollama's implicit `:latest` alias without changing saved settings."""
+    aliases = {model}
+    if ':' not in model.rsplit('/', 1)[-1]:
+        aliases.add(f'{model}:latest')
+    return next((tag for tag in tags
+                 if (tag.get('model') or tag.get('name')) in aliases), None)
 
 
 def display_name(model: str, details: dict) -> str:
@@ -91,6 +141,9 @@ async def list_models() -> dict:
                     continue
                 if _is_remote(name, info):
                     continue
+                capabilities = info.get('capabilities')
+                if isinstance(capabilities, list) and capabilities and 'completion' not in capabilities:
+                    continue
                 details = {**tag.get('details', {}), **info.get('details', {})}
                 result['models'].append({
                     'id': name, 'name': tag.get('name', name),
@@ -100,15 +153,48 @@ async def list_models() -> dict:
                     'quantization': details.get('quantization_level', ''),
                     'parameter_size': details.get('parameter_size', ''),
                     'thinking': _thinking(name, info),
+                    'vision': _vision(info),
                 })
     except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
         result['error'] = f'Ollama unavailable: {exc}'
     return result
 
 
+async def embed_texts(texts: list[str], model: str) -> list[list[float]]:
+    """Return validated embedding vectors for local models via POST /api/embed."""
+    if not isinstance(texts, list) or not texts or any(type(text) is not str for text in texts):
+        raise ValueError('texts must be a non-empty list of strings')
+    async with _GENERATION_LOCK:
+        async with _client() as client:
+            tags = await _tags(client)
+            tag = _find_tag(tags, model)
+            if tag is None:
+                raise ValueError('Requested model is not installed locally')
+            if _is_remote(model, tag):
+                raise ValueError('Remote/cloud models are not supported; select a local model')
+            try:
+                info = await _show(client, model)
+            except (httpx.HTTPError, ValueError) as exc:
+                raise ValueError('Model metadata unavailable; cannot verify local inference') from exc
+            if _is_remote(model, info):
+                raise ValueError('Remote/cloud models are not supported; select a local model')
+            response = await client.post('/api/embed', json={'model': model, 'input': texts,
+                                                               'truncate': False,
+                                                               'keep_alive': 0})
+            if response.status_code >= 400:
+                from lab.embedding_config import normalize_ollama_embed_error
+                try:
+                    body = response.json()
+                except ValueError:
+                    body = response.text
+                raise ValueError(normalize_ollama_embed_error(model, response.status_code, body))
+            return _validate_embeddings(texts, response.json())
+
+
 async def stream_chat(messages: list[dict], model: str,
                       think: bool | str | None = None,
-                      context_limit: int = DEFAULT_CONTEXT_LIMIT):
+                      context_limit: int = DEFAULT_CONTEXT_LIMIT,
+                      context_metadata: dict | None = None):
     """Yield NDJSON-ready dictionaries; request-local trimming never saves history.
 
     Serialize generation and unload on completion to prevent this process from
@@ -117,10 +203,12 @@ async def stream_chat(messages: list[dict], model: str,
     """
     try:
         prompt, context, prediction = prepare_context(messages, context_limit)
+        if context_metadata is not None:
+            context = {**context, "truncated_messages": context_metadata["truncated_messages"]}
         async with _GENERATION_LOCK:
             async with _client() as client:
                 tags = await _tags(client)
-                tag = next((tag for tag in tags if model == (tag.get('model') or tag.get('name'))), None)
+                tag = _find_tag(tags, model)
                 if tag is None:
                     raise ValueError('Requested model is not installed locally')
                 if _is_remote(model, tag):
@@ -131,6 +219,8 @@ async def stream_chat(messages: list[dict], model: str,
                     raise ValueError('Model metadata unavailable; cannot verify local inference') from exc
                 if _is_remote(model, info):
                     raise ValueError('Remote/cloud models are not supported; select a local model')
+                if _messages_have_images(prompt) and not _vision(info):
+                    raise ValueError('This model does not support vision; remove images or select a vision-capable model')
                 thinking = _thinking(model, info)
                 if thinking['type'] == 'toggle' and think is not None and type(think) is not bool:
                     raise ValueError('This model supports Thinking on/off, not low/medium/high effort levels')

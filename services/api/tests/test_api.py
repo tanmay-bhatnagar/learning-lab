@@ -78,7 +78,8 @@ def test_persistence_upload_history_and_scope(setup):
 def test_settings_crud_archive_preserves_original(setup):
     client, topic, root, settings, _, build = setup
     record = upload(client, topic).json()
-    config = {"model": "fake", "context_limit": 4096, "parser": "anydoc"}
+    config = {"model": "fake", "context_limit": 4096, "parser": "anydoc",
+              "embedding_model": "nomic-embed-text", "retrieval_top_k": 6}
     assert client.put("/api/settings", json=config).json() == config
     assert build().get("/api/settings").json() == config
     assert client.patch(f"/api/topics/{topic}", json={"name": "Renamed"}).json()["name"] == "Renamed"
@@ -170,7 +171,13 @@ def test_failed_chat_preserves_partial_history(setup):
     assert json.loads(response.text.splitlines()[-1])["type"] == "error"
     history = client.get(f"/api/topics/{topic}/messages").json()["messages"]
     assert len(history) == 2
-    assert history[1] == {"role": "assistant", "content": "answer", "thinking": "reasoning", "incomplete": True, "model": "fake"}
+    assert history[1]["role"] == "assistant"
+    assert history[1]["content"] == "answer"
+    assert history[1]["thinking"] == "reasoning"
+    assert history[1]["incomplete"] is True
+    assert history[1]["model"] == "fake"
+    assert history[1]["retrieval"]["mode"] == "none"
+    assert history[1]["retrieval"]["citations"] == []
 
 
 def test_env_roots(monkeypatch, tmp_path):
@@ -295,7 +302,10 @@ def test_concurrent_chat_rejected_without_losing_history(setup):
 
 def test_new_defaults_and_response_model_persist(setup):
     client, topic, *rest = setup
-    assert client.get('/api/settings').json() == {'model': '', 'context_limit': 32768, 'parser': 'anydoc'}
+    assert client.get('/api/settings').json() == {
+        'model': '', 'context_limit': 32768, 'parser': 'docling',
+        'embedding_model': 'nomic-embed-text', 'retrieval_top_k': 6,
+    }
     response = chat(client, topic)
     done = json.loads(response.text.splitlines()[-1])
     assert done['model'] == 'fake'
@@ -303,7 +313,7 @@ def test_new_defaults_and_response_model_persist(setup):
     assert client.get(f'/api/topics/{topic}/messages').json()['messages'][-1]['model'] == 'fake'
 
 
-def test_upload_without_parser_defaults_to_anydoc(tmp_path):
+def test_upload_without_parser_defaults_to_docling(tmp_path):
     root = tmp_path.resolve() / "Learning"
     settings = tmp_path.resolve() / "state" / "settings.json"
     parsers = []
@@ -319,5 +329,5 @@ def test_upload_without_parser_defaults_to_anydoc(tmp_path):
     record = response.json()
     assert response.status_code == 201
     assert record["status"] == "ready"
-    assert record["parser"] == "anydoc"
-    assert parsers == ["anydoc"]
+    assert record["parser"] == "docling"
+    assert parsers == ["docling"]

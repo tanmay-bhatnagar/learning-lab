@@ -18,11 +18,19 @@ def estimate_tokens(text: str) -> int:
 
 def estimate_messages(messages: list[dict]) -> int:
     # Template framing is model-specific; allow overhead per message and reply.
-    return 32 + sum(16 + estimate_tokens(json.dumps(m, ensure_ascii=False)) for m in messages)
+    total = 32
+    for message in messages:
+        bounded = {key: value for key, value in message.items() if key != "images"}
+        total += 16 + estimate_tokens(json.dumps(bounded, ensure_ascii=False))
+        # Vision tokenization is model-specific. Reserve conservatively without
+        # counting base64 bytes as text tokens.
+        total += 2048 * len(message.get("images") or [])
+    return total
 
 
-def prepare_context(messages: list[dict], context_limit: int = DEFAULT_CONTEXT_LIMIT):
-    """Return (copied prompt, context metadata, bounded generation budget).
+def prepare_context_details(messages: list[dict], context_limit: int = DEFAULT_CONTEXT_LIMIT,
+                            *, atomic_indices: set[int] | None = None):
+    """Return a bounded prompt, metadata, reserve, and original indices retained.
 
     User turns are atomic, including assistant tool calls and tool replies.
     Consecutive user-context/attachment messages form independently removable
@@ -30,8 +38,10 @@ def prepare_context(messages: list[dict], context_limit: int = DEFAULT_CONTEXT_L
     preceding the latest user retains the largest suffix that fits alongside the
     full question. Only then may the question itself be shortened from the front.
     System messages are retained in their original positions and never shortened.
-    truncated_messages counts each removed or shortened message once.
+    Indices in ``atomic_indices`` are removed whole instead of shortened.
+    ``truncated_messages`` counts each removed or shortened message once.
     """
+    atomic = atomic_indices or set()
     if type(context_limit) is not int or not 256 <= context_limit <= MAX_CONTEXT_LIMIT:
         raise ValueError('context_limit must be an integer between 256 and 32768')
     reserve = min(2048, max(64, context_limit // 4))
@@ -65,6 +75,8 @@ def prepare_context(messages: list[dict], context_limit: int = DEFAULT_CONTEXT_L
 
     def shorten(index):
         """Keep the longest suffix fitting the current selection, if possible."""
+        if index in atomic:
+            return False
         original = copied[index].get('content', '')
         copied[index]['content'] = ''
         if estimate_messages(selected()) > budget:
@@ -99,5 +111,11 @@ def prepare_context(messages: list[dict], context_limit: int = DEFAULT_CONTEXT_L
     used = estimate_messages(prompt)
     if used > budget:
         raise ValueError('System messages exceed prompt budget')
-    return prompt, {'used': used, 'limit': context_limit, 'estimated': True,
-                    'truncated_messages': len(affected)}, reserve
+    return (prompt, {'used': used, 'limit': context_limit, 'estimated': True,
+                     'truncated_messages': len(affected)}, reserve, tuple(sorted(keep)))
+
+
+def prepare_context(messages: list[dict], context_limit: int = DEFAULT_CONTEXT_LIMIT):
+    """Return the bounded prompt and metadata without changing caller history."""
+    prompt, context, reserve, _ = prepare_context_details(messages, context_limit)
+    return prompt, context, reserve

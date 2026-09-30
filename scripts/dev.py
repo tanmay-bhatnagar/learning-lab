@@ -51,12 +51,18 @@ def main():
     if api_port != 8765:
         print(f'Port 8765 is occupied; using {api_url} for the Learning Lab API.', flush=True)
     children = []
+    runtime_env = {
+        **os.environ,
+        # Keep Docling artifacts with the project's other local model weights.
+        # An explicit path also prevents unexpected background network downloads.
+        'DOCLING_ARTIFACTS_PATH': str(ROOT / 'data/external/modelweights/docling'),
+    }
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, stop)
     try:
-        children.append(subprocess.Popen([str(ROOT / '.venv/bin/python'), '-m', 'uvicorn', 'lab.main:app', '--app-dir', 'services/api', '--host', '127.0.0.1', '--port', str(api_port)], cwd=ROOT))
+        children.append(subprocess.Popen([str(ROOT / '.venv/bin/python'), '-m', 'uvicorn', 'lab.main:app', '--app-dir', 'services/api', '--host', '127.0.0.1', '--port', str(api_port)], cwd=ROOT, env=runtime_env))
         wait_ready(f'{api_url}/api/health', children)
-        env = {**os.environ, 'LEARNING_LAB_API_URL': api_url}
+        env = {**runtime_env, 'LEARNING_LAB_API_URL': api_url}
         children.append(subprocess.Popen(['npm', 'run', 'dev', '--', '--port', '5173', '--strictPort'], cwd=ROOT / 'apps/web', env=env))
         wait_ready('http://127.0.0.1:5173/api/health', children)
         print('Learning Lab is ready: http://127.0.0.1:5173 (Ctrl-C stops both services)', flush=True)

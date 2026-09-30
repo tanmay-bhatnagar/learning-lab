@@ -60,6 +60,28 @@ def write_json(path, data):
         temp.unlink(missing_ok=True)
 
 
+def write_bytes(path, data):
+    checked(path)
+    if not isinstance(data, bytes):
+        raise TypeError("Stored artifact data must be bytes.")
+    temp = checked(path.parent / f".write-{uuid.uuid4().hex}.tmp")
+    try:
+        with temp.open("xb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        checked(path)
+        os.replace(temp, path)
+    finally:
+        temp.unlink(missing_ok=True)
+
+
+def write_text(path, text):
+    if not isinstance(text, str):
+        raise TypeError("Stored artifact text must be a string.")
+    write_bytes(path, text.encode("utf-8"))
+
+
 class Store:
     def __init__(self, root, settings):
         self.root = checked(root)

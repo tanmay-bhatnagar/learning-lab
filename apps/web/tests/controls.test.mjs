@@ -34,11 +34,11 @@ test('app context default and maximum stay at 32768 regardless of model metadata
 });
 test('legacy saved 8192 context migrates to 32768 during initialization normalization', () => {
   assert.deepEqual(normalizeSettings({ model: 'qwen3.5:9b-q4_K_M', context_limit: LEGACY_CONTEXT_LIMIT, parser: 'anydoc' }), {
-    settings: { model: 'qwen3.5:9b-q4_K_M', context_limit: APP_CONTEXT_MAX, parser: 'anydoc' },
+    settings: { model: 'qwen3.5:9b-q4_K_M', context_limit: APP_CONTEXT_MAX, parser: 'anydoc', embedding_model: 'nomic-embed-text', retrieval_top_k: 6 },
     migrated: true,
   });
   assert.deepEqual(normalizeSettings({ model: 'qwen3.5:9b-q4_K_M', context_limit: APP_CONTEXT_MAX, parser: 'anydoc' }), {
-    settings: { model: 'qwen3.5:9b-q4_K_M', context_limit: APP_CONTEXT_MAX, parser: 'anydoc' },
+    settings: { model: 'qwen3.5:9b-q4_K_M', context_limit: APP_CONTEXT_MAX, parser: 'anydoc', embedding_model: 'nomic-embed-text', retrieval_top_k: 6 },
     migrated: false,
   });
   assert.deepEqual(normalizeSettings({ model: 'qwen3.5:9b-q4_K_M', context_limit: 16384, parser: 'anydoc' }).migrated, false);
