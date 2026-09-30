@@ -7,6 +7,11 @@ DEFAULT_CONTEXT_LIMIT = 32768
 MAX_CONTEXT_LIMIT = 32768
 
 
+def response_token_reserve(context_limit: int) -> int:
+    """Reserve generation tokens from the configured context window."""
+    return min(2048, max(64, context_limit // 4))
+
+
 def estimate_tokens(text: str) -> int:
     """One estimated token per UTF-8 byte: deliberately very conservative.
 
@@ -31,7 +36,7 @@ def estimate_messages(messages: list[dict]) -> int:
 
 def prepare_context_details(
     messages: list[dict], context_limit: int = DEFAULT_CONTEXT_LIMIT, *, atomic_indices: set[int] | None = None
-):
+) -> tuple[list[dict], dict[str, int | bool], int, tuple[int, ...]]:
     """Return a bounded prompt, metadata, reserve, and original indices retained.
 
     User turns are atomic, including assistant tool calls and tool replies.
@@ -46,7 +51,7 @@ def prepare_context_details(
     atomic = atomic_indices or set()
     if type(context_limit) is not int or not 256 <= context_limit <= MAX_CONTEXT_LIMIT:
         raise ValueError("context_limit must be an integer between 256 and 32768")
-    reserve = min(2048, max(64, context_limit // 4))
+    reserve = response_token_reserve(context_limit)
     budget = context_limit - reserve
     copied = deepcopy(messages)
     for message in copied:
@@ -74,7 +79,7 @@ def prepare_context_details(
     def selected():
         return [m for i, m in enumerate(copied) if i in keep]
 
-    def shorten(index):
+    def shorten(index: int) -> bool:
         """Keep the longest suffix fitting the current selection, if possible."""
         if index in atomic:
             return False
@@ -120,7 +125,9 @@ def prepare_context_details(
     )
 
 
-def prepare_context(messages: list[dict], context_limit: int = DEFAULT_CONTEXT_LIMIT):
+def prepare_context(
+    messages: list[dict], context_limit: int = DEFAULT_CONTEXT_LIMIT
+) -> tuple[list[dict], dict[str, int | bool], int]:
     """Return the bounded prompt and metadata without changing caller history."""
     prompt, context, reserve, _ = prepare_context_details(messages, context_limit)
     return prompt, context, reserve

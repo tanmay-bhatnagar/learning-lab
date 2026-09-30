@@ -11,13 +11,3 @@ extend-immutable-calls = ["fastapi.File", "fastapi.Form", "fastapi.Depends", "fa
 [lint.per-file-ignores]
 # Annotations are enforced for application code only.
 "!services/api/lab/**" = ["ANN001", "ANN201"]
-# Existing offenders; each refactor slice deletes the entries it resolves.
-"services/api/lab/index.py" = ["ANN001"]
-"services/api/lab/storage.py" = ["ANN001", "ANN201"]
-"services/api/lab/http/**" = ["ANN001", "ANN201"]
-"services/api/lab/asgi.py" = ["ANN201"]
-"services/api/lab/config.py" = ["ANN001", "ANN201"]
-"services/api/lab/chat_prompt.py" = ["ANN001", "ANN201"]
-"services/api/lab/chat_session.py" = ["ANN001", "ANN201"]
-"services/api/lab/ingest.py" = ["ANN001", "ANN201"]
-"services/api/lab/{chunking,context,docling_pipeline,models,parse_pipeline,retrieval}.py" = ["ANN001", "ANN201"]

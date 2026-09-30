@@ -6,13 +6,10 @@ import base64
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
+from .contracts import Citation, IndexedChunk, StoreProtocol
 from .embedding_config import embedding_index_key, format_for_embedding
-from .index import TopicIndex
-from .contracts import Citation, IndexedChunk
-
-# Typed retrieval hit returned from TopicIndex search paths.
-RetrievalHit = IndexedChunk
 from .errors import EmbeddingUnavailable
+from .index import TopicIndex
 from .storage import read_bytes
 
 # Embedders raise EmbeddingUnavailable when the model cannot serve requests and
@@ -20,12 +17,12 @@ from .storage import read_bytes
 Embedder = Callable[[list[str], str], Awaitable[list[list[float]]]]
 
 
-def topic_index_path(store, topic: str) -> Path:
+def topic_index_path(store: StoreProtocol, topic: str) -> Path:
     return store.file_path(topic, "retrieval.sqlite")
 
 
 async def index_chunks(
-    store,
+    store: StoreProtocol,
     topic: str,
     file_id: str,
     chunks: list[IndexedChunk],
@@ -63,7 +60,7 @@ async def index_chunks(
 
 
 async def search(
-    store,
+    store: StoreProtocol,
     topic: str,
     query: str,
     *,
@@ -123,7 +120,13 @@ async def search(
 
 
 def _load_hit_images(
-    store, topic: str, hit: IndexedChunk, *, used_assets: set[str], image_count: int, max_images: int
+    store: StoreProtocol,
+    topic: str,
+    hit: IndexedChunk,
+    *,
+    used_assets: set[str],
+    image_count: int,
+    max_images: int,
 ) -> tuple[list[str], list[str]]:
     images: list[str] = []
     attached: list[str] = []
@@ -142,7 +145,7 @@ def _load_hit_images(
 
 
 def evidence_messages(
-    store,
+    store: StoreProtocol,
     topic: str,
     hits: list[IndexedChunk],
     *,

@@ -28,13 +28,27 @@ def ready_from_parse(record: FileRecord, updates: ParseUpdates) -> FileRecord:
     return {**record, **updates, "status": "ready", "index_status": "not_indexed"}
 
 
+def ready_from_markdown(record: FileRecord, markdown_name: str) -> FileRecord:
+    return {
+        **record,
+        "status": "ready",
+        "markdown_name": markdown_name,
+        "index_status": "not_indexed",
+        "extraction_diagnostics": {
+            "status": "unassessed",
+            "note": "Extraction fidelity was not assessed for this parser.",
+            "findings": [],
+        },
+    }
+
+
 def ready_from_docling(record: FileRecord, updates: ParseUpdates, index_result: dict[str, object]) -> FileRecord:
     result: FileRecord = {
         **record,
         **updates,
         "status": "ready",
         "index_status": "ready",
-        "index_mode": index_result["mode"],  # type: ignore[typeddict-item]
+        "index_mode": str(index_result["mode"]),
         "embedding_model": index_result.get("embedding_model", ""),
     }
     if index_result.get("warning"):
