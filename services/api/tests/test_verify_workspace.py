@@ -2,7 +2,7 @@ import importlib.util
 import os
 from pathlib import Path
 
-SCRIPT = Path(__file__).resolve().parents[1] / "scripts/verify_workspace.py"
+SCRIPT = Path(__file__).resolve().parents[3] / "scripts/verify_workspace.py"
 SPEC = importlib.util.spec_from_file_location("verify_workspace", SCRIPT)
 verify = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(verify)

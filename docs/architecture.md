@@ -14,13 +14,18 @@ The API app owns one model-generation lock shared by embedding and chat generati
 | --- | --- |
 | `apps/web/src/main.tsx`, `api.ts` | Browser workspace, files, settings, conversation and transport |
 | `apps/web/src/citations.tsx`, `retrievalTrace.tsx` | Per-answer source display and retrieval inspection |
-| `services/api/lab/main.py` | Request validation, topic-scoped upload and chat orchestration |
+| `services/api/lab/http/` | HTTP routers, middleware, request schemas and app factory |
+| `services/api/lab/config.py` | Frozen `AppConfig` and environment defaults |
+| `services/api/lab/errors.py` | Domain error taxonomy |
+| `services/api/lab/contracts.py` | Typed records and gateway/store protocols |
+| `services/api/lab/ingest.py`, `chat_prompt.py`, `chat_session.py` | Pure upload, prompt and session transitions |
 | `services/api/lab/parsers.py`, `docling_pipeline.py`, `parse_pipeline.py` | PDF converters, structured extraction and derived artifacts |
-| `services/api/lab/chunking.py`, `embedding_config.py` | Chunk boundaries, local tokenizer choice and embedding format |
+| `services/api/lab/chunking.py`, `embedding_config.py`, `hashing.py` | Chunk boundaries, tokenizer choice, embedding format and content hashes |
 | `services/api/lab/index.py`, `retrieval.py` | Topic SQLite index, hybrid search and evidence assembly |
 | `services/api/lab/models.py`, `context.py` | Local model gateway, streaming and prompt budget |
 | `services/api/lab/storage.py` | Topic paths, original preservation, file and session records |
-| `scripts/dev.py` | Development service lifecycle |
+| `services/api/lab/asgi.py` | ASGI entry point |
+| `scripts/dev.py`, `scripts/verify_workspace.py` | Development and verification lifecycle |
 
 Personal topics and their PDFs live in `../Learning/<topic>/`, outside this Git repository. Tests override those roots. Model weights and runtime state remain local and ignored by Git.
 

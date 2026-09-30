@@ -4,38 +4,13 @@
 from pathlib import Path
 import os
 import signal
-import socket
 import subprocess
 import sys
 import time
-import urllib.request
+
+from scripts.process_helpers import available_port, stop_processes, wait_ready
 
 ROOT = Path(__file__).resolve().parents[1]
-
-
-def available_port(preferred):
-    with socket.socket() as sock:
-        try:
-            sock.bind(("127.0.0.1", preferred))
-        except OSError:
-            sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
-
-
-def wait_ready(url, children, timeout=20):
-    deadline = time.monotonic() + timeout
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-    while time.monotonic() < deadline:
-        if any(child.poll() is not None for child in children):
-            raise RuntimeError("A Learning Lab service exited during startup; see its error above.")
-        try:
-            with opener.open(url, timeout=0.5) as response:
-                if response.status == 200:
-                    return
-        except OSError:
-            pass
-        time.sleep(0.1)
-    raise RuntimeError(f"Startup timed out waiting for {url}")
 
 
 def stop(*_):
@@ -99,15 +74,7 @@ def main():
         print(str(error), file=sys.stderr)
         return 1
     finally:
-        for child in children:
-            if child.poll() is None:
-                child.terminate()
-        for child in children:
-            try:
-                child.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                child.kill()
-                child.wait()
+        stop_processes(children)
 
 
 if __name__ == "__main__":

@@ -16,7 +16,6 @@ DEFAULT_EMBED_CONTEXT_LIMIT = 2048
 EMBEDDING_FORMAT_VERSION = "nomic-search-prefix-v1"
 
 _CODE_ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_TOKENIZER_DIR = _CODE_ROOT / "data/external/modelweights/tokenizers/bert-base-uncased"
 
 
 @dataclass(frozen=True)

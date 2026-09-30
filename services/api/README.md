@@ -1,7 +1,7 @@
 # Learning Lab API
 
 Install from this directory: `python -m pip install -e '.[test]'` (or `make setup` from Code).
-Run one process: `uvicorn lab.main:app --host 127.0.0.1 --port 8765`; `make dev` starts it with the web app.
+Run one process: `uvicorn lab.asgi:app --host 127.0.0.1 --port 8765`; `make dev` starts it with the web app.
 Tests: `make test` from Code. `docs/API.md` is the HTTP and model-adapter contract.
 
 `LEARNING_LAB_ROOT` overrides Code's sibling Learning directory.
@@ -29,9 +29,9 @@ Only explicit attachment IDs in the selected topic reach model context. Indexed 
 bounded retrieved passages with persistent citations; unindexed files are attached as whole Markdown.
 Evidence and attachments enter as untrusted user messages, the fixed system scope rules and any
 learning goal are prepended, and no model tools are exposed. The route budgets the prompt so evidence
-passages are kept or dropped whole; the Ollama adapter (`lab.models`, imported lazily) applies its own
-context check before streaming. Full user and assistant text and thinking are retained independently of
-request trimming, and interrupted replies are saved as incomplete.
+passages are kept or dropped whole; the Ollama adapter (`lab.models`, imported lazily) asserts the
+prompt fits when the route supplies context metadata. Full user and assistant text and thinking are
+retained independently of request trimming, and interrupted replies are saved as incomplete.
 
 Upstream converter APIs:
 https://github.com/docling-project/docling
