@@ -113,7 +113,7 @@ def test_failed_tokenizer_load_uses_one_fallback_for_chunk_counting(monkeypatch)
         "picture_asset_ids": [],
         "contextualized_text": "a" * 100,
     }
-    pieces = chunking._enforce_embed_limit(record, "nomic-embed-text", tokenizer=tokenizer)
+    pieces = chunking.enforce_embed_limit(record, "nomic-embed-text", tokenizer=tokenizer)
     assert warnings
     assert "".join(piece["text"] for piece in pieces) == "a" * 100
     assert len(pieces) > 1
@@ -221,7 +221,7 @@ def test_chunk_tokenizer_counts_embedding_special_tokens_at_boundary(monkeypatch
         "bboxes": [],
         "picture_asset_ids": [],
     }
-    chunks = chunking._enforce_embed_limit(record, model, tokenizer=chunk_tokenizer)
+    chunks = chunking.enforce_embed_limit(record, model, tokenizer=chunk_tokenizer)
     assert len(chunks) > 1
     assert all(
         embedding_config.count_with_chunk_tokenizer(

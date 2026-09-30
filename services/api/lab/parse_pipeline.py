@@ -7,11 +7,11 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .chunking import _enforce_embed_limit, chunk_docling_document
+from .chunking import chunk_docling_document, enforce_embed_limit
 from .contracts import ArtifactAsset, IndexedChunk, ParseUpdates
 from .docling_pipeline import parse_pdf_bytes
 from .embedding_config import chunk_tokenizer, embedding_format_metadata
-from .index import content_hash
+from .hashing import content_hash
 from .storage import write_bytes, write_json, write_text
 
 
@@ -126,7 +126,7 @@ def parse_and_persist(
                 continue
             stored = asset_by_id[asset.id]
             text = asset.caption.strip()
-            bounded = _enforce_embed_limit(
+            bounded = enforce_embed_limit(
                 {
                     "text": text,
                     "contextualized_text": text,
@@ -241,7 +241,7 @@ def _extraction_diagnostics(warnings: list[str], missing_page_images: list[int] 
     findings.extend(
         f"Page {page}: preview image was not rendered; inspect the original PDF." for page in missing_page_images or []
     )
-    if any("partial_success" not in warning for warning in warnings):
+    if any(warning != "docling:partial_success" for warning in warnings):
         status = "confirmed_failure"
         note = "Docling reported a conversion component failure; extraction fidelity is not established."
     elif findings:

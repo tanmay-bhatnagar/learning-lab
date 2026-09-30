@@ -3,7 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from lab.index import IndexInputError, TopicIndex, content_hash
+from lab.hashing import content_hash
+from lab.index import IndexInputError, TopicIndex
 
 
 def _chunk(

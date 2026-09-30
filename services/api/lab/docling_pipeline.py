@@ -93,7 +93,7 @@ def _collect_warnings(result) -> list[str]:
 
     warnings: list[str] = []
     if result.status == ConversionStatus.PARTIAL_SUCCESS:
-        warnings.append("Docling reported partial_success.")
+        warnings.append("docling:partial_success")
     for error in result.errors:
         page = f" (page {error.page_no})" if error.page_no is not None else ""
         warnings.append(f"{error.module_name}: {error.error_message}{page}")

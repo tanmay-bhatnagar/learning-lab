@@ -517,8 +517,3 @@ class TopicIndex:
             )
 
         return _fuse_ranked_hits(keyword_hits, vector_hits, limit, rrf_k)
-
-
-def content_hash(text: str) -> str:
-    """Deterministic SHA-256 helper for callers building chunk records."""
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()

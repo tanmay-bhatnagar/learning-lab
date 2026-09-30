@@ -100,9 +100,7 @@ def chunk_docling_document(
             "bboxes": bboxes,
             "picture_asset_ids": _linked_picture_asset_ids(doc_items, ref_to_asset),
         }
-        chunks.extend(
-            _enforce_embed_limit(record, embedding_model, tokenizer=tokenizer) if chunker is None else [record]
-        )
+        chunks.extend(enforce_embed_limit(record, embedding_model, tokenizer=tokenizer))
     for index, record in enumerate(chunks):
         record["index"] = index
     return chunks, warnings
@@ -112,7 +110,7 @@ def _contextualize(headings: Sequence[str] | None, text: str) -> str:
     return "\n".join([*(headings or []), text])
 
 
-def _enforce_embed_limit(record: ChunkRecord, embedding_model: str, *, tokenizer=None) -> list[ChunkRecord]:
+def enforce_embed_limit(record: ChunkRecord, embedding_model: str, *, tokenizer=None) -> list[ChunkRecord]:
     """Split chunks that HybridChunker left above the embedding limit.
 
     HybridChunker's max_tokens is a merge target: joined sub-chunks can exceed
