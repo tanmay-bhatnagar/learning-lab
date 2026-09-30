@@ -79,10 +79,10 @@ def router(deps: AppDeps) -> APIRouter:
                 records = deps.store.files(topic)
                 records.append(record)
                 write_json(deps.store.topic(topic) / "files.json", records)
-                current = load_settings(deps.store)
-                if parser == "docling":
-                    parser_fn = deps.structured_parser or parse_and_persist
-                    try:
+                try:
+                    if parser == "docling":
+                        parser_fn = deps.structured_parser or parse_and_persist
+                        current = load_settings(deps.store)
                         updates, chunks = await run_in_threadpool(
                             parser_fn,
                             deps.store,
@@ -95,9 +95,6 @@ def router(deps: AppDeps) -> APIRouter:
                             artifacts_path=deps.config.docling_artifacts_path,
                             tokenizer_root=deps.config.embedding_tokenizer_root,
                         )
-                    except Exception as exc:  # noqa: BLE001 - third-party Docling/parser boundary
-                        record = error_record(record, exc)
-                    else:
                         record = {**record, **updates}
                         try:
                             index_result = await index_chunks(
@@ -111,27 +108,20 @@ def router(deps: AppDeps) -> APIRouter:
                             record = ready_from_docling(record, updates, index_result)
                         except (ValueError, OSError, RuntimeError, sqlite3.Error) as exc:
                             record = ready_index_error(record, updates, exc)
-                else:
-                    convert = parser_map.get(parser)
-                    if convert is None:
-                        record = error_record(record, ValueError("Choose markitdown or anydoc."))
                     else:
-                        try:
-                            markdown = await run_in_threadpool(convert, bytes(data), parser)
-                        except Exception as exc:  # noqa: BLE001 - third-party parser boundary
-                            record = error_record(record, exc)
-                        else:
-                            if not isinstance(markdown, str) or not markdown.strip():
-                                record = error_record(
-                                    record,
-                                    ValueError(
-                                        "No text extracted; scanned PDFs require local OCR before uploading again."
-                                    ),
-                                )
-                            else:
-                                markdown_name = original_name[:-4] + ".md"
-                                write_new_bytes(deps.store.file_path(topic, markdown_name), markdown.encode("utf-8"))
-                                record = ready_from_markdown(record, markdown_name)
+                        convert = parser_map.get(parser)
+                        if convert is None:
+                            raise ValueError("Choose markitdown or anydoc.")
+                        markdown = await run_in_threadpool(convert, bytes(data), parser)
+                        if not isinstance(markdown, str) or not markdown.strip():
+                            raise ValueError(
+                                "No text extracted; scanned PDFs require local OCR before uploading again."
+                            )
+                        markdown_name = original_name[:-4] + ".md"
+                        write_new_bytes(deps.store.file_path(topic, markdown_name), markdown.encode("utf-8"))
+                        record = ready_from_markdown(record, markdown_name)
+                except Exception as exc:  # noqa: BLE001 - conversion boundary matches original upload outcomes
+                    record = error_record(record, exc)
                 records[-1] = record
                 write_json(deps.store.topic(topic) / "files.json", records)
                 return record
