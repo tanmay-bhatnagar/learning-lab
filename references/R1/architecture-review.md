@@ -308,5 +308,6 @@ Several saved conversations (R1 item 4) need typed session records and API proje
 
 - **Confirmed by execution:** D1, in an isolated temporary store. Also measured: Ruff complexity and statement counts, blind-except locations, TypeScript `noImplicitReturns`, diff-churn and line-length measurements, and the Starlette 1.6.0 `StreamingResponse` lifecycle source.
 - **Confirmed by reading:** D2, D3, D4, the test-only branches, double budgeting, stale docs, duplicated components and helpers, and dead code.
-- **Unverified:** D5 (lock leak on early disconnect); whether "Refresh files" clearing the input and selection is intended; real-model and browser behavior. No live Ollama, Docling model or browser session was exercised in this review.
+- **Unverified:** whether "Refresh files" clearing the input and selection is intended; browser behavior. No Docling model or browser session was exercised in this review.
+- **Resolved after the review (1 October 2026):** D5 was confirmed by a reproduction test and fixed. The D1 fix was verified against live local Ollama.
 - **Not assessed:** styling and accessibility beyond code structure (the modals lack a focus trap and Escape handling, noted only), performance of pure-Python vector scoring at scale, and the vendored parser skills under `skills/`, which are pinned references rather than application code.

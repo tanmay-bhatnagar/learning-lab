@@ -21,7 +21,7 @@ Snapshot as of 30 September 2026. The [interactive system map](system-map.html) 
 | 5 | Understanding checks, topic progress memory and restart recovery. |
 | 6 | Full R1 acceptance demonstration, then context compaction. |
 
-The [ingestion and retrieval refactor](refactor-handoff.md) is implemented; live Ollama and browser use remain unverified. Coding experiments, web research, full multimodal support and Jetson hosting belong to later releases. The 107-PDF parser comparison remains deferred until Tanmay explicitly requests it.
+The [ingestion and retrieval refactor](refactor-handoff.md) is implemented. The 1 October [architecture review](architecture-review.md) fixed five defects. It also set out the functional-design refactor, now staged as [task briefs](refactor-tasks.md) that wait for Tanmay's start before building items 2-6. Coding experiments, web research, full multimodal support and Jetson hosting belong to later releases. The 107-PDF parser comparison remains deferred until Tanmay explicitly requests it.
 
 ## Validation at this snapshot
 
