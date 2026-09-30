@@ -6,23 +6,7 @@ import lab.main as main_module
 from lab import models
 from lab.main import create_app
 from lab.storage import write_json, write_text
-
-
-class FakeModel:
-    def __init__(self):
-        self.calls = []
-
-    async def list_models(self):
-        return {"models": [{"id": "fake", "vision": False}]}
-
-    async def stream_chat(self, messages, model, think, context_limit):
-        self.calls.append(messages)
-        yield {"type": "token", "text": "grounded answer"}
-        yield {
-            "type": "done",
-            "model": model,
-            "context": {"used": 10, "limit": context_limit, "estimated": True, "truncated_messages": 0},
-        }
+from tests.fakes import FakeModel
 
 
 def fake_structured_parser(store, topic, *, data, filename, original_name, file_id, embedding_model=""):
@@ -78,7 +62,7 @@ def fake_structured_parser(store, topic, *, data, filename, original_name, file_
 def test_docling_upload_indexes_and_chat_retrieves_bounded_evidence(tmp_path):
     root = tmp_path / "Learning"
     settings = tmp_path / "state" / "settings.json"
-    model = FakeModel()
+    model = FakeModel(token_text="grounded answer")
     client = TestClient(
         create_app(
             root,
@@ -367,7 +351,7 @@ def test_chat_reports_missing_index_for_selected_ready_indexed_file(tmp_path):
         create_app(
             root,
             tmp_path / "state/settings.json",
-            model_backend=FakeModel(),
+            model_backend=FakeModel(token_text="grounded answer"),
             structured_parser=fake_structured_parser,
         )
     )
@@ -395,7 +379,7 @@ def test_chat_budget_error_is_actionable_releases_lock_and_preserves_history(tmp
         create_app(
             tmp_path / "Learning",
             tmp_path / "state/settings.json",
-            model_backend=FakeModel(),
+            model_backend=FakeModel(token_text="grounded answer"),
         )
     )
     topic = client.post("/api/topics", json={"name": "Context error"}).json()["id"]
@@ -435,7 +419,7 @@ def test_trace_rejects_cross_topic_file_scope(tmp_path):
         create_app(
             root,
             settings,
-            model_backend=FakeModel(),
+            model_backend=FakeModel(token_text="grounded answer"),
             structured_parser=fake_structured_parser,
         )
     )
@@ -489,7 +473,7 @@ _turn_retriever.calls = []
 def test_chat_retrieval_persists_per_assistant_message(tmp_path):
     root = tmp_path / "Learning"
     settings = tmp_path / "state" / "settings.json"
-    model = FakeModel()
+    model = FakeModel(token_text="grounded answer")
     _turn_retriever.calls = []
     client = TestClient(
         create_app(
@@ -580,7 +564,7 @@ def test_index_failure_keeps_successful_docling_artifacts_available(tmp_path, mo
         create_app(
             root,
             settings,
-            model_backend=FakeModel(),
+            model_backend=FakeModel(token_text="grounded answer"),
             structured_parser=fake_structured_parser,
         )
     )

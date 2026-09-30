@@ -6,26 +6,7 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from lab.main import create_app, SYSTEM_RULES
 from lab.storage import Store
-
-
-class FakeModel:
-    def __init__(self, fail=False):
-        self.calls = []
-        self.fail = fail
-
-    async def list_models(self):
-        return {"models": [{"id": "fake"}]}
-
-    async def stream_chat(self, messages, model, think, context_limit):
-        self.calls.append(messages)
-        yield {"type": "thinking", "text": "reasoning"}
-        yield {"type": "token", "text": "answer"}
-        if self.fail:
-            raise RuntimeError("offline")
-        yield {
-            "type": "done",
-            "context": {"used": 42, "limit": context_limit, "estimated": True, "truncated_messages": 0},
-        }
+from tests.fakes import FakeModel, SlowFakeModel
 
 
 @pytest.fixture
@@ -350,15 +331,7 @@ def test_concurrent_chat_rejected_without_losing_history(setup):
     _, topic, root, settings, *_ = setup
     started, release = threading.Event(), threading.Event()
 
-    class SlowModel(FakeModel):
-        async def stream_chat(self, *args):
-            started.set()
-            while not release.is_set():
-                await asyncio.sleep(0.01)
-            async for event in super().stream_chat(*args):
-                yield event
-
-    with TestClient(create_app(root, settings, model_backend=SlowModel())) as client:
+    with TestClient(create_app(root, settings, model_backend=SlowFakeModel(started, release))) as client:
         with ThreadPoolExecutor(max_workers=1) as pool:
             future = pool.submit(chat, client, topic)
             try:

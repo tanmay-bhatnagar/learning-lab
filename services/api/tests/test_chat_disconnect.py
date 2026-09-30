@@ -8,18 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from lab.main import create_app
-
-
-class FakeModel:
-    async def list_models(self):
-        return {"models": [{"id": "fake"}]}
-
-    async def stream_chat(self, messages, model, think, context_limit):
-        yield {"type": "token", "text": "answer"}
-        yield {
-            "type": "done",
-            "context": {"used": 1, "limit": context_limit, "estimated": True, "truncated_messages": 0},
-        }
+from tests.fakes import FakeModel
 
 
 def _scope(topic, body, spec_version):
