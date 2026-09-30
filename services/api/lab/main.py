@@ -17,6 +17,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .parse_pipeline import parse_and_persist
 from .context import prepare_context_details
+from .file_records import mark_interrupted
 from .parsers import convert_pdf
 from .retrieval import evidence_messages, index_chunks, search
 from .storage import Store, checked, read_bytes, read_json, write_json, write_new_bytes
@@ -100,6 +101,7 @@ def create_app(root=None, settings_path=None, model_backend=None, converter=None
     app.state.store = store
     app.state.model_generation_lock = asyncio.Lock()
     locks = {}
+    active_uploads: set[str] = set()
     limit = max_upload_bytes or int(os.environ.get("LEARNING_LAB_MAX_UPLOAD_BYTES", 25 * 1024 * 1024))
     origins = ["http://localhost:5173", "http://127.0.0.1:5173"]
     app.add_middleware(UploadBodyLimit, limit=limit + 65536)
@@ -177,11 +179,20 @@ def create_app(root=None, settings_path=None, model_backend=None, converter=None
             return {"id": topic, "archived": True}
 
     @app.get("/api/topics/{topic}/files")
-    def files(topic: str):
-        return {"files": store.files(topic)}
+    async def files(topic: str):
+        records = store.files(topic)
+        recovered = mark_interrupted(records, active_uploads)
+        topic_lock = lock(topic)
+        # A running upload rewrites files.json when it finishes, so persist only while the topic is idle.
+        if recovered != records and not topic_lock.locked():
+            async with topic_lock:
+                recovered = mark_interrupted(store.files(topic), active_uploads)
+                write_json(store.topic(topic) / "files.json", recovered)
+        return {"files": recovered}
 
     @app.post("/api/topics/{topic}/files", status_code=201)
     async def upload(topic: str, file: UploadFile = File(...), parser: Literal["docling", "markitdown", "anydoc"] = Form("docling")):
+        file_id = ""
         try:
             async with lock(topic):
                 name = file.filename or "document.pdf"
@@ -195,6 +206,7 @@ def create_app(root=None, settings_path=None, model_backend=None, converter=None
                 if not data.startswith(b"%PDF-"):
                     raise HTTPException(400, "File does not have a valid PDF header.")
                 file_id = uuid.uuid4().hex
+                active_uploads.add(file_id)
                 stem = re.sub(r"[^A-Za-z0-9._-]", "_", Path(name).stem)[:100] or "document"
                 original_name = f"{datetime.now(timezone.utc):%Y_%m_%d}_{stem}-{file_id}.pdf"
                 record = {"id": file_id, "name": name, "original_name": original_name, "status": "processing", "parser": parser}
@@ -248,6 +260,7 @@ def create_app(root=None, settings_path=None, model_backend=None, converter=None
                 write_json(store.topic(topic) / "files.json", records)
                 return record
         finally:
+            active_uploads.discard(file_id)
             await file.close()
 
     @app.get("/api/topics/{topic}/files/{file_id}/markdown")

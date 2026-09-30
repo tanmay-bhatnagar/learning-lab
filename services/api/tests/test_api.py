@@ -328,6 +328,59 @@ def test_new_defaults_and_response_model_persist(setup):
     assert client.get(f'/api/topics/{topic}/messages').json()['messages'][-1]['model'] == 'fake'
 
 
+def test_mark_interrupted_is_pure_and_spares_active_uploads():
+    from lab.file_records import mark_interrupted
+    records = [{"id": "done", "status": "ready"}, {"id": "stale", "status": "processing"},
+               {"id": "live", "status": "processing"}]
+    snapshot = json.loads(json.dumps(records))
+    marked = mark_interrupted(records, {"live"})
+    assert records == snapshot
+    assert [record["status"] for record in marked] == ["ready", "error", "processing"]
+    assert marked[1]["interrupted"] is True and "interrupted" in marked[1]["error"]
+
+
+def test_interrupted_processing_record_is_marked_and_artifacts_kept(setup):
+    client, topic, root, *_ = setup
+    record = upload(client, topic).json()
+    manifest = root / topic / "files.json"
+    stale = {**record, "status": "processing"}
+    manifest.write_text(json.dumps([stale]))
+    listed = client.get(f"/api/topics/{topic}/files").json()["files"]
+    assert listed[0]["status"] == "error" and listed[0]["interrupted"] is True
+    assert "upload the PDF again" in listed[0]["error"]
+    assert json.loads(manifest.read_text())[0]["status"] == "error"
+    assert (root / topic / record["original_name"]).is_file()
+    assert (root / topic / record["markdown_name"]).is_file()
+    assert client.get(f"/api/topics/{topic}/files/{record['id']}/original").status_code == 200
+    assert chat(client, topic, [record["id"]]).status_code == 409
+
+
+def test_in_flight_upload_is_not_marked_interrupted(tmp_path):
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+    started, release = threading.Event(), threading.Event()
+
+    def slow_converter(data, parser):
+        started.set()
+        assert release.wait(timeout=5)
+        return "# Slow PDF\n"
+
+    root = tmp_path.resolve() / "Learning"
+    with TestClient(create_app(root, tmp_path.resolve() / "state/settings.json",
+                               converter=slow_converter)) as client:
+        topic = client.post("/api/topics", json={"name": "Slow"}).json()["id"]
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(upload, client, topic)
+            try:
+                assert started.wait(timeout=5)
+                listed = client.get(f"/api/topics/{topic}/files").json()["files"]
+                assert [item["status"] for item in listed] == ["processing"]
+            finally:
+                release.set()
+            assert future.result(timeout=5).json()["status"] == "ready"
+        assert [item["status"] for item in client.get(f"/api/topics/{topic}/files").json()["files"]] == ["ready"]
+
+
 def test_upload_without_parser_defaults_to_docling(tmp_path):
     root = tmp_path.resolve() / "Learning"
     settings = tmp_path.resolve() / "state" / "settings.json"
