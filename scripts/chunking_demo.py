@@ -5,6 +5,7 @@ Generates an in-memory synthetic PDF, parses it with Docling, persists artifacts
 inside a TemporaryDirectory only, builds a keyword + Ollama embedding index, and
 runs exact and semantic queries. Prints a concise stage-by-stage JSON report.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -26,9 +27,7 @@ TEXT_PREVIEW_CHARS = 160
 
 # Semantic query avoids the indexed wording; targets the signal-conditioning section.
 EXACT_QUERY = EXACT_IDENTIFIER
-SEMANTIC_QUERY = (
-    "How are tiny transducer millivolt readings scaled before normalization?"
-)
+SEMANTIC_QUERY = "How are tiny transducer millivolt readings scaled before normalization?"
 
 
 def _token_count(text: str, model: str) -> int:
@@ -131,6 +130,7 @@ def _embedder():
 
     async def embed(texts: list[str], model: str) -> list[list[float]]:
         return await models.embed_texts(texts, model, generation_lock=lock)
+
     return embed
 
 
@@ -259,17 +259,22 @@ async def _run_demo() -> dict[str, Any]:
             )
             hits = [_hit_payload(hit) for hit in result.get("hits") or []]
             messages, citations = evidence_messages(
-                store, topic, result.get("hits") or [], include_images=False,
+                store,
+                topic,
+                result.get("hits") or [],
+                include_images=False,
             )
-            queries.append({
-                "kind": kind,
-                "query": query,
-                "mode": result.get("mode"),
-                "warning": result.get("warning"),
-                "hits": hits,
-                "selected_evidence": [_citation_payload(item) for item in citations],
-                "evidence_message_count": len(messages),
-            })
+            queries.append(
+                {
+                    "kind": kind,
+                    "query": query,
+                    "mode": result.get("mode"),
+                    "warning": result.get("warning"),
+                    "hits": hits,
+                    "selected_evidence": [_citation_payload(item) for item in citations],
+                    "evidence_message_count": len(messages),
+                }
+            )
 
         return {
             "workspace": str(scratch),
@@ -280,13 +285,9 @@ async def _run_demo() -> dict[str, Any]:
                 "page_count": updates.get("page_count"),
                 "figure_count": updates.get("asset_count"),
                 "warnings": updates.get("warnings") or [],
-                "markdown_chars": len(
-                    (store.file_path(topic, updates["markdown_name"]).read_text(encoding="utf-8"))
-                ),
+                "markdown_chars": len((store.file_path(topic, updates["markdown_name"]).read_text(encoding="utf-8"))),
                 "persisted_artifacts": sorted(
-                    path.name
-                    for path in store.topic(topic).iterdir()
-                    if path.is_file() and path.name != "topic.json"
+                    path.name for path in store.topic(topic).iterdir() if path.is_file() and path.name != "topic.json"
                 ),
             },
             "chunks": chunk_rows,

@@ -1,4 +1,5 @@
 """Chat must release its topic lock however the client disconnects."""
+
 import asyncio
 import gc
 import json
@@ -15,19 +16,30 @@ class FakeModel:
 
     async def stream_chat(self, messages, model, think, context_limit):
         yield {"type": "token", "text": "answer"}
-        yield {"type": "done", "context": {"used": 1, "limit": context_limit,
-                                           "estimated": True, "truncated_messages": 0}}
+        yield {
+            "type": "done",
+            "context": {"used": 1, "limit": context_limit, "estimated": True, "truncated_messages": 0},
+        }
 
 
 def _scope(topic, body, spec_version):
     return {
-        "type": "http", "asgi": {"version": "3.0", "spec_version": spec_version},
-        "http_version": "1.1", "method": "POST", "scheme": "http",
-        "path": f"/api/topics/{topic}/chat", "raw_path": f"/api/topics/{topic}/chat".encode(),
-        "query_string": b"", "root_path": "",
-        "headers": [(b"host", b"testserver"), (b"content-type", b"application/json"),
-                    (b"content-length", str(len(body)).encode())],
-        "client": ("127.0.0.1", 50000), "server": ("testserver", 80),
+        "type": "http",
+        "asgi": {"version": "3.0", "spec_version": spec_version},
+        "http_version": "1.1",
+        "method": "POST",
+        "scheme": "http",
+        "path": f"/api/topics/{topic}/chat",
+        "raw_path": f"/api/topics/{topic}/chat".encode(),
+        "query_string": b"",
+        "root_path": "",
+        "headers": [
+            (b"host", b"testserver"),
+            (b"content-type", b"application/json"),
+            (b"content-length", str(len(body)).encode()),
+        ],
+        "client": ("127.0.0.1", 50000),
+        "server": ("testserver", 80),
     }
 
 
@@ -56,16 +68,15 @@ async def _disconnected_chat(app, topic, spec_version):
 @pytest.mark.parametrize("spec_version", ["2.3", "2.4"])
 @pytest.mark.parametrize("http_middleware", [True, False])
 def test_disconnect_before_streaming_releases_topic_lock(tmp_path, spec_version, http_middleware):
-    app = create_app(tmp_path.resolve() / "Learning", tmp_path.resolve() / "state/settings.json",
-                     model_backend=FakeModel())
+    app = create_app(
+        tmp_path.resolve() / "Learning", tmp_path.resolve() / "state/settings.json", model_backend=FakeModel()
+    )
     if not http_middleware:
-        app.user_middleware = [item for item in app.user_middleware
-                               if item.cls.__name__ != "BaseHTTPMiddleware"]
+        app.user_middleware = [item for item in app.user_middleware if item.cls.__name__ != "BaseHTTPMiddleware"]
     topic = app.state.store.create("Disconnect")["id"]
     asyncio.run(_disconnected_chat(app, topic, spec_version))
     client = TestClient(app)
-    response = client.post(f"/api/topics/{topic}/chat",
-                           json={"message": "Again", "file_ids": [], "model": "fake"})
+    response = client.post(f"/api/topics/{topic}/chat", json={"message": "Again", "file_ids": [], "model": "fake"})
     assert response.status_code == 200, response.text
     messages = client.get(f"/api/topics/{topic}/messages").json()["messages"]
     assert [message["role"] for message in messages] == ["user", "assistant", "user", "assistant"]

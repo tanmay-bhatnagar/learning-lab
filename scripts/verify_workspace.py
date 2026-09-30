@@ -19,9 +19,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def isolated_environment(
-    inherited_env: Mapping[str, str], run_dir: Path, api_url: str
-) -> dict[str, str]:
+def isolated_environment(inherited_env: Mapping[str, str], run_dir: Path, api_url: str) -> dict[str, str]:
     """Build service settings whose persisted data cannot use inherited paths."""
     run_dir = Path(run_dir).resolve()
     data_root = run_dir / "Learning"
@@ -55,9 +53,7 @@ def preflight() -> tuple[str, str, str]:
     problems = []
     python = sys.executable
     if not node:
-        problems.append(
-            "Node.js executable not found on PATH; install Node.js and retry."
-        )
+        problems.append("Node.js executable not found on PATH; install Node.js and retry.")
     if not vite.is_file():
         problems.append(f"Vite entrypoint missing: {vite}. Run `npm ci` in apps/web.")
     check = subprocess.run(
@@ -98,9 +94,7 @@ def pdf_fixture() -> bytes:
     output.extend(f"xref\n0 {len(offsets)}\n0000000000 65535 f \n".encode())
     for offset in offsets[1:]:
         output.extend(f"{offset:010d} 00000 n \n".encode())
-    output.extend(
-        f"trailer\n<< /Size {len(offsets)} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n".encode()
-    )
+    output.extend(f"trailer\n<< /Size {len(offsets)} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n".encode())
     return bytes(output)
 
 
@@ -125,15 +119,9 @@ def wait_ready(url, processes, timeout=35):
     """Wait for a local endpoint while detecting early service exits."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        exited = [
-            (proc.args, proc.returncode)
-            for proc in processes
-            if proc.poll() is not None
-        ]
+        exited = [(proc.args, proc.returncode) for proc in processes if proc.poll() is not None]
         if exited:
-            raise RuntimeError(
-                f"A verification service exited during startup: {exited}"
-            )
+            raise RuntimeError(f"A verification service exited during startup: {exited}")
         try:
             status, _, _ = request(url, timeout=1)
             if status == 200:
@@ -185,9 +173,7 @@ def run_verification(run_dir, processes, api_port, web_port):
         f"Health check failed: HTTP {status}: {body!r}",
     )
     status, _, body = request(f"{web_url}/api/topics")
-    require(
-        status == 200, f"Initial topic-list request failed: HTTP {status}: {body!r}"
-    )
+    require(status == 200, f"Initial topic-list request failed: HTTP {status}: {body!r}")
     initial_topics = json.loads(body).get("topics")
     require(
         initial_topics == [],
@@ -206,23 +192,15 @@ def run_verification(run_dir, processes, api_port, web_port):
     status, _, body = multipart_upload(f"{web_url}/api/topics/{topic['id']}/files", pdf)
     require(status == 201, f"PDF upload failed: HTTP {status}: {body!r}")
     record = json.loads(body)
-    require(
-        record.get("status") == "ready", f"PDF conversion did not complete: {record!r}"
-    )
-    require(
-        record.get("parser") == "markitdown", f"Unexpected parser reported: {record!r}"
-    )
-    status, _, body = request(
-        f"{web_url}/api/topics/{topic['id']}/files/{record['id']}/markdown"
-    )
+    require(record.get("status") == "ready", f"PDF conversion did not complete: {record!r}")
+    require(record.get("parser") == "markitdown", f"Unexpected parser reported: {record!r}")
+    status, _, body = request(f"{web_url}/api/topics/{topic['id']}/files/{record['id']}/markdown")
     markdown = json.loads(body).get("markdown", "")
     require(
         status == 200 and "42" in markdown,
         f"Markdown did not contain calibration value 42 (HTTP {status}): {markdown!r}",
     )
-    status, _, original = request(
-        f"{web_url}/api/topics/{topic['id']}/files/{record['id']}/original"
-    )
+    status, _, original = request(f"{web_url}/api/topics/{topic['id']}/files/{record['id']}/original")
     require(status == 200 and original == pdf, "Original PDF bytes were not preserved.")
     topic_dir = run_dir / "Learning" / topic["id"]
     require(
@@ -259,11 +237,7 @@ def main(argv: list[str] | None = None) -> int:
         help="Keep isolated services running for browser checks.",
     )
     args = parser.parse_args(argv)
-    run_dir = (
-        ROOT
-        / ".local/verification"
-        / (time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:8])
-    )
+    run_dir = ROOT / ".local/verification" / (time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:8])
     run_dir.mkdir(parents=True)
     evidence_path = run_dir / "evidence.json"
     evidence = {
@@ -358,9 +332,7 @@ def main(argv: list[str] | None = None) -> int:
             )
             while all(process.poll() is None for process in processes):
                 time.sleep(0.5)
-            raise RuntimeError(
-                "A verification service stopped unexpectedly; see run logs."
-            )
+            raise RuntimeError("A verification service stopped unexpectedly; see run logs.")
         evidence.update(run_verification(run_dir, processes, api_port, web_port))
         evidence["fixture_path"] = str(fixture_path.resolve())
         evidence_path.write_text(json.dumps(evidence, indent=2) + "\n")

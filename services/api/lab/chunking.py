@@ -1,4 +1,5 @@
 """HybridChunker adapter for DoclingDocument chunk export."""
+
 from __future__ import annotations
 
 from typing import Any, Mapping, Sequence
@@ -20,11 +21,7 @@ def _bbox_to_dict(bbox) -> dict[str, Any]:
 def _picture_ref_map(image_assets: Sequence[ImageAsset] | None) -> dict[str, str]:
     if not image_assets:
         return {}
-    return {
-        asset.doc_ref: asset.id
-        for asset in image_assets
-        if asset.kind == "figure" and asset.doc_ref
-    }
+    return {asset.doc_ref: asset.id for asset in image_assets if asset.kind == "figure" and asset.doc_ref}
 
 
 def _extract_pages_and_bboxes(doc_items) -> tuple[list[int], list[dict[str, Any]]]:
@@ -81,9 +78,7 @@ def chunk_docling_document(
     try:
         from docling.chunking import HybridChunker
     except ImportError as exc:
-        raise ValueError(
-            "Install the backend dependencies for docling chunking, then try again."
-        ) from exc
+        raise ValueError("Install the backend dependencies for docling chunking, then try again.") from exc
 
     warnings: list[str] = []
     ref_to_asset = _picture_ref_map(image_assets)
@@ -105,8 +100,9 @@ def chunk_docling_document(
             "bboxes": bboxes,
             "picture_asset_ids": _linked_picture_asset_ids(doc_items, ref_to_asset),
         }
-        chunks.extend(_enforce_embed_limit(record, embedding_model, tokenizer=tokenizer)
-                      if chunker is None else [record])
+        chunks.extend(
+            _enforce_embed_limit(record, embedding_model, tokenizer=tokenizer) if chunker is None else [record]
+        )
     for index, record in enumerate(chunks):
         record["index"] = index
     return chunks, warnings
@@ -167,5 +163,12 @@ def _enforce_embed_limit(record: ChunkRecord, embedding_model: str, *, tokenizer
                     break
         pieces.append(source[start:boundary])
         start = boundary
-    return [{**record, "text": piece, "contextualized_text": _contextualize(record["headings"], piece),
-             "split_for_embedding": True} for piece in pieces]
+    return [
+        {
+            **record,
+            "text": piece,
+            "contextualized_text": _contextualize(record["headings"], piece),
+            "split_for_embedding": True,
+        }
+        for piece in pieces
+    ]

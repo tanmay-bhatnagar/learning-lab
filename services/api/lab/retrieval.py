@@ -1,4 +1,5 @@
 """Topic-scoped indexing, hybrid retrieval, and evidence assembly."""
+
 from __future__ import annotations
 
 import base64
@@ -35,12 +36,9 @@ async def index_chunks(
     if embedding_model and embedder:
         try:
             vectors: list[list[float]] = []
-            texts = [
-                format_for_embedding(chunk["text"], embedding_model, role="document")
-                for chunk in indexed
-            ]
+            texts = [format_for_embedding(chunk["text"], embedding_model, role="document") for chunk in indexed]
             for start in range(0, len(texts), 32):
-                vectors.extend(await embedder(texts[start:start + 32], embedding_model))
+                vectors.extend(await embedder(texts[start : start + 32], embedding_model))
             if len(vectors) != len(indexed):
                 raise ValueError("Embedding service returned the wrong number of vectors.")
             for chunk, vector in zip(indexed, vectors, strict=True):
@@ -52,8 +50,12 @@ async def index_chunks(
 
     with TopicIndex(topic_index_path(store, topic)) as index:
         result = index.replace_file(file_id, indexed)
-    return {**result, "mode": mode, "embedding_model": embedding_model if mode == "hybrid" else "",
-            **({"warning": warning} if warning else {})}
+    return {
+        **result,
+        "mode": mode,
+        "embedding_model": embedding_model if mode == "hybrid" else "",
+        **({"warning": warning} if warning else {}),
+    }
 
 
 async def search(
@@ -85,11 +87,14 @@ async def search(
         return {"hits": [], "mode": "none", "warning": "This topic has not been indexed yet."}
     with TopicIndex(path) as index:
         hits = index.hybrid_search(
-            query, vector, file_ids=file_ids, limit=limit,
+            query,
+            vector,
+            file_ids=file_ids,
+            limit=limit,
             vector_model=embedding_index_key(embedding_model) if vector is not None else None,
         )
         if not hits and file_ids:
-            hits = index.get_chunks(file_ids=file_ids)[:min(limit, 2)]
+            hits = index.get_chunks(file_ids=file_ids)[: min(limit, 2)]
             for rank, hit in enumerate(hits, start=1):
                 hit["trace"] = {
                     "keyword": {"rank": None, "score": None},
@@ -97,11 +102,16 @@ async def search(
                     "fusion": {"rank": rank, "score": 0.0},
                 }
             warning = warning or "No query match; using bounded opening chunks from the selected file."
-    semantic = any(hit.get("trace", {}).get("embedding", {}).get("rank") is not None
-                   for hit in hits)
-    mode = "hybrid" if semantic else ("fallback" if hits and all(
-        hit.get("trace", {}).get("fusion", {}).get("score") == 0.0 for hit in hits
-    ) else "keyword")
+    semantic = any(hit.get("trace", {}).get("embedding", {}).get("rank") is not None for hit in hits)
+    mode = (
+        "hybrid"
+        if semantic
+        else (
+            "fallback"
+            if hits and all(hit.get("trace", {}).get("fusion", {}).get("score") == 0.0 for hit in hits)
+            else "keyword"
+        )
+    )
     if vector is not None and hits and not semantic and mode != "fallback":
         warning = warning or (
             f"No stored embeddings match {embedding_index_key(embedding_model)}; keyword retrieval was used. "
@@ -129,8 +139,7 @@ def evidence_messages(
     for hit in hits:
         headings = " > ".join(hit.get("headings") or [])
         pages = ", ".join(str(page) for page in hit.get("pages") or [])
-        location = ", ".join(part for part in [hit["file_name"], headings,
-                                                f"page {pages}" if pages else ""] if part)
+        location = ", ".join(part for part in [hit["file_name"], headings, f"page {pages}" if pages else ""] if part)
         content = f"UNTRUSTED RETRIEVED EVIDENCE ({location}):\n{hit['text']}"
         message: dict[str, Any] = {"role": "user", "content": content}
         attached: list[str] = []

@@ -1,4 +1,5 @@
 """Offline embedding tokenizer registry, task prefixes, and token accounting."""
+
 from __future__ import annotations
 
 import os
@@ -102,7 +103,9 @@ def _load_hf_tokenizer(path: str, max_tokens: int):
     from docling_core.transforms.chunker.tokenizer.huggingface import HuggingFaceTokenizer
 
     return HuggingFaceTokenizer.from_pretrained(
-        path, max_tokens=max_tokens, local_files_only=True,
+        path,
+        max_tokens=max_tokens,
+        local_files_only=True,
     )
 
 

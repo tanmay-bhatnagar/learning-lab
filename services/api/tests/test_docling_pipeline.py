@@ -363,10 +363,15 @@ def test_chunk_docling_document_returns_json_ready_chunks(monkeypatch):
 
 def test_enforce_embed_limit_splits_oversize_chunks_at_word_boundaries(monkeypatch):
     monkeypatch.setattr(chunking, "chunk_embed_token_limit", lambda model: 6)
-    monkeypatch.setattr(chunking, "count_embedding_tokens",
-                        lambda text, model, role=None: len(text.split()))
-    record = {"text": "one two three four five six seven", "contextualized_text": "H\none two three four five six seven",
-              "headings": ["H"], "pages": [3], "bboxes": [], "picture_asset_ids": []}
+    monkeypatch.setattr(chunking, "count_embedding_tokens", lambda text, model, role=None: len(text.split()))
+    record = {
+        "text": "one two three four five six seven",
+        "contextualized_text": "H\none two three four five six seven",
+        "headings": ["H"],
+        "pages": [3],
+        "bboxes": [],
+        "picture_asset_ids": [],
+    }
 
     pieces = chunking._enforce_embed_limit(record, "nomic-embed-text")
 
@@ -384,8 +389,14 @@ def test_enforce_embed_limit_preserves_multiline_python_and_bounded_headings(mon
     limit = 32
     monkeypatch.setattr(chunking, "chunk_embed_token_limit", lambda model: limit)
     monkeypatch.setattr(chunking, "count_embedding_tokens", lambda text, model, role=None: len(text))
-    record = {"text": source, "contextualized_text": source, "headings": headings,
-              "pages": [1], "bboxes": [], "picture_asset_ids": []}
+    record = {
+        "text": source,
+        "contextualized_text": source,
+        "headings": headings,
+        "pages": [1],
+        "bboxes": [],
+        "picture_asset_ids": [],
+    }
 
     pieces = chunking._enforce_embed_limit(record, "nomic-embed-text")
     reconstructed = "".join(piece["text"] for piece in pieces)
@@ -399,17 +410,28 @@ def test_enforce_embed_limit_preserves_multiline_python_and_bounded_headings(mon
 def test_enforce_embed_limit_keeps_fitting_chunks(monkeypatch):
     monkeypatch.setattr(chunking, "chunk_embed_token_limit", lambda model: 512)
     monkeypatch.setattr(chunking, "count_embedding_tokens", lambda text, model, role=None: 10)
-    record = {"text": "short", "contextualized_text": "short", "headings": [], "pages": [],
-              "bboxes": [], "picture_asset_ids": []}
+    record = {
+        "text": "short",
+        "contextualized_text": "short",
+        "headings": [],
+        "pages": [],
+        "bboxes": [],
+        "picture_asset_ids": [],
+    }
     assert chunking._enforce_embed_limit(record, "nomic-embed-text") == [record]
 
 
 def test_enforce_embed_limit_splits_indivisible_text_and_rejects_oversized_headings(monkeypatch):
     monkeypatch.setattr(chunking, "chunk_embed_token_limit", lambda model: 4)
-    monkeypatch.setattr(chunking, "count_embedding_tokens",
-                        lambda text, model, role=None: len(text.replace("\n", " ")))
-    record = {"text": "abcdefghij", "contextualized_text": "abcdefghij", "headings": [],
-              "pages": [], "bboxes": [], "picture_asset_ids": []}
+    monkeypatch.setattr(chunking, "count_embedding_tokens", lambda text, model, role=None: len(text.replace("\n", " ")))
+    record = {
+        "text": "abcdefghij",
+        "contextualized_text": "abcdefghij",
+        "headings": [],
+        "pages": [],
+        "bboxes": [],
+        "picture_asset_ids": [],
+    }
     pieces = chunking._enforce_embed_limit(record, "nomic-embed-text")
     assert [piece["text"] for piece in pieces] == ["abcd", "efgh", "ij"]
     assert all(len(piece["text"]) <= 4 for piece in pieces)
@@ -441,38 +463,71 @@ def test_enforce_embed_limit_counts_embedding_special_tokens(monkeypatch):
     tokenizer = ChunkTokenizer()
     assert count_with_chunk_tokenizer("one two", "unknown-model", tokenizer) == 4
     monkeypatch.setattr(chunking, "chunk_embed_token_limit", lambda model: 4)
-    record = {"text": "one two three four five six", "contextualized_text": "one two three four five six",
-              "headings": [], "pages": [], "bboxes": [], "picture_asset_ids": []}
+    record = {
+        "text": "one two three four five six",
+        "contextualized_text": "one two three four five six",
+        "headings": [],
+        "pages": [],
+        "bboxes": [],
+        "picture_asset_ids": [],
+    }
     pieces = chunking._enforce_embed_limit(record, "unknown-model", tokenizer=tokenizer)
     assert len(pieces) > 1
-    assert all(count_with_chunk_tokenizer(piece["text"], "unknown-model", tokenizer) <= 4
-               for piece in pieces)
+    assert all(count_with_chunk_tokenizer(piece["text"], "unknown-model", tokenizer) <= 4 for piece in pieces)
 
 
 def test_parse_persist_applies_embed_limit_to_figure_captions(monkeypatch, tmp_path):
     code_source = 'def choose(flag):\n    if flag:\n        return "ready"\n    else:\n        return "stop"\n'
     tokenizer = SimpleNamespace(count_tokens=len)
     asset = ImageAsset(
-        id="figure_0", filename="figure.png", data=b"png", kind="figure",
-        page=1, bbox=None, caption="captiontextlong", doc_ref="#/pictures/0",
+        id="figure_0",
+        filename="figure.png",
+        data=b"png",
+        kind="figure",
+        page=1,
+        bbox=None,
+        caption="captiontextlong",
+        doc_ref="#/pictures/0",
     )
     parsed = ParseArtifacts(
-        markdown="# Figure", docling={}, images=[asset], warnings=[],
-        parser_version="test", document=SimpleNamespace(pages={1: None, 2: None, 3: None, 4: None}),
+        markdown="# Figure",
+        docling={},
+        images=[asset],
+        warnings=[],
+        parser_version="test",
+        document=SimpleNamespace(pages={1: None, 2: None, 3: None, 4: None}),
     )
     monkeypatch.setattr(parse_pipeline, "parse_pdf_bytes", lambda *args, **kwargs: parsed)
     monkeypatch.setattr(parse_pipeline, "chunk_tokenizer", lambda model: (tokenizer, []))
-    monkeypatch.setattr(parse_pipeline, "chunk_docling_document", lambda *args, **kwargs: ([{
-        "index": 0, "text": code_source, "contextualized_text": code_source,
-        "headings": [], "pages": [], "bboxes": [], "picture_asset_ids": [],
-    }], []))
+    monkeypatch.setattr(
+        parse_pipeline,
+        "chunk_docling_document",
+        lambda *args, **kwargs: (
+            [
+                {
+                    "index": 0,
+                    "text": code_source,
+                    "contextualized_text": code_source,
+                    "headings": [],
+                    "pages": [],
+                    "bboxes": [],
+                    "picture_asset_ids": [],
+                }
+            ],
+            [],
+        ),
+    )
     monkeypatch.setattr(chunking, "chunk_embed_token_limit", lambda model: 8)
     store = Store(tmp_path / "topics", tmp_path / "settings.json")
     topic = store.create("Caption limits")["id"]
 
     updates, records = parse_pipeline.parse_and_persist(
-        store, topic, data=b"pdf", filename="figure.pdf",
-        original_name="2026_09_30_figure.pdf", file_id="file1",
+        store,
+        topic,
+        data=b"pdf",
+        filename="figure.pdf",
+        original_name="2026_09_30_figure.pdf",
+        file_id="file1",
     )
 
     figure_chunks = [record for record in records if ":figure:" in record["chunk_id"]]

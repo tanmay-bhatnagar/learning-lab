@@ -1,4 +1,5 @@
 """Persist Docling's native artifacts and retrieval chunks beside an original PDF."""
+
 from __future__ import annotations
 
 import hashlib
@@ -21,14 +22,27 @@ def _artifact_name(base: str, suffix: str) -> str:
     return name
 
 
-def _indexed_record(file_id: str, filename: str, index: int, text: str,
-                    headings: list[str], pages: list[int], bboxes: list[dict[str, Any]],
-                    assets: list[str]) -> IndexedChunk:
+def _indexed_record(
+    file_id: str,
+    filename: str,
+    index: int,
+    text: str,
+    headings: list[str],
+    pages: list[int],
+    bboxes: list[dict[str, Any]],
+    assets: list[str],
+) -> IndexedChunk:
     return {
-        "chunk_id": f"{file_id}:text:{index:06d}", "file_id": file_id,
-        "file_name": filename, "chunk_index": index, "text": text,
-        "headings": headings, "pages": pages, "bboxes": bboxes,
-        "asset_ids": assets, "content_hash": content_hash(text),
+        "chunk_id": f"{file_id}:text:{index:06d}",
+        "file_id": file_id,
+        "file_name": filename,
+        "chunk_index": index,
+        "text": text,
+        "headings": headings,
+        "pages": pages,
+        "bboxes": bboxes,
+        "asset_ids": assets,
+        "content_hash": content_hash(text),
     }
 
 
@@ -94,9 +108,14 @@ def parse_and_persist(
             ]
             chunk_id = f"{file_id}:text:{chunk_index:06d}"
             record = _indexed_record(
-                file_id, filename, len(records), text,
-                list(chunk.get("headings") or []), list(chunk.get("pages") or []),
-                list(chunk.get("bboxes") or []), asset_names,
+                file_id,
+                filename,
+                len(records),
+                text,
+                list(chunk.get("headings") or []),
+                list(chunk.get("pages") or []),
+                list(chunk.get("bboxes") or []),
+                asset_names,
             )
             record["chunk_id"] = chunk_id
             records.append(record)
@@ -107,13 +126,18 @@ def parse_and_persist(
                 continue
             stored = asset_by_id[asset.id]
             text = asset.caption.strip()
-            bounded = _enforce_embed_limit({
-                "text": text, "contextualized_text": text, "headings": [],
-                "pages": [asset.page] if asset.page is not None else [],
-                "bboxes": ([{"page": asset.page, **asset.bbox}]
-                           if asset.page is not None and asset.bbox else []),
-                "picture_asset_ids": [asset.id],
-            }, embedding_model, tokenizer=tokenizer)
+            bounded = _enforce_embed_limit(
+                {
+                    "text": text,
+                    "contextualized_text": text,
+                    "headings": [],
+                    "pages": [asset.page] if asset.page is not None else [],
+                    "bboxes": ([{"page": asset.page, **asset.bbox}] if asset.page is not None and asset.bbox else []),
+                    "picture_asset_ids": [asset.id],
+                },
+                embedding_model,
+                tokenizer=tokenizer,
+            )
             for bounded_chunk in bounded:
                 bounded_text = bounded_chunk["contextualized_text"]
                 chunk_index = len(records)
@@ -131,15 +155,17 @@ def parse_and_persist(
                     "content_hash": content_hash(bounded_text),
                 }
                 records.append(record)
-                serializable_chunks.append({
-                    **bounded_chunk,
-                    "index": chunk_index,
-                    "chunk_id": chunk_id,
-                    "text": bounded_chunk["text"],
-                    "contextualized_text": bounded_text,
-                    "asset_names": record["asset_ids"],
-                    "kind": "figure",
-                })
+                serializable_chunks.append(
+                    {
+                        **bounded_chunk,
+                        "index": chunk_index,
+                        "chunk_id": chunk_id,
+                        "text": bounded_chunk["text"],
+                        "contextualized_text": bounded_text,
+                        "asset_names": record["asset_ids"],
+                        "kind": "figure",
+                    }
+                )
 
         if not records:
             raise ValueError("Docling produced no searchable chunks.")
@@ -147,10 +173,12 @@ def parse_and_persist(
         for name, writer, value in [
             (markdown_name, write_text, parsed.markdown),
             (docling_name, write_json, parsed.docling),
-            (chunks_name, write_text, "\n".join(
-                json.dumps(chunk, ensure_ascii=False, separators=(",", ":"))
-                for chunk in serializable_chunks
-            ) + "\n"),
+            (
+                chunks_name,
+                write_text,
+                "\n".join(json.dumps(chunk, ensure_ascii=False, separators=(",", ":")) for chunk in serializable_chunks)
+                + "\n",
+            ),
         ]:
             path = store.file_path(topic, name)
             writer(path, value)
@@ -210,8 +238,9 @@ def parse_and_persist(
 def _extraction_diagnostics(warnings: list[str], missing_page_images: list[int] | None = None) -> dict[str, Any]:
     """Summarize parser signals without treating a clean run as fidelity proof."""
     findings = list(warnings)
-    findings.extend(f"Page {page}: preview image was not rendered; inspect the original PDF."
-                    for page in missing_page_images or [])
+    findings.extend(
+        f"Page {page}: preview image was not rendered; inspect the original PDF." for page in missing_page_images or []
+    )
     if any("partial_success" not in warning for warning in warnings):
         status = "confirmed_failure"
         note = "Docling reported a conversion component failure; extraction fidelity is not established."

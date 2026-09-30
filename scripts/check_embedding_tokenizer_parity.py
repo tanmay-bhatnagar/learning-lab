@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Compare local embedding tokenizer counts with Ollama prompt_eval_count."""
+
 from __future__ import annotations
 
 import asyncio
@@ -53,11 +54,16 @@ def main() -> None:
     model = os.environ.get("EMBEDDING_MODEL", "nomic-embed-text")
     path = tokenizer_path(model)
     if path is None or not path.is_dir():
-        print(json.dumps({
-            "status": "skipped",
-            "reason": "embedding tokenizer not configured or missing",
-            "hint": "Run `make embedding-tokenizer` from Code.",
-        }, indent=2))
+        print(
+            json.dumps(
+                {
+                    "status": "skipped",
+                    "reason": "embedding tokenizer not configured or missing",
+                    "hint": "Run `make embedding-tokenizer` from Code.",
+                },
+                indent=2,
+            )
+        )
         return
 
     rows = []
@@ -72,22 +78,29 @@ def main() -> None:
         ollama_error = None
 
     for (label, text), local, ollama in zip(SAMPLES, local_counts, ollama_counts, strict=True):
-        rows.append({
-            "label": label,
-            "text_chars": len(text),
-            "local_tokens": local,
-            "ollama_prompt_eval_count": ollama,
-            "delta": (local - ollama) if isinstance(ollama, int) else None,
-        })
+        rows.append(
+            {
+                "label": label,
+                "text_chars": len(text),
+                "local_tokens": local,
+                "ollama_prompt_eval_count": ollama,
+                "delta": (local - ollama) if isinstance(ollama, int) else None,
+            }
+        )
 
-    print(json.dumps({
-        "status": "ok",
-        "model": model,
-        "tokenizer_path": str(path.resolve()),
-        "ollama_error": ollama_error,
-        "samples": rows,
-        "note": "Local counts use encode(..., add_special_tokens=True); expect delta 0 for every sample.",
-    }, indent=2))
+    print(
+        json.dumps(
+            {
+                "status": "ok",
+                "model": model,
+                "tokenizer_path": str(path.resolve()),
+                "ollama_error": ollama_error,
+                "samples": rows,
+                "note": "Local counts use encode(..., add_special_tokens=True); expect delta 0 for every sample.",
+            },
+            indent=2,
+        )
+    )
 
 
 if __name__ == "__main__":

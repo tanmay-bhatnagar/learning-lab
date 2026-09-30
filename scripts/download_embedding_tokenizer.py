@@ -5,6 +5,7 @@ Primary source: Hugging Face bert-base-uncased (matches nomic-embed-text v1.5).
 Fallback: extract tokenizer.ggml.tokens from the local Ollama nomic-embed-text GGUF
 blob and materialize a Bert-compatible vocab under data/external/modelweights/tokenizers/.
 """
+
 from __future__ import annotations
 
 import json
@@ -31,7 +32,17 @@ GGUF_TYPE_ARRAY = 9
 
 def _gguf_scalar_size(vtype: int) -> int | None:
     return {
-        0: 1, 1: 1, 2: 2, 3: 2, 4: 4, 5: 4, 6: 4, 7: 1, 10: 8, 11: 8, 12: 8,
+        0: 1,
+        1: 1,
+        2: 2,
+        3: 2,
+        4: 4,
+        5: 4,
+        6: 4,
+        7: 1,
+        10: 8,
+        11: 8,
+        12: 8,
     }.get(vtype)
 
 
@@ -134,7 +145,7 @@ def _gguf_to_wordpiece(tokens: list[str]) -> list[str]:
     converted = []
     for token in tokens:
         if token.startswith(_GGUF_WORD_START):
-            converted.append(token[len(_GGUF_WORD_START):])
+            converted.append(token[len(_GGUF_WORD_START) :])
         elif _SPECIAL_TOKEN.match(token):
             converted.append(token)
         else:
@@ -229,14 +240,19 @@ def main() -> None:
         _write_bert_vocab(tokens, target)
         if not _is_complete(target):
             raise RuntimeError("Bootstrap from GGUF did not produce a complete tokenizer directory.")
-        print(json.dumps({
-            "status": "ready",
-            "path": str(target.resolve()),
-            "source": "ollama-gguf",
-            "gguf": str(gguf.resolve()),
-            "token_count": len(tokens),
-            "warnings": errors,
-        }, indent=2))
+        print(
+            json.dumps(
+                {
+                    "status": "ready",
+                    "path": str(target.resolve()),
+                    "source": "ollama-gguf",
+                    "gguf": str(gguf.resolve()),
+                    "token_count": len(tokens),
+                    "warnings": errors,
+                },
+                indent=2,
+            )
+        )
     except Exception as exc:
         errors.append(f"GGUF bootstrap: {type(exc).__name__}: {exc}")
         raise SystemExit(json.dumps({"status": "error", "errors": errors}, indent=2))

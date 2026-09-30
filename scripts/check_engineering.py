@@ -32,16 +32,11 @@ def validate(root: Path) -> list[str]:
                     errors.append(f"{role}: missing {key}")
             if config.get("model_reasoning_effort") not in EFFORTS:
                 errors.append(f"{role}: unsupported reasoning effort")
-            if f".agents/skills/{role}/SKILL.md" not in config.get(
-                "developer_instructions", ""
-            ):
+            if f".agents/skills/{role}/SKILL.md" not in config.get("developer_instructions", ""):
                 errors.append(f"{role}: instructions do not route to its skill")
             if config.get("sandbox_mode") not in {"read-only", "workspace-write"}:
                 errors.append(f"{role}: unexpected sandbox setting")
-            if (
-                role in {"research", "design", "review"}
-                and config.get("sandbox_mode") != "read-only"
-            ):
+            if role in {"research", "design", "review"} and config.get("sandbox_mode") != "read-only":
                 errors.append(f"{role}: expected read-only role")
             content = skill_path.read_text()
             match = re.match(r"\A---\n(.*?)\n---\n", content, re.DOTALL)
@@ -52,10 +47,7 @@ def validate(root: Path) -> list[str]:
             if not isinstance(meta, dict) or meta.get("name") != role:
                 errors.append(f"{role}: skill name must match its directory")
                 continue
-            if (
-                not isinstance(meta.get("description"), str)
-                or not meta["description"].strip()
-            ):
+            if not isinstance(meta.get("description"), str) or not meta["description"].strip():
                 errors.append(f"{role}: missing skill description")
             if "model" in meta or "model_reasoning_effort" in meta:
                 errors.append(f"{role}: model selection belongs in the agent config")
@@ -72,10 +64,7 @@ def validate(root: Path) -> list[str]:
     except (OSError, ValueError, KeyError, TypeError) as exc:
         errors.append(f"Project config: {exc}")
     documents = [*skills.rglob("*.md")]
-    documents += [
-        root / "docs" / name
-        for name in ("architecture.md", "engineering.md", "task-template.md")
-    ]
+    documents += [root / "docs" / name for name in ("architecture.md", "engineering.md", "task-template.md")]
     for document in documents:
         try:
             content = document.read_text()
@@ -87,9 +76,7 @@ def validate(root: Path) -> list[str]:
                 continue
             path = (document.parent / target.split("#", 1)[0]).resolve()
             if not path.is_relative_to(root.resolve()) or not path.exists():
-                errors.append(
-                    f"{document.relative_to(root)}: broken local link {target}"
-                )
+                errors.append(f"{document.relative_to(root)}: broken local link {target}")
     return errors
 
 

@@ -1,4 +1,5 @@
 """Pure decisions about persisted topic file records."""
+
 from __future__ import annotations
 
 from collections.abc import Collection

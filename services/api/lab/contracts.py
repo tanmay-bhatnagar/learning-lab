@@ -1,4 +1,5 @@
 """Typed internal records shared by ingestion, indexing, and retrieval."""
+
 from __future__ import annotations
 
 from typing import NotRequired, TypedDict

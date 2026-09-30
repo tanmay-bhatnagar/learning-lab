@@ -1,4 +1,5 @@
 """Real Docling smoke test using a generated PDF; no Learning topic is accessed."""
+
 from __future__ import annotations
 
 import json
@@ -38,22 +39,28 @@ def synthetic_pdf() -> bytes:
 def main() -> None:
     parsed = parse_pdf_bytes(synthetic_pdf(), filename="synthetic.pdf")
     chunks, chunk_warnings = chunk_docling_document(
-        parsed.document, image_assets=parsed.images, embedding_model="nomic-embed-text",
+        parsed.document,
+        image_assets=parsed.images,
+        embedding_model="nomic-embed-text",
     )
     assert "calibration constant" in parsed.markdown.lower()
     assert isinstance(parsed.docling, dict) and parsed.docling
     assert any(asset.kind == "page" for asset in parsed.images)
-    assert chunks and any("calibration" in chunk["contextualized_text"].lower()
-                          for chunk in chunks)
-    print(json.dumps({
-        "parser_version": parsed.parser_version,
-        "markdown_chars": len(parsed.markdown),
-        "chunks": len(chunks),
-        "page_images": sum(asset.kind == "page" for asset in parsed.images),
-        "figure_images": sum(asset.kind == "figure" for asset in parsed.images),
-        "warnings": parsed.warnings + chunk_warnings,
-        "hyperlink_preserved": "https://example.com/calibration" in json.dumps(parsed.docling),
-    }, indent=2))
+    assert chunks and any("calibration" in chunk["contextualized_text"].lower() for chunk in chunks)
+    print(
+        json.dumps(
+            {
+                "parser_version": parsed.parser_version,
+                "markdown_chars": len(parsed.markdown),
+                "chunks": len(chunks),
+                "page_images": sum(asset.kind == "page" for asset in parsed.images),
+                "figure_images": sum(asset.kind == "figure" for asset in parsed.images),
+                "warnings": parsed.warnings + chunk_warnings,
+                "hyperlink_preserved": "https://example.com/calibration" in json.dumps(parsed.docling),
+            },
+            indent=2,
+        )
+    )
 
 
 if __name__ == "__main__":

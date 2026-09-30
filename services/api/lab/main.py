@@ -29,6 +29,7 @@ SYSTEM_RULES = """You are a learning companion for any subject. This conversatio
 
 class UploadBodyLimit:
     """Bound multipart bytes before Starlette parses or spools the upload."""
+
     def __init__(self, app, limit):
         self.app, self.limit = app, limit
 
@@ -37,6 +38,7 @@ class UploadBodyLimit:
             return await self.app(scope, receive, send)
         limit = self.limit if scope.get("path", "").endswith("/files") else 2 * 1024 * 1024
         used = 0
+
         async def bounded_receive():
             nonlocal used
             message = await receive()
@@ -45,6 +47,7 @@ class UploadBodyLimit:
                 if used > limit:
                     raise HTTPException(413, "Request body exceeds the configured upload limit.")
             return message
+
         await self.app(scope, bounded_receive, send)
 
 
@@ -54,6 +57,7 @@ class FinalizedStreamingResponse(StreamingResponse):
     Starlette abandons an unstarted body iterator when the client disconnects, so the
     generator's own `finally` cannot be relied on to release resources.
     """
+
     def __init__(self, content, *, on_close, **kwargs):
         super().__init__(content, **kwargs)
         self.on_close = on_close
@@ -115,11 +119,24 @@ class RetrievalInput(BaseModel):
     top_k: int = Field(default=6, ge=1, le=20)
 
 
-def create_app(root=None, settings_path=None, model_backend=None, converter=None,
-               structured_parser=None, retriever=None, max_upload_bytes=None):
+def create_app(
+    root=None,
+    settings_path=None,
+    model_backend=None,
+    converter=None,
+    structured_parser=None,
+    retriever=None,
+    max_upload_bytes=None,
+):
     app = FastAPI(title="Learning Lab")
-    store = Store(root or os.environ.get("LEARNING_LAB_ROOT", CODE_ROOT.parent / "Learning"),
-                  settings_path or os.environ.get("LEARNING_LAB_SETTINGS", Path(os.environ.get("LEARNING_LAB_STATE_ROOT", CODE_ROOT / ".local")) / "settings.json"))
+    store = Store(
+        root or os.environ.get("LEARNING_LAB_ROOT", CODE_ROOT.parent / "Learning"),
+        settings_path
+        or os.environ.get(
+            "LEARNING_LAB_SETTINGS",
+            Path(os.environ.get("LEARNING_LAB_STATE_ROOT", CODE_ROOT / ".local")) / "settings.json",
+        ),
+    )
     app.state.store = store
     app.state.model_generation_lock = asyncio.Lock()
     locks = {}
@@ -127,7 +144,13 @@ def create_app(root=None, settings_path=None, model_backend=None, converter=None
     limit = max_upload_bytes or int(os.environ.get("LEARNING_LAB_MAX_UPLOAD_BYTES", 25 * 1024 * 1024))
     origins = ["http://localhost:5173", "http://127.0.0.1:5173"]
     app.add_middleware(UploadBodyLimit, limit=limit + 65536)
-    app.add_middleware(CORSMiddleware, allow_origins=origins, allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"], allow_headers=["Content-Type"], allow_credentials=False)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=origins,
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+        allow_headers=["Content-Type"],
+        allow_credentials=False,
+    )
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1", "testserver"])
 
     @app.middleware("http")
@@ -152,6 +175,7 @@ def create_app(root=None, settings_path=None, model_backend=None, converter=None
 
         async def serialized(texts, model):
             return await method(texts, model, generation_lock=app.state.model_generation_lock)
+
         return serialized
 
     def lock(topic):
@@ -213,7 +237,9 @@ def create_app(root=None, settings_path=None, model_backend=None, converter=None
         return {"files": recovered}
 
     @app.post("/api/topics/{topic}/files", status_code=201)
-    async def upload(topic: str, file: UploadFile = File(...), parser: Literal["docling", "markitdown", "anydoc"] = Form("docling")):
+    async def upload(
+        topic: str, file: UploadFile = File(...), parser: Literal["docling", "markitdown", "anydoc"] = Form("docling")
+    ):
         file_id = ""
         try:
             async with lock(topic):
@@ -231,7 +257,13 @@ def create_app(root=None, settings_path=None, model_backend=None, converter=None
                 active_uploads.add(file_id)
                 stem = re.sub(r"[^A-Za-z0-9._-]", "_", Path(name).stem)[:100] or "document"
                 original_name = f"{datetime.now(timezone.utc):%Y_%m_%d}_{stem}-{file_id}.pdf"
-                record = {"id": file_id, "name": name, "original_name": original_name, "status": "processing", "parser": parser}
+                record = {
+                    "id": file_id,
+                    "name": name,
+                    "original_name": original_name,
+                    "status": "processing",
+                    "parser": parser,
+                }
                 write_new_bytes(store.file_path(topic, original_name), bytes(data))
                 records = store.files(topic)
                 records.append(record)
@@ -241,44 +273,64 @@ def create_app(root=None, settings_path=None, model_backend=None, converter=None
                         parser_fn = structured_parser or parse_and_persist
                         current = Settings(**read_json(store.settings, {}))
                         updates, chunks = await run_in_threadpool(
-                            parser_fn, store, topic, data=bytes(data), filename=name,
-                            original_name=original_name, file_id=file_id,
+                            parser_fn,
+                            store,
+                            topic,
+                            data=bytes(data),
+                            filename=name,
+                            original_name=original_name,
+                            file_id=file_id,
                             embedding_model=current.embedding_model,
                         )
                         record.update(updates)
                         embedding = embedder()
                         try:
                             index_result = await index_chunks(
-                                store, topic, file_id, chunks,
+                                store,
+                                topic,
+                                file_id,
+                                chunks,
                                 embedding_model=current.embedding_model,
                                 embedder=embedding,
                             )
-                            record.update(status="ready", index_status="ready",
-                                          index_mode=index_result["mode"],
-                                          embedding_model=index_result["embedding_model"])
+                            record.update(
+                                status="ready",
+                                index_status="ready",
+                                index_mode=index_result["mode"],
+                                embedding_model=index_result["embedding_model"],
+                            )
                             if index_result.get("warning"):
                                 record.setdefault("warnings", []).append(index_result["warning"])
                         except Exception as exc:
-                            record.update(status="ready", index_status="error",
-                                          index_mode="none")
+                            record.update(status="ready", index_status="error", index_mode="none")
                             record.setdefault("warnings", []).append(
                                 f"Document parsed, but indexing failed ({type(exc).__name__}): {exc}"
                             )
                     else:
                         markdown = await run_in_threadpool(converter or convert_pdf, bytes(data), parser)
                         if not isinstance(markdown, str) or not markdown.strip():
-                            raise ValueError("No text extracted; scanned PDFs require local OCR before uploading again.")
+                            raise ValueError(
+                                "No text extracted; scanned PDFs require local OCR before uploading again."
+                            )
                         markdown_name = original_name[:-4] + ".md"
                         write_new_bytes(store.file_path(topic, markdown_name), markdown.encode("utf-8"))
-                        record.update(status="ready", markdown_name=markdown_name,
-                                      index_status="not_indexed",
-                                      extraction_diagnostics={
-                                          "status": "unassessed",
-                                          "note": "Extraction fidelity was not assessed for this parser.",
-                                          "findings": [],
-                                      })
+                        record.update(
+                            status="ready",
+                            markdown_name=markdown_name,
+                            index_status="not_indexed",
+                            extraction_diagnostics={
+                                "status": "unassessed",
+                                "note": "Extraction fidelity was not assessed for this parser.",
+                                "findings": [],
+                            },
+                        )
                 except Exception as exc:
-                    record.update(status="error", error=str(exc) if isinstance(exc, ValueError) else f"Conversion failed ({type(exc).__name__}); check the PDF or use local OCR for scanned pages.")
+                    record.update(
+                        status="error",
+                        error=str(exc)
+                        if isinstance(exc, ValueError)
+                        else f"Conversion failed ({type(exc).__name__}); check the PDF or use local OCR for scanned pages.",
+                    )
                 write_json(store.topic(topic) / "files.json", records)
                 return record
         finally:
@@ -295,7 +347,11 @@ def create_app(root=None, settings_path=None, model_backend=None, converter=None
     @app.get("/api/topics/{topic}/files/{file_id}/original")
     def original(topic: str, file_id: str):
         record = store.file(topic, file_id)
-        return Response(read_bytes(store.file_path(topic, record["original_name"])), media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="{record["id"]}.pdf"'})
+        return Response(
+            read_bytes(store.file_path(topic, record["original_name"])),
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'inline; filename="{record["id"]}.pdf"'},
+        )
 
     @app.get("/api/topics/{topic}/files/{file_id}/parsed")
     def parsed(topic: str, file_id: str):
@@ -318,8 +374,11 @@ def create_app(root=None, settings_path=None, model_backend=None, converter=None
         match = next((item for item in record.get("assets", []) if item.get("id") == asset_id), None)
         if not match:
             raise HTTPException(404, "Visual asset not found for this file.")
-        return Response(read_bytes(store.file_path(topic, match["name"])), media_type="image/png",
-                        headers={"Cache-Control": "private, max-age=31536000, immutable"})
+        return Response(
+            read_bytes(store.file_path(topic, match["name"])),
+            media_type="image/png",
+            headers={"Cache-Control": "private, max-age=31536000, immutable"},
+        )
 
     @app.post("/api/topics/{topic}/retrieval/trace")
     async def retrieval_trace(topic: str, body: RetrievalInput):
@@ -330,7 +389,9 @@ def create_app(root=None, settings_path=None, model_backend=None, converter=None
         current = Settings(**read_json(store.settings, {}))
         embedding = embedder()
         result = await search(
-            store, topic, body.query,
+            store,
+            topic,
+            body.query,
             file_ids=list(dict.fromkeys(body.file_ids)) or None,
             limit=body.top_k,
             embedding_model=current.embedding_model,
@@ -353,7 +414,10 @@ def create_app(root=None, settings_path=None, model_backend=None, converter=None
         try:
             return await backend().list_models()
         except Exception as exc:
-            return {"models": [], "error": f"Model service unavailable ({type(exc).__name__}); check the local model service and backend dependencies."}
+            return {
+                "models": [],
+                "error": f"Model service unavailable ({type(exc).__name__}); check the local model service and backend dependencies.",
+            }
 
     @app.get("/api/topics/{topic}/messages")
     def messages(topic: str):
@@ -376,25 +440,29 @@ def create_app(root=None, settings_path=None, model_backend=None, converter=None
                 selected_records.append(record)
                 if record.get("index_status") != "ready":
                     content = read_bytes(store.file_path(topic, record["markdown_name"])).decode("utf-8")
-                    attachments.append({"role": "user", "content": f"UNTRUSTED ATTACHMENT ({record['name']}):\n{content}"})
+                    attachments.append(
+                        {"role": "user", "content": f"UNTRUSTED ATTACHMENT ({record['name']}):\n{content}"}
+                    )
             current = Settings(**read_json(store.settings, {}))
-            indexed_ids = [record["id"] for record in selected_records
-                           if record.get("index_status") == "ready"]
+            indexed_ids = [record["id"] for record in selected_records if record.get("index_status") == "ready"]
             search_filter = indexed_ids
             search_result = {"hits": [], "mode": "none"}
             path = store.file_path(topic, "retrieval.sqlite")
             if path.exists() and indexed_ids:
                 search_fn = retriever or search
                 search_result = await search_fn(
-                    store, topic, body.message,
+                    store,
+                    topic,
+                    body.message,
                     file_ids=search_filter,
                     limit=current.retrieval_top_k,
                     embedding_model=current.embedding_model,
                     embedder=embedder(),
                 )
             elif indexed_ids:
-                names = ", ".join(record["name"] for record in selected_records
-                                  if record.get("index_status") == "ready")
+                names = ", ".join(
+                    record["name"] for record in selected_records if record.get("index_status") == "ready"
+                )
                 raise HTTPException(
                     409,
                     f"Indexed evidence is unavailable for {names}: the topic retrieval index is missing. "
@@ -404,19 +472,31 @@ def create_app(root=None, settings_path=None, model_backend=None, converter=None
             if search_result.get("hits"):
                 try:
                     available = await backend().list_models()
-                    vision = any(item.get("id") == body.model and item.get("vision") is True
-                                 for item in available.get("models", []))
+                    vision = any(
+                        item.get("id") == body.model and item.get("vision") is True
+                        for item in available.get("models", [])
+                    )
                 except Exception:
                     vision = False
             evidence, citations = evidence_messages(
-                store, topic, search_result.get("hits", []), include_images=vision,
+                store,
+                topic,
+                search_result.get("hits", []),
+                include_images=vision,
             )
             retrieval_record = {
                 "mode": search_result.get("mode", "none"),
                 "warning": search_result.get("warning"),
                 "citations": citations,
             }
-            history = [{"role": m["role"], "content": m["content"], **({"thinking": m["thinking"]} if m.get("thinking") else {})} for m in session["messages"]]
+            history = [
+                {
+                    "role": m["role"],
+                    "content": m["content"],
+                    **({"thinking": m["thinking"]} if m.get("thinking") else {}),
+                }
+                for m in session["messages"]
+            ]
             evidence_pairs = list(zip(evidence, citations, strict=True))[::-1]
             evidence = [pair[0] for pair in evidence_pairs]
             citations = [pair[1] for pair in evidence_pairs]
@@ -426,18 +506,28 @@ def create_app(root=None, settings_path=None, model_backend=None, converter=None
             learning_goal = topic_metadata.get("learning_goal", "").strip()
             system_content = SYSTEM_RULES
             if learning_goal:
-                system_content += f"\n\nUSER-AUTHORED LEARNING GOAL FOR THIS TOPIC (context, not evidence):\n{learning_goal}"
-            prompt = [{"role": "system", "content": system_content}, *history, *evidence,
-                      *attachments, {"role": "user", "content": body.message}]
+                system_content += (
+                    f"\n\nUSER-AUTHORED LEARNING GOAL FOR THIS TOPIC (context, not evidence):\n{learning_goal}"
+                )
+            prompt = [
+                {"role": "system", "content": system_content},
+                *history,
+                *evidence,
+                *attachments,
+                {"role": "user", "content": body.message},
+            ]
             try:
                 prompt, prompt_context, _, retained_indices = prepare_context_details(
-                    prompt, body.context_limit, atomic_indices=atomic_indices,
+                    prompt,
+                    body.context_limit,
+                    atomic_indices=atomic_indices,
                 )
             except ValueError as exc:
                 raise HTTPException(422, f"The selected material does not fit this context limit: {exc}") from exc
             retained_set = set(retained_indices)
-            citations = [citation for offset, citation in enumerate(citations)
-                         if evidence_start + offset in retained_set]
+            citations = [
+                citation for offset, citation in enumerate(citations) if evidence_start + offset in retained_set
+            ]
             retrieval_record = {**retrieval_record, "citations": citations}
             session["messages"].append({"role": "user", "content": body.message, "file_ids": body.file_ids})
             store.save_session(topic, session)
@@ -445,8 +535,13 @@ def create_app(root=None, settings_path=None, model_backend=None, converter=None
             topic_lock.release()
             raise
 
-        assistant = {"role": "assistant", "content": "", "thinking": "", "model": body.model,
-                     "retrieval": retrieval_record}
+        assistant = {
+            "role": "assistant",
+            "content": "",
+            "thinking": "",
+            "model": body.model,
+            "retrieval": retrieval_record,
+        }
         complete = False
         finished = False
         stream = None
@@ -471,13 +566,18 @@ def create_app(root=None, settings_path=None, model_backend=None, converter=None
 
         async def events():
             nonlocal complete, stream
+
             def line(event):
                 return json.dumps(event, ensure_ascii=False) + "\n"
+
             try:
                 model_api = backend()
                 if model_backend is None:
                     stream = model_api.stream_chat(
-                        prompt, body.model, body.think, body.context_limit,
+                        prompt,
+                        body.model,
+                        body.think,
+                        body.context_limit,
                         context_metadata=prompt_context,
                         generation_lock=app.state.model_generation_lock,
                     )
@@ -491,8 +591,7 @@ def create_app(root=None, settings_path=None, model_backend=None, converter=None
                         yield line({"type": kind, "text": text})
                     elif kind == "done":
                         assistant["model"] = event.get("model") or body.model
-                        event = {**event, "model": assistant["model"],
-                                 "retrieval": retrieval_record}
+                        event = {**event, "model": assistant["model"], "retrieval": retrieval_record}
                         session["context"] = event.get("context", {})
                         session["messages"].append(assistant)
                         store.save_session(topic, session)
@@ -503,12 +602,28 @@ def create_app(root=None, settings_path=None, model_backend=None, converter=None
                         yield line(event)
                         break
                 else:
-                    yield line({"type": "error", "message": "Model stream ended before completion. Partial output was saved; retry when the local model service is ready."})
+                    yield line(
+                        {
+                            "type": "error",
+                            "message": "Model stream ended before completion. Partial output was saved; retry when the local model service is ready.",
+                        }
+                    )
             except Exception as exc:
-                yield line({"type": "error", "message": f"Chat failed ({type(exc).__name__}). Check the local model service and retry; your message is saved."})
+                yield line(
+                    {
+                        "type": "error",
+                        "message": f"Chat failed ({type(exc).__name__}). Check the local model service and retry; your message is saved.",
+                    }
+                )
             finally:
                 await finish()
-        return FinalizedStreamingResponse(events(), on_close=finish, media_type="application/x-ndjson", headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
+
+        return FinalizedStreamingResponse(
+            events(),
+            on_close=finish,
+            media_type="application/x-ndjson",
+            headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+        )
 
     return app
 

@@ -4,6 +4,7 @@ Uses Docling 2.127 APIs: ``DocumentStream``, ``DocumentConverter``, and
 ``PdfPipelineOptions`` with OCR disabled, table structure enabled, and page/picture
 image generation. Optional model cache directory via ``DOCLING_ARTIFACTS_PATH``.
 """
+
 from __future__ import annotations
 
 import os
@@ -52,9 +53,7 @@ def _build_converter(*, images_scale: float, artifacts_path: str | Path | None):
         from docling.datamodel.pipeline_options import PdfPipelineOptions
         from docling.document_converter import DocumentConverter, PdfFormatOption
     except ImportError as exc:
-        raise ValueError(
-            "Install the backend dependencies for docling, then upload again."
-        ) from exc
+        raise ValueError("Install the backend dependencies for docling, then upload again.") from exc
 
     pipeline_options = PdfPipelineOptions(
         do_ocr=False,
@@ -162,9 +161,7 @@ def parse_pdf_bytes(
     try:
         from docling.datamodel.base_models import ConversionStatus, DocumentStream
     except ImportError as exc:
-        raise ValueError(
-            "Install the backend dependencies for docling, then upload again."
-        ) from exc
+        raise ValueError("Install the backend dependencies for docling, then upload again.") from exc
 
     stream = DocumentStream(name=filename, stream=BytesIO(data))
     converter = _build_converter(
@@ -180,8 +177,17 @@ def parse_pdf_bytes(
         )
     except Exception as exc:
         detail = f"{type(exc).__name__}: {exc}".lower()
-        if any(marker in detail for marker in ("connecterror", "unexpected_eof", "huggingface",
-                                                "proxyerror", "snapshot_download", "403 forbidden")):
+        if any(
+            marker in detail
+            for marker in (
+                "connecterror",
+                "unexpected_eof",
+                "huggingface",
+                "proxyerror",
+                "snapshot_download",
+                "403 forbidden",
+            )
+        ):
             raise ValueError(
                 "Docling could not reach Hugging Face to obtain its local models. Connect through an "
                 "approved network that permits huggingface.co, run `make docling-models` from Code, "

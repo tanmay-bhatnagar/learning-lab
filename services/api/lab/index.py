@@ -1,4 +1,5 @@
 """Topic-scoped SQLite FTS5 + optional embedding index (stdlib only)."""
+
 from __future__ import annotations
 
 import hashlib
@@ -137,8 +138,9 @@ def _validate_chunk_record(record: dict[str, Any], expected_file_id: str | None 
     return normalized
 
 
-def _fuse_ranked_hits(keyword_hits: list[dict[str, Any]], vector_hits: list[dict[str, Any]],
-                      limit: int, rrf_k: int) -> list[dict[str, Any]]:
+def _fuse_ranked_hits(
+    keyword_hits: list[dict[str, Any]], vector_hits: list[dict[str, Any]], limit: int, rrf_k: int
+) -> list[dict[str, Any]]:
     """Combine ranked result records deterministically without touching the index."""
     keyword_by_id = {hit["chunk_id"]: hit for hit in keyword_hits}
     vector_by_id = {hit["chunk_id"]: hit for hit in vector_hits}
@@ -146,20 +148,22 @@ def _fuse_ranked_hits(keyword_hits: list[dict[str, Any]], vector_hits: list[dict
     for chunk_id in sorted(set(keyword_by_id) | set(vector_by_id)):
         keyword_rank = keyword_by_id.get(chunk_id, {}).get("trace", {}).get("keyword", {}).get("rank")
         vector_rank = vector_by_id.get(chunk_id, {}).get("trace", {}).get("embedding", {}).get("rank")
-        score = (1.0 / (rrf_k + keyword_rank) if keyword_rank is not None else 0.0)
-        score += (1.0 / (rrf_k + vector_rank) if vector_rank is not None else 0.0)
+        score = 1.0 / (rrf_k + keyword_rank) if keyword_rank is not None else 0.0
+        score += 1.0 / (rrf_k + vector_rank) if vector_rank is not None else 0.0
         scores.append((score, chunk_id))
     scores.sort(key=lambda item: (-item[0], item[1]))
     results: list[dict[str, Any]] = []
     for rank, (score, chunk_id) in enumerate(scores[:limit], start=1):
         source = keyword_by_id.get(chunk_id) or vector_by_id[chunk_id]
         payload = {key: value for key, value in source.items() if key != "trace"}
-        empty = {"keyword": _trace_component(None, None),
-                 "embedding": _trace_component(None, None)}
+        empty = {"keyword": _trace_component(None, None), "embedding": _trace_component(None, None)}
         keyword_trace = keyword_by_id.get(chunk_id, {"trace": empty})["trace"]["keyword"]
         embedding_trace = vector_by_id.get(chunk_id, {"trace": empty})["trace"]["embedding"]
-        payload["trace"] = {"keyword": keyword_trace, "embedding": embedding_trace,
-                             "fusion": _trace_component(rank, score)}
+        payload["trace"] = {
+            "keyword": keyword_trace,
+            "embedding": embedding_trace,
+            "fusion": _trace_component(rank, score),
+        }
         results.append(payload)
     return results
 
@@ -204,15 +208,11 @@ class TopicIndex:
             raise IndexError("schema_version table exists but has no version row")
         if version["version"] == 1:
             with self._conn:
-                self._conn.execute(
-                    "ALTER TABLE chunk_embeddings ADD COLUMN model TEXT NOT NULL DEFAULT ''"
-                )
+                self._conn.execute("ALTER TABLE chunk_embeddings ADD COLUMN model TEXT NOT NULL DEFAULT ''")
                 self._conn.execute("UPDATE schema_version SET version = 2")
             return
         if version["version"] != SCHEMA_VERSION:
-            raise IndexError(
-                f"Unsupported schema version {version['version']}; expected {SCHEMA_VERSION}"
-            )
+            raise IndexError(f"Unsupported schema version {version['version']}; expected {SCHEMA_VERSION}")
 
     def _create_schema_v1(self) -> None:
         self._conn.executescript(
@@ -326,8 +326,7 @@ class TopicIndex:
                         INSERT INTO chunk_embeddings(chunk_id, model, dimension, vector)
                         VALUES (?, ?, ?, ?)
                         """,
-                        (record["chunk_id"], record["embedding_model"], len(embedding),
-                         _pack_vector(embedding)),
+                        (record["chunk_id"], record["embedding_model"], len(embedding), _pack_vector(embedding)),
                     )
                     embedded += 1
         return {"inserted": inserted, "embedded": embedded, "file_id": file_id}
@@ -511,7 +510,10 @@ class TopicIndex:
         vector_hits: list[dict[str, Any]] = []
         if vector is not None:
             vector_hits = self.vector_search(
-                vector, file_ids=file_ids, limit=max(limit * 5, limit), model=vector_model,
+                vector,
+                file_ids=file_ids,
+                limit=max(limit * 5, limit),
+                model=vector_model,
             )
 
         return _fuse_ranked_hits(keyword_hits, vector_hits, limit, rrf_k)

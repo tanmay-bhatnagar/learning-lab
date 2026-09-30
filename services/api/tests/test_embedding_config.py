@@ -1,4 +1,5 @@
 """Tests for offline embedding tokenizer registry and formatting."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -46,31 +47,44 @@ def test_tokenizer_loaders_leave_process_environment_unchanged(monkeypatch):
     from types import ModuleType
 
     transformers = ModuleType("transformers")
-    transformers.AutoTokenizer = type("AutoTokenizer", (), {
-        "from_pretrained": staticmethod(lambda path, **kwargs: (path, kwargs)),
-    })
+    transformers.AutoTokenizer = type(
+        "AutoTokenizer",
+        (),
+        {
+            "from_pretrained": staticmethod(lambda path, **kwargs: (path, kwargs)),
+        },
+    )
     monkeypatch.setitem(sys.modules, "transformers", transformers)
-    package_names = ["docling_core", "docling_core.transforms",
-                     "docling_core.transforms.chunker",
-                     "docling_core.transforms.chunker.tokenizer"]
+    package_names = [
+        "docling_core",
+        "docling_core.transforms",
+        "docling_core.transforms.chunker",
+        "docling_core.transforms.chunker.tokenizer",
+    ]
     for name in package_names:
         package = ModuleType(name)
         package.__path__ = []
         monkeypatch.setitem(sys.modules, name, package)
     hf_module = ModuleType("docling_core.transforms.chunker.tokenizer.huggingface")
-    hf_module.HuggingFaceTokenizer = type("HuggingFaceTokenizer", (), {
-        "from_pretrained": staticmethod(lambda path, **kwargs: (path, kwargs)),
-    })
+    hf_module.HuggingFaceTokenizer = type(
+        "HuggingFaceTokenizer",
+        (),
+        {
+            "from_pretrained": staticmethod(lambda path, **kwargs: (path, kwargs)),
+        },
+    )
     monkeypatch.setitem(sys.modules, hf_module.__name__, hf_module)
     monkeypatch.setenv("HF_HUB_OFFLINE", "caller-value")
     monkeypatch.delenv("TRANSFORMERS_OFFLINE", raising=False)
     before = dict(__import__("os").environ)
 
     assert embedding_config._load_transformers_tokenizer("/local/tokenizer") == (
-        "/local/tokenizer", {"local_files_only": True},
+        "/local/tokenizer",
+        {"local_files_only": True},
     )
     assert embedding_config._load_hf_tokenizer("/local/tokenizer", 100) == (
-        "/local/tokenizer", {"max_tokens": 100, "local_files_only": True},
+        "/local/tokenizer",
+        {"max_tokens": 100, "local_files_only": True},
     )
     assert dict(__import__("os").environ) == before
 
@@ -80,15 +94,25 @@ def test_failed_tokenizer_load_uses_one_fallback_for_chunk_counting(monkeypatch)
     from lab import chunking
 
     monkeypatch.setattr(embedding_config, "_tokenizer_files_present", lambda path: True)
-    monkeypatch.setattr(embedding_config, "_load_transformers_tokenizer",
-                        lambda path: (_ for _ in ()).throw(OSError("offline")))
-    monkeypatch.setattr(embedding_config, "_load_hf_tokenizer",
-                        lambda *args: (_ for _ in ()).throw(AssertionError("retried failed loader")))
+    monkeypatch.setattr(
+        embedding_config, "_load_transformers_tokenizer", lambda path: (_ for _ in ()).throw(OSError("offline"))
+    )
+    monkeypatch.setattr(
+        embedding_config,
+        "_load_hf_tokenizer",
+        lambda *args: (_ for _ in ()).throw(AssertionError("retried failed loader")),
+    )
     monkeypatch.setattr(embedding_config, "tokenizer_root", lambda: Path("/tokenizers"))
     tokenizer, warnings = embedding_config.chunk_tokenizer("nomic-embed-text", chunk_token_limit=512)
     monkeypatch.setattr(chunking, "chunk_embed_token_limit", lambda model: 10)
-    record = {"text": "a" * 100, "headings": [], "pages": [], "bboxes": [],
-              "picture_asset_ids": [], "contextualized_text": "a" * 100}
+    record = {
+        "text": "a" * 100,
+        "headings": [],
+        "pages": [],
+        "bboxes": [],
+        "picture_asset_ids": [],
+        "contextualized_text": "a" * 100,
+    }
     pieces = chunking._enforce_embed_limit(record, "nomic-embed-text", tokenizer=tokenizer)
     assert warnings
     assert "".join(piece["text"] for piece in pieces) == "a" * 100
@@ -125,8 +149,7 @@ def test_gguf_vocab_conversion_rejects_collisions():
 
 
 _TOKENIZER_INSTALLED = (
-    Path(__file__).resolve().parents[3]
-    / "data/external/modelweights/tokenizers/bert-base-uncased/tokenizer.json"
+    Path(__file__).resolve().parents[3] / "data/external/modelweights/tokenizers/bert-base-uncased/tokenizer.json"
 ).is_file()
 _PARITY_SAMPLES = [
     "search_document: hello world",
@@ -136,17 +159,18 @@ _PARITY_SAMPLES = [
 ]
 
 
-@pytest.mark.skipif(not _TOKENIZER_INSTALLED,
-                    reason="Offline embedding tokenizer not installed; run make embedding-tokenizer")
+@pytest.mark.skipif(
+    not _TOKENIZER_INSTALLED, reason="Offline embedding tokenizer not installed; run make embedding-tokenizer"
+)
 def test_local_tokenizer_has_no_unknowns_for_plain_english():
-    tokenizer = embedding_config._load_transformers_tokenizer(
-        str(embedding_config.tokenizer_path("nomic-embed-text")))
+    tokenizer = embedding_config._load_transformers_tokenizer(str(embedding_config.tokenizer_path("nomic-embed-text")))
     tokens = tokenizer.tokenize("search_document: what is the calibration of a transducer?")
     assert tokenizer.unk_token not in tokens
 
 
-@pytest.mark.skipif(not _TOKENIZER_INSTALLED,
-                    reason="Offline embedding tokenizer not installed; run make embedding-tokenizer")
+@pytest.mark.skipif(
+    not _TOKENIZER_INSTALLED, reason="Offline embedding tokenizer not installed; run make embedding-tokenizer"
+)
 def test_local_tokenizer_matches_ollama_when_available():
     import asyncio
     import httpx
@@ -175,8 +199,9 @@ def test_local_tokenizer_matches_ollama_when_available():
         assert ollama == count_embedding_tokens(text, model), text
 
 
-@pytest.mark.skipif(not _TOKENIZER_INSTALLED,
-                    reason="Offline embedding tokenizer not installed; run make embedding-tokenizer")
+@pytest.mark.skipif(
+    not _TOKENIZER_INSTALLED, reason="Offline embedding tokenizer not installed; run make embedding-tokenizer"
+)
 def test_chunk_tokenizer_counts_embedding_special_tokens_at_boundary(monkeypatch):
     from lab import chunking
 
@@ -188,10 +213,22 @@ def test_chunk_tokenizer_counts_embedding_special_tokens_at_boundary(monkeypatch
     complete = len(chunk_tokenizer.get_tokenizer().encode(text, add_special_tokens=True))
     assert complete == raw + 2
     monkeypatch.setattr(chunking, "chunk_embed_token_limit", lambda _: complete - 1)
-    record = {"text": text, "contextualized_text": text, "headings": [], "pages": [],
-              "bboxes": [], "picture_asset_ids": []}
+    record = {
+        "text": text,
+        "contextualized_text": text,
+        "headings": [],
+        "pages": [],
+        "bboxes": [],
+        "picture_asset_ids": [],
+    }
     chunks = chunking._enforce_embed_limit(record, model, tokenizer=chunk_tokenizer)
     assert len(chunks) > 1
-    assert all(embedding_config.count_with_chunk_tokenizer(
-        chunk["text"], model, chunk_tokenizer,
-    ) <= complete - 1 for chunk in chunks)
+    assert all(
+        embedding_config.count_with_chunk_tokenizer(
+            chunk["text"],
+            model,
+            chunk_tokenizer,
+        )
+        <= complete - 1
+        for chunk in chunks
+    )

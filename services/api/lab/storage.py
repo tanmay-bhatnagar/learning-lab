@@ -1,4 +1,5 @@
 """Flat topic persistence. No user-supplied path is accepted."""
+
 import json
 import os
 import re

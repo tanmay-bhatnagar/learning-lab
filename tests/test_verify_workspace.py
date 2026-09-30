@@ -13,9 +13,7 @@ def test_isolated_environment_overrides_personal_paths(monkeypatch, tmp_path):
     monkeypatch.setenv("LEARNING_LAB_STATE_ROOT", "/personal/state")
     monkeypatch.setenv("LEARNING_LAB_SETTINGS", "/personal/settings.json")
 
-    env = verify.isolated_environment(
-        os.environ, tmp_path / "run", "http://127.0.0.1:8123"
-    )
+    env = verify.isolated_environment(os.environ, tmp_path / "run", "http://127.0.0.1:8123")
 
     assert Path(env["LEARNING_LAB_ROOT"]).is_relative_to(tmp_path)
     assert Path(env["LEARNING_LAB_STATE_ROOT"]).is_relative_to(tmp_path)
@@ -24,18 +22,12 @@ def test_isolated_environment_overrides_personal_paths(monkeypatch, tmp_path):
 
 
 def test_isolated_environment_drops_host_telemetry_settings(monkeypatch, tmp_path):
-    monkeypatch.setenv(
-        "OTEL_EXPORTER_OTLP_ENDPOINT", "https://telemetry.example.invalid"
-    )
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://telemetry.example.invalid")
     monkeypatch.setenv("OTEL_SERVICE_NAME", "host-service")
     monkeypatch.setenv("FASTAPI_INSTRUMENTATION_ENABLED", "true")
-    monkeypatch.setenv(
-        "FASTAPI_TELEMETRY_ENDPOINT", "https://telemetry.example.invalid"
-    )
+    monkeypatch.setenv("FASTAPI_TELEMETRY_ENDPOINT", "https://telemetry.example.invalid")
 
-    env = verify.isolated_environment(
-        os.environ, tmp_path / "run", "http://127.0.0.1:8123"
-    )
+    env = verify.isolated_environment(os.environ, tmp_path / "run", "http://127.0.0.1:8123")
 
     assert not any(key.startswith("OTEL_") for key in env if key != "OTEL_SDK_DISABLED")
     assert not any(key.startswith("FASTAPI_") for key in env)
