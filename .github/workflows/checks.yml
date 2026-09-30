@@ -31,6 +31,8 @@ jobs:
           .venv/bin/python -m ruff check .
           .venv/bin/python -m ruff check --select E4,E7,E9,F,I scripts/check_engineering.py scripts/verify_workspace.py tests/test_verify_workspace.py
           .venv/bin/python -m ruff format --check .
+          npm run --prefix apps/web format:check
+          npm run --prefix apps/web lint
       - run: make test
       - run: make build
       - name: Verify isolated HTTP upload flow

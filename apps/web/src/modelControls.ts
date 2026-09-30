@@ -52,6 +52,7 @@ export function validateContext(value: number, _model?: Model): string | undefin
   if (!Number.isInteger(value) || value < 1024 || value > APP_CONTEXT_MAX) {
     return `Context size must be a whole number between 1,024 and ${APP_CONTEXT_MAX.toLocaleString('en-US')}.`;
   }
+  return undefined;
 }
 
 export function thinkingValue(model: Model | undefined, preferences: Record<string, boolean | string>) {
