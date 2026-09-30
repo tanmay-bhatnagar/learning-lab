@@ -2,8 +2,7 @@ import json
 
 from fastapi.testclient import TestClient
 
-import lab.main as main_module
-from lab.main import create_app
+from lab.web.app import create_app
 from lab.models import OllamaGateway
 from lab.storage import write_json, write_text
 from tests.fakes import FakeModel, UnavailableEmbedFakeModel

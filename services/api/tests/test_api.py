@@ -4,7 +4,8 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 from lab.errors import Forbidden, InvalidInput
-from lab.main import create_app, SYSTEM_RULES
+from lab.chat_prompt import SYSTEM_RULES
+from lab.web.app import create_app
 from lab.storage import Store
 from tests.fakes import FakeModel, SlowFakeModel
 

@@ -40,7 +40,7 @@ def test_framework_import_outside_http_layer_fails(monkeypatch, tmp_path):
     root = seed(
         tmp_path,
         {
-            f"{check.LAB}/main.py": "from fastapi import FastAPI\n",
+            f"{check.LAB}/web/app.py": "from fastapi import FastAPI\n",
             f"{check.LAB}/web/topics.py": "from fastapi import APIRouter\n",
             f"{check.LAB}/parsers.py": "import os\n\nfrom fastapi import HTTPException\n",
         },

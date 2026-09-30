@@ -7,7 +7,7 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
-from lab.main import create_app
+from lab.web.app import create_app
 from tests.fakes import FakeModel
 
 

@@ -11,7 +11,8 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from lab.file_records import mark_interrupted
-from lab.main import SYSTEM_RULES, create_app
+from lab.chat_prompt import SYSTEM_RULES
+from lab.web.app import create_app
 from lab.storage import Store
 from tests.fakes import FakeModel, SlowFakeModel
 
