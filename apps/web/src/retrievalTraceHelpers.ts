@@ -1,4 +1,6 @@
-import type { FileChunk, LabFile, RetrievalTraceRequest, RetrievalTraceResponse, TraceComponent } from './api';
+import type { FileChunk, LabFile, RetrievalTraceRequest, TraceComponent } from './api';
+import { retrievalModeLabel } from './domain/retrievalMode';
+import type { RetrievalTraceMode } from './api/types';
 
 export function isIndexedFile(file: LabFile): boolean {
   return file.index_status === 'ready' && file.status === 'ready';
@@ -28,10 +30,6 @@ export function resolveAssetId(file: LabFile | undefined, assetRef: string): str
   return byName?.id ?? null;
 }
 
-export function assetApiUrl(topic: string, fileId: string, assetId: string): string {
-  return `/api/topics/${encodeURIComponent(topic)}/files/${encodeURIComponent(fileId)}/assets/${encodeURIComponent(assetId)}`;
-}
-
 export function formatRank(rank: number | null | undefined): string {
   return rank == null ? '—' : `#${rank}`;
 }
@@ -50,17 +48,8 @@ export function chunkDisplayText(chunk: Pick<FileChunk, 'contextualized_text' | 
   return (chunk.contextualized_text || chunk.text || '').trim();
 }
 
-export function modeLabel(mode: RetrievalTraceResponse['mode']): string {
-  switch (mode) {
-    case 'hybrid':
-      return 'Hybrid (keyword + embeddings + RRF)';
-    case 'keyword':
-      return 'Keyword only';
-    case 'fallback':
-      return 'Fallback opening chunks';
-    default:
-      return 'No matches';
-  }
+export function modeLabel(mode: RetrievalTraceMode | undefined): string {
+  return retrievalModeLabel(mode, 'No matches');
 }
 
 export function pagesLabel(pages: number[] | undefined): string {

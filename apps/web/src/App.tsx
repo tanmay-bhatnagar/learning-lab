@@ -22,8 +22,13 @@ import {
   Sparkles,
   ExternalLink,
 } from 'lucide-react';
-import { api, json, stream, topicPath } from './api';
+import { api, json, stream, topicPath, topicFilesPath } from './api';
 import type { Topic, LabFile, Message, Context, Model, Settings } from './api';
+import { applyStreamEvent, failTurn, startTurn } from './state/chatStream';
+import { deriveActivity, uploadBlockedReason } from './state/activity';
+import { filesRefreshed } from './state/topicSession';
+import { contextMeter } from './domain/contextMeter';
+import { fileMeta, isSelectable, showLegacyUnassessedWarning } from './domain/files';
 import {
   APP_CONTEXT_MAX,
   DEFAULT_SETTINGS,
@@ -37,7 +42,7 @@ import {
 } from './modelControls';
 import { RetrievalTracePanel } from './retrievalTrace';
 import { MessageSources } from './citations';
-import { pdfDropBlocked, validatePdfs } from './uploads';
+import { validatePdfs } from './uploads';
 import { MAX_LEARNING_GOAL_CHARS, canSaveLearningGoal } from './learningGoal';
 const errorText = (error: unknown) =>
   error instanceof Error ? error.message : 'Something went wrong. Please try again.';
@@ -53,13 +58,6 @@ const parserOptions = [
     AnyDoc (fallback)
   </option>,
 ];
-function fileMeta(file: LabFile) {
-  const parts = [file.parser, file.status];
-  if (file.index_mode) parts.push(`${file.index_mode} index`);
-  if (file.page_count != null) parts.push(`${file.page_count} page${file.page_count === 1 ? '' : 's'}`);
-  if (file.asset_count != null) parts.push(`${file.asset_count} visual${file.asset_count === 1 ? '' : 's'}`);
-  return parts.join(' · ');
-}
 function RichText({ text }: { text: string }) {
   return (
     <div className="markdown">
@@ -139,9 +137,19 @@ export function App() {
   topicRef.current = topic;
   const activeTopic = topics.find((t) => t.id === topic);
   const activeModel = models.find((m) => m.id === settings.model);
+  const activity = deriveActivity({
+    sending,
+    uploading,
+    saving,
+    goalSaving,
+    creating,
+    streamLocked: !!streamController.current,
+    uploadLocked: uploadLock.current,
+    persistenceLocked: persistenceLock.current,
+  });
   const busy = sending || uploading || saving || goalSaving;
   const draftModel = models.find((m) => m.id === (switching || draft.model));
-  const uploadBlocked = pdfDropBlocked({ busy, topicReady, hasTopic: !!topic });
+  const uploadBlocked = uploadBlockedReason(activity, { topicReady, hasTopic: !!topic });
   const goalSavable = canSaveLearningGoal({
     hasTopic: !!topic,
     topicReady,
@@ -338,50 +346,25 @@ export function App() {
     setError('');
     setInput('');
     setFollow(true);
-    setMessages((previous) => [
-      ...previous,
-      { role: 'user', content: message },
-      { role: 'assistant', content: '', thinking: '' },
-    ]);
+    setMessages((previous) => startTurn(previous, message));
     try {
       await stream(
         `${topicPath(topic)}/chat`,
         chatRequest(settings, activeModel, thinking, message, selected),
         controller.signal,
         (event) => {
-          if (event.model)
-            setMessages((previous) =>
-              previous.map((m, i) => (i === previous.length - 1 ? { ...m, model: event.model } : m)),
-            );
-          if (event.type === 'done') {
-            setContext(event.context || {});
-            if (event.retrieval)
-              setMessages((previous) =>
-                previous.map((m, i) => (i === previous.length - 1 ? { ...m, retrieval: event.retrieval } : m)),
-              );
-          }
-          if (event.type === 'thinking' || event.type === 'token')
-            setMessages((previous) =>
-              previous.map((m, i) =>
-                i === previous.length - 1
-                  ? {
-                      ...m,
-                      ...(event.type === 'thinking'
-                        ? { thinking: (m.thinking || '') + (event.text || '') }
-                        : { content: m.content + (event.text || '') }),
-                    }
-                  : m,
-              ),
-            );
+          if (event.type === 'done') setContext(event.context || {});
+          setMessages((previous) => applyStreamEvent(previous, event));
         },
       );
     } catch (e) {
+      const stop = aborted(e);
       setError(
-        aborted(e)
+        stop
           ? 'Response stopped. Partial text is shown below; reload history to confirm what was saved.'
           : errorText(e),
       );
-      setMessages((previous) => previous.map((m, i) => (i === previous.length - 1 ? { ...m, incomplete: true } : m)));
+      setMessages((previous) => failTurn(previous, stop).messages);
     } finally {
       setSending(false);
       streamController.current = null;
@@ -389,11 +372,7 @@ export function App() {
   }
   async function upload(list: FileList | File[] | null) {
     if (!list?.length || !topic) return;
-    const blocked = pdfDropBlocked({
-      busy: busy || !!streamController.current || uploadLock.current || persistenceLock.current,
-      topicReady,
-      hasTopic: !!topic,
-    });
+    const blocked = uploadBlockedReason(activity, { topicReady, hasTopic: !!topic });
     if (blocked) {
       setDropBlocked(true);
       showDropFeedback(blocked);
@@ -432,10 +411,7 @@ export function App() {
   }
   async function persistSettings(next: Settings, selectedModel?: Model) {
     if (persistenceLock.current || busy || streamController.current || uploadLock.current) return;
-    const validation = validateContext(
-      next.context_limit,
-      models.find((m) => m.id === next.model),
-    );
+    const validation = validateContext(next.context_limit);
     if (validation) {
       setError(validation);
       return;
@@ -479,10 +455,25 @@ export function App() {
     if (!topic || busy) return;
     setError('');
     try {
-      const attachments = await api<{ files: LabFile[] }>(`${topicPath(topic)}/files`);
-      const nextFiles = attachments.files;
-      setFiles(nextFiles);
-      setSelected((previous) => previous.filter((id) => nextFiles.some((file) => file.id === id)));
+      const attachments = await api<{ files: LabFile[] }>(topicFilesPath(topic));
+      const refreshed = filesRefreshed(
+        {
+          messages: [],
+          files,
+          selected,
+          context: {},
+          learningGoal: '',
+          goalDraft: '',
+          goalNotice: '',
+          topicReady: true,
+          topicLoading: false,
+          preview: null,
+          input: '',
+        },
+        attachments.files,
+      );
+      setFiles(refreshed.files);
+      setSelected(refreshed.selected);
     } catch (e) {
       setError(errorText(e));
     }
@@ -507,9 +498,7 @@ export function App() {
       window.removeEventListener('dragend', preventFileNavigation);
     };
   }, []);
-  const limit = context.limit || settings.context_limit;
-  const used = context.used;
-  const percent = Math.min(100, Math.max(0, ((used || 0) / limit) * 100));
+  const meter = contextMeter(context, settings);
   function thinkingControl(model = activeModel) {
     const kind = model?.thinking?.type;
     if (!kind || kind === 'none') return <span className="muted small">Standard response</span>;
@@ -990,12 +979,7 @@ export function App() {
                         type="checkbox"
                         aria-label={`Include ${file.name} in chat`}
                         checked={selected.includes(file.id)}
-                        disabled={
-                          busy ||
-                          !topicReady ||
-                          !!file.error ||
-                          /failed|error|pending|processing|queued|converting|uploaded/i.test(file.status)
-                        }
+                        disabled={busy || !topicReady || !isSelectable(file)}
                         onChange={(e) =>
                           setSelected((previous) =>
                             e.target.checked ? [...previous, file.id] : previous.filter((id) => id !== file.id),
@@ -1021,7 +1005,7 @@ export function App() {
                             )}
                           </p>
                         )}
-                        {!file.extraction_diagnostics && file.status === 'ready' && (
+                        {showLegacyUnassessedWarning(file) && (
                           <p className="field-error" role="status">
                             Extraction fidelity unassessed for this saved record.
                           </p>
@@ -1278,12 +1262,14 @@ export function App() {
                       title="Older input drops from model context automatically; saved history remains."
                     >
                       <span className="context-track">
-                        <span style={{ width: `${percent}%` }} />
+                        <span style={{ width: `${meter.percent}%` }} />
                       </span>
                       <span>
-                        {used === undefined ? 'Context' : `${context.estimated ? '~' : ''}${used.toLocaleString()} /`}{' '}
-                        {limit.toLocaleString()}
-                        {used === undefined ? ' tokens' : ''}
+                        {meter.used === undefined
+                          ? 'Context'
+                          : `${meter.estimated ? '~' : ''}${meter.used.toLocaleString()} /`}{' '}
+                        {meter.limit.toLocaleString()}
+                        {meter.used === undefined ? ' tokens' : ''}
                       </span>
                     </div>
                   </div>

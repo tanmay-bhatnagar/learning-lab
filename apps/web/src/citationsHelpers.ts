@@ -1,4 +1,5 @@
 import type { MessageRetrieval, RetrievalTraceMode } from './api';
+import { retrievalModeLabel } from './domain/retrievalMode';
 
 export function sourcesCount(retrieval: MessageRetrieval | undefined): number {
   return retrieval?.citations?.length ?? 0;
@@ -13,27 +14,7 @@ export function sourcesButtonLabel(count: number): string {
 }
 
 export function modeBadgeLabel(mode: RetrievalTraceMode | undefined): string {
-  switch (mode) {
-    case 'hybrid':
-      return 'Hybrid (keyword + embeddings + RRF)';
-    case 'keyword':
-      return 'Keyword only';
-    case 'fallback':
-      return 'Fallback opening chunks';
-    default:
-      return 'No retrieval';
-  }
-}
-
-export function citationLocation(
-  fileName: string,
-  headings: string[] | undefined,
-  pages: number[] | undefined,
-): string {
-  const parts = [fileName];
-  if (headings?.length) parts.push(headings.join(' › '));
-  if (pages?.length) parts.push(pages.length === 1 ? `Page ${pages[0]}` : `Pages ${pages.join(', ')}`);
-  return parts.join(' · ');
+  return retrievalModeLabel(mode, 'No retrieval');
 }
 
 export function citationChunkLabel(chunkIndex: number | undefined): string | null {

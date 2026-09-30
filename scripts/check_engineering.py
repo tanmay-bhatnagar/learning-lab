@@ -22,7 +22,7 @@ PENDING = {
     "environment-read": frozenset(
         {f"{LAB}/main.py", f"{LAB}/docling_pipeline.py", f"{LAB}/embedding_config.py", f"{LAB}/models.py"}
     ),
-    "silent-catch": frozenset({f"{WEB}/api.ts", f"{WEB}/App.tsx"}),
+    "silent-catch": frozenset({f"{WEB}/App.tsx"}),
 }
 UNBOUND_CATCH = re.compile(r"\bcatch\s*\{\s*(\S)?(\S)?")
 

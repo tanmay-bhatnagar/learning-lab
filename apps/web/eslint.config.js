@@ -17,8 +17,6 @@ export default defineConfig(
     files: ['src/App.tsx'],
     rules: { 'react-hooks/refs': 'off', 'react-hooks/set-state-in-effect': 'off', 'no-empty': 'off' },
   },
-  { files: ['src/api.ts'], rules: { 'no-empty': 'off' } },
-  { files: ['src/modelControls.ts'], rules: { '@typescript-eslint/no-unused-vars': 'off' } },
   {
     files: ['tests/**/*.{js,mjs,ts,tsx}', '*.config.{js,ts}'],
     extends: [js.configs.recommended, tseslint.configs.recommended],
