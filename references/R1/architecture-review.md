@@ -29,6 +29,14 @@ Refactor levels used below: **none**; **local** (edits inside one module; no int
 
 These change behavior, so each needs its own commit and regression test. Do not fold them into refactor commits.
 
+**Status on 1 October 2026: D1–D5 are fixed, each with a regression test.** The rows below keep the original findings as the baseline. The fixes are:
+
+- **D1.** `lab.contracts.EmbeddingUnavailable` is raised for a missing, remote or unreachable model; uploads fall back to a keyword index and searches to keyword retrieval. Rejected document embeddings still fail indexing, while a rejected query falls back to keywords. Verified live against local Ollama with an uninstalled embedding model. The same review found that `scripts/chunking_demo.py` called `embed_texts` without its required lock; that is fixed too.
+- **D2.** The topic effect resets the goal state, and `learningGoal.canSaveLearningGoal` requires a loaded, idle topic.
+- **D3.** `storage.write_new_bytes` writes the original PDF and legacy Markdown durably with exclusive create (fsync, then a hard link).
+- **D4.** `file_records.mark_interrupted` runs when the file list is read, according to decision 3.
+- **D5.** Confirmed by reproduction. With the HTTP middleware, the lock was released only when the cyclic garbage collector ran; without it, the lock was never released. `FinalizedStreamingResponse` now runs chat cleanup exactly once in every disconnect case.
+
 | ID | Severity | Status | Finding |
 | --- | --- | --- | --- |
 | D1 | High | **Confirmed by execution** | When Ollama is running but the embedding model is not pulled (the default `nomic-embed-text`), `models.embed_texts` raises `ValueError("Requested model is not installed locally")` (`models.py:170-171`). `retrieval.index_chunks` and `retrieval.search` catch only `httpx.HTTPError` (`retrieval.py:50`, `retrieval.py:79`). Consequences: an upload gets no keyword index at all (`main.py:228-233` marks `index_status: error`). Chat then falls back to attaching the file's whole Markdown (`main.py:344-346`), and the chat response does not say so; only the file list shows a warning. For a file indexed earlier, chat and trace fail with HTTP 500. This breaks the handoff invariant "keyword retrieval still works when embeddings are unavailable". It is a **regression from the 30 September refactor**: `b2a6b71` caught `Exception`, and `bcfe2a9` narrowed the catch without classifying this expected outage. No test covers it. Reproduced in an isolated temporary store: both functions raise `ValueError`. |
@@ -239,7 +247,12 @@ Decided by Tanmay on 1 October 2026:
 - Decision 1: Prettier, ESLint with `react-hooks`, and Vitest with Testing Library, as recommended.
 - Decision 3: when a record in `processing` is read after an interruption, mark it `error` with the reason "interrupted" and keep every artifact.
 - Decision 4: the coordinator may start any role within an approved plan. `AGENTS.md` still has to be updated to say so.
-- Decisions 2 and 5 are still open.
+- Decision 2: use `zod` schemas in `api.ts` as the single source of both TypeScript types and runtime checks, including NDJSON stream events.
+- Decision 5 is still under discussion. The proposal:
+    - Prettier with `printWidth` 120.
+    - ESLint `max-lines` 300 per file and `complexity` 10 per function.
+    - Ruff `C901` with a maximum of 10, plus `PLR0915` with a maximum of 50 statements.
+    - Current offenders go in an explicit exception list that may only shrink.
 
 ### Phase 1 — defect fixes (sequential, each with a regression test)
 
