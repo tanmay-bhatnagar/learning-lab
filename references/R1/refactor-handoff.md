@@ -2,6 +2,8 @@
 
 Status: **implemented and automated checks passed** (30 September 2026). Base: `dev` at `13ca810` (application code landed in `b2a6b71`). This is the original scope and acceptance record for the refactor. A single Code subagent implemented it at Tanmay's request. The coordinator then updated tests and ran 128 Python tests, 17 frontend tests, and the web build. Live Ollama and browser use remain unverified.
 
+Follow-up (1 October 2026): the architecture review found that item 4 had regressed "keyword retrieval still works when embeddings are unavailable": a missing embedding model raised `ValueError`, which the narrowed catch did not handle. Commit `b3a54e6` fixed this with `EmbeddingUnavailable` and was verified live. Item 3's app-lifetime model lock is in place. Items 1 and 2 are partly done; see [architecture-review.md](architecture-review.md).
+
 ## Objective
 
 Make the existing PDF ingestion → chunking → indexing → retrieval → cited chat path easier to reason about and extend. This is a **behavior-preserving** pass after the five reviewed bug fixes. Keep it limited to the backend path; do not add R1 features.

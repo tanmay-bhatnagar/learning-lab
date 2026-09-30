@@ -29,7 +29,7 @@ Refactor levels used below: **none**; **local** (edits inside one module; no int
 
 These change behavior, so each needs its own commit and regression test. Do not fold them into refactor commits.
 
-**Status on 1 October 2026: D1–D5 are fixed, each with a regression test.** The rows below keep the original findings as the baseline. The fixes are:
+**Status on 1 October 2026: D1–D5 are fixed, each with a regression test, and the documentation drift (P1-f) is corrected. Phase 1 is complete.** The rows below keep the original findings as the baseline. The fixes are:
 
 - **D1.** `lab.contracts.EmbeddingUnavailable` is raised for a missing, remote or unreachable model; uploads fall back to a keyword index and searches to keyword retrieval. Rejected document embeddings still fail indexing, while a rejected query falls back to keywords. Verified live against local Ollama with an uninstalled embedding model. The same review found that `scripts/chunking_demo.py` called `embed_texts` without its required lock; that is fixed too.
 - **D2.** The topic effect resets the goal state, and `learningGoal.canSaveLearningGoal` requires a loaded, idle topic.
@@ -248,11 +248,7 @@ Decided by Tanmay on 1 October 2026:
 - Decision 3: when a record in `processing` is read after an interruption, mark it `error` with the reason "interrupted" and keep every artifact.
 - Decision 4: the coordinator may start any role within an approved plan. `AGENTS.md` still has to be updated to say so.
 - Decision 2: use `zod` schemas in `api.ts` as the single source of both TypeScript types and runtime checks, including NDJSON stream events.
-- Decision 5 is still under discussion. The proposal:
-    - Prettier with `printWidth` 120.
-    - ESLint `max-lines` 300 per file and `complexity` 10 per function.
-    - Ruff `C901` with a maximum of 10, plus `PLR0915` with a maximum of 50 statements.
-    - Current offenders go in an explicit exception list that may only shrink.
+- Decision 5: automatic formatting only (Prettier and `ruff format`). There are no enforced limits on line, file, function or complexity size. Split files when they become a real problem, never to satisfy a number. The structural refactor slices below stand on their own design merits.
 
 ### Phase 1 — defect fixes (sequential, each with a regression test)
 
@@ -269,11 +265,11 @@ Decided by Tanmay on 1 October 2026:
 
 | Slice | Owned paths | Acceptance |
 | --- | --- | --- |
-| G-1: Python lint ratchet | `ruff.toml`, CI | Add `BLE001, A001, B, C901 (max 10), PLR0915, ANN001/ANN201` for `services/api/lab`, with per-file ignores listing today's offenders. Removing an ignore is the done-signal for later slices. |
+| G-1: Python lint ratchet | `ruff.toml`, CI | Add the correctness rules `BLE001, A001, B, ANN001/ANN201` for `services/api/lab`, with per-file ignores listing today's offenders. Removing an ignore is the done-signal for later slices. No size or complexity rules (decision 5). |
 | G-2: Python format | whole Python tree | One mechanical `ruff format` commit; `git diff -w` shows no semantic change; tests pass. |
 | G-3: TypeScript format and lint | `apps/web` configs, `package.json`, CI | Prettier over `src/` in one mechanical commit (it turns `main.tsx` into readable lines, so all later diffs are reviewable). ESLint `react-hooks/*`, `no-empty`; `noImplicitReturns`. |
 | G-4: frontend test harness | `apps/web/tests`, `vitest.config.ts` | Existing 18 tests ported unchanged in intent; modules may value-import each other. |
-| G-5: structural checks | `scripts/check_engineering.py` | Fail on: `fastapi` imported outside the HTTP layer; `os.environ` outside the config module; source line or file length over budget; `catch {}` or `except Exception` without an allow-list entry. |
+| G-5: structural checks | `scripts/check_engineering.py` | Fail on: `fastapi` imported outside the HTTP layer; `os.environ` outside the config module; `catch {}` or `except Exception` without an allow-list entry. |
 | G-6: conventions | `docs/engineering.md`, review checklist, `AGENTS.md` | Add a frontend section, a ban on test-only branches in production code, the error taxonomy, configuration ownership, and a behavior-preserving refactor procedure. |
 
 ### Phase 3 — frontend track (single writer on `apps/web/src`, sequential)
@@ -283,7 +279,7 @@ Decided by Tanmay on 1 October 2026:
 | FE-0: characterization tests | `apps/web/tests/` | Testing Library tests for topic switch and reset, send/stream/stop, stream error and incomplete marking, upload-blocked states, drag-drop, model-select success and mismatch, settings save, goal save, and preview. They pass on current code. |
 | FE-1: pure extraction | `src/state/*`, `src/domain/*`, `src/api/*` | `applyStreamEvent`, activity machine, topic-session reducer, file rules, and one URL module, each unit-tested. Remove dead code (`citationLocation`, `modelContextMax`, `fileAssetPath`); unify mode labels and error parsing. |
 | FE-2: hooks own effects | `src/hooks/*`, `App.tsx`, `main.tsx` | `App` holds no `fetch`, `localStorage` or `window` calls; refs remain only for DOM and `AbortController`. |
-| FE-3: components | `src/components/*` | No component over budget; shared `VisualAssets` replaces the two duplicates; `main.tsx` holds `createRoot` only. |
+| FE-3: components | `src/components/*` | Each component has one responsibility; shared `VisualAssets` replaces the two duplicates; `main.tsx` holds `createRoot` only. |
 | FE-4: boundary validation | `src/api/client.ts`, `types.ts` | Responses and stream events are validated; statuses are unions shared by the domain rules. |
 | Exit | — | FE-0 tests unchanged and passing; `make build`; usage-skill browser run of [flows](../../.agents/skills/usage/references/flows.md). |
 
@@ -297,7 +293,7 @@ Order: BE-0 → BE-1 → BE-2 → BE-3 → BE-4 → {BE-5, BE-6, BE-7 in paralle
 | BE-1: error taxonomy | new `lab/errors.py`; `storage`, `index`, `retrieval`; the handler in `main.py` | No `fastapi` import outside the HTTP layer; identical status codes and messages; rename `IndexError`. |
 | BE-2: contracts | `contracts.py`, annotations across `lab/` | `FileRecord` (status Literals), `TopicRecord`, `Session`/`Message`, `ExtractionDiagnostics`, a `ModelGateway` Protocol and a `Store` Protocol. The file record's JSON shape is unchanged. The Ruff `ANN` ignores for `lab/` are gone. |
 | BE-3: configuration | new `lab/config.py`, `models.py`, `docling_pipeline.py`, `embedding_config.py`, `scripts/*` | A frozen `AppConfig` is built once. Importing `lab.main` has no side effects: the app entry point moves to `lab/asgi.py` or `uvicorn --factory`, with `dev.py` and `verify_workspace.py` updated. `OLLAMA_URL` comes from configuration. |
-| BE-4: split `main.py` | `lab/http/{app,topics,files,chat,settings}.py`, `lab/ingest.py`, `lab/chat_prompt.py`, `lab/chat_session.py` | Thin routers. Pure `build_chat_prompt`, `retained_citations`, the upload-record transition functions, and session transitions that return new values. Injected dependencies all follow the production path (a parser map replaces the `converter` branch; there is one gateway call signature). The lock lifecycle is owned by one context manager covering D5. The `create_app` complexity ignore is removed. |
+| BE-4: split `main.py` | `lab/http/{app,topics,files,chat,settings}.py`, `lab/ingest.py`, `lab/chat_prompt.py`, `lab/chat_session.py` | Thin routers. Pure `build_chat_prompt`, `retained_citations`, the upload-record transition functions, and session transitions that return new values. Injected dependencies all follow the production path (a parser map replaces the `converter` branch; there is one gateway call signature). The lock lifecycle is owned by one context manager covering D5. |
 | BE-5: ingestion | `parse_pipeline.py`, `chunking.py`, `docling_pipeline.py`, the ingest call site | Pure record, manifest and update builders; structured parser warnings; one record builder for text and figure chunks; public `enforce_embed_limit`; `content_hash` moves out of `index.py`. Chunk JSONL is byte-identical on the synthetic fixture. |
 | BE-6: retrieval | `retrieval.py`, `index.py`, the chat call site | Typed hits; an explicit fallback flag instead of the 0.0 sentinel; the index is checked before embedding; image loading is separated from evidence formatting. |
 | BE-7: model adapter | `models.py` | Shared local-model resolution; pure payload and think validation; single-owner budgeting (the adapter asserts the prompt fits rather than re-trimming); narrowed excepts. |
