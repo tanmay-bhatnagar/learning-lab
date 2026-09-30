@@ -229,6 +229,70 @@ def test_chat_citations_follow_real_model_context_trimming_with_legacy_attachmen
         client_factory.stop()
 
 
+def test_missing_embedding_model_degrades_upload_trace_and_chat_to_keywords(tmp_path):
+    import httpx
+    from unittest.mock import patch
+
+    installed = [{"name": "fake"}, {"name": "nomic-embed-text"}]
+
+    def handle(request):
+        if request.url.path == "/api/tags":
+            return httpx.Response(200, json={"models": installed})
+        if request.url.path == "/api/show":
+            return httpx.Response(200, json={"capabilities": ["completion"]})
+        if request.url.path == "/api/embed":
+            count = len(json.loads(request.content)["input"])
+            return httpx.Response(200, json={"embeddings": [[1.0, 0.0]] * count})
+        if request.url.path == "/api/chat":
+            return httpx.Response(200, content=(
+                b'{"message":{"content":"ok"},"done":true,'
+                b'"prompt_eval_count":10,"eval_count":2}\n'
+            ))
+        raise AssertionError(request.url.path)
+
+    def upload(client, topic, name):
+        return client.post(
+            f"/api/topics/{topic}/files",
+            files={"file": (name, b"%PDF-1.7\nexample", "application/pdf")},
+            data={"parser": "docling"},
+        ).json()
+
+    with patch.object(models, "_client", lambda: httpx.AsyncClient(
+            base_url="http://test", transport=httpx.MockTransport(handle))):
+        client = TestClient(create_app(
+            tmp_path / "Learning", tmp_path / "state/settings.json",
+            structured_parser=fake_structured_parser,
+        ))
+        topic = client.post("/api/topics", json={"name": "Embedding offline"}).json()["id"]
+        earlier = upload(client, topic, "earlier.pdf")
+        assert earlier["index_mode"] == "hybrid"
+
+        installed.pop()
+        later = upload(client, topic, "later.pdf")
+        assert later["status"] == "ready"
+        assert later["index_status"] == "ready"
+        assert later["index_mode"] == "keyword"
+        assert any("not installed" in warning for warning in later["warnings"])
+
+        trace = client.post(f"/api/topics/{topic}/retrieval/trace",
+                            json={"query": "calibration", "file_ids": [earlier["id"]]})
+        assert trace.status_code == 200
+        assert trace.json()["mode"] == "keyword"
+        assert "not installed" in trace.json()["warning"]
+
+        response = client.post(f"/api/topics/{topic}/chat", json={
+            "message": "What is the calibration value?",
+            "file_ids": [earlier["id"], later["id"]], "model": "fake",
+        })
+        assert response.status_code == 200
+        done = json.loads(response.text.splitlines()[-1])
+        assert done["type"] == "done"
+        assert done["retrieval"]["mode"] == "keyword"
+        assert "not installed" in done["retrieval"]["warning"]
+        assert {item["file_id"] for item in done["retrieval"]["citations"]} <= {earlier["id"], later["id"]}
+        assert done["retrieval"]["citations"]
+
+
 def test_chat_reports_missing_index_for_selected_ready_indexed_file(tmp_path):
     root = tmp_path / "Learning"
     client = TestClient(create_app(

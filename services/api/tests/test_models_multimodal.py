@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 import httpx
 from lab import models
+from lab.contracts import EmbeddingUnavailable
 
 
 class Chunks(httpx.AsyncByteStream):
@@ -102,6 +103,34 @@ class MultimodalModelTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(ValueError) as ctx:
                 await models.embed_texts(['too long'], 'nomic-embed-text', generation_lock=self.generation_lock)
             self.assertIn('context limit', str(ctx.exception))
+            self.assertNotIsInstance(ctx.exception, EmbeddingUnavailable)
+
+    async def test_embed_texts_reports_missing_model_as_unavailable(self):
+        self.tags = [{'name': 'qwen3.5:4b-q8_0'}]
+        with self.assertRaises(EmbeddingUnavailable) as ctx:
+            await models.embed_texts(['one'], 'nomic-embed-text', generation_lock=self.generation_lock)
+        self.assertIn('ollama pull nomic-embed-text', str(ctx.exception))
+        self.assertNotIn('/api/embed', [path for path, _ in self.requests])
+
+    async def test_embed_texts_reports_transport_and_server_failures_as_unavailable(self):
+        self.tags = [{'name': 'nomic-embed-text'}]
+
+        def server_error(request):
+            if request.url.path == '/api/tags':
+                return httpx.Response(200, json={'models': self.tags})
+            if request.url.path == '/api/show':
+                return httpx.Response(200, json=self.info)
+            return httpx.Response(503, json={'error': 'loading'})
+
+        def offline(request):
+            raise httpx.ConnectError('offline', request=request)
+
+        for handler in (server_error, offline):
+            with self.subTest(handler=handler.__name__), patch.object(
+                    models, '_client', lambda handler=handler: httpx.AsyncClient(
+                        base_url='http://test', transport=httpx.MockTransport(handler))):
+                with self.assertRaises(EmbeddingUnavailable):
+                    await models.embed_texts(['one'], 'nomic-embed-text', generation_lock=self.generation_lock)
 
     async def test_embed_texts_rejects_malformed_vectors(self):
         self.tags = [{'name': 'nomic-embed-text'}]

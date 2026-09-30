@@ -124,16 +124,26 @@ def _require_docling_artifacts() -> str:
     return str(resolved)
 
 
-async def _require_ollama_embedding(model: str) -> None:
+def _embedder():
     from lab import models
 
+    lock = asyncio.Lock()
+
+    async def embed(texts: list[str], model: str) -> list[list[float]]:
+        return await models.embed_texts(texts, model, generation_lock=lock)
+    return embed
+
+
+async def _require_ollama_embedding(model: str, embed) -> None:
+    from lab.contracts import EmbeddingUnavailable
+
     try:
-        await models.embed_texts(["preflight"], model)
+        await embed(["preflight"], model)
+    except EmbeddingUnavailable as exc:
+        _fail(str(exc), hint=f"Verify Ollama is running and `ollama pull {model}` succeeded.")
     except ValueError as exc:
-        _fail(str(exc), hint=f"Verify `ollama pull {model}` succeeded and Ollama can embed text.")
-    except Exception as exc:
         _fail(
-            f"Embedding preflight failed ({type(exc).__name__}: {exc}).",
+            f"Embedding preflight failed: {exc}",
             hint=f"Check Ollama logs and confirm {model!r} supports POST /api/embed.",
         )
 
@@ -194,12 +204,12 @@ def _setup_temp_store(scratch: Path) -> tuple[Any, str, str]:
 
 
 async def _run_demo() -> dict[str, Any]:
-    from lab import models
     from lab.parse_pipeline import parse_and_persist
     from lab.retrieval import evidence_messages, index_chunks, search
 
     artifacts_path = _require_docling_artifacts()
-    await _require_ollama_embedding(EMBEDDING_MODEL)
+    embed = _embedder()
+    await _require_ollama_embedding(EMBEDDING_MODEL, embed)
 
     pdf_bytes = synthetic_pdf()
     file_id = uuid.uuid4().hex
@@ -226,7 +236,7 @@ async def _run_demo() -> dict[str, Any]:
             file_id,
             index_records,
             embedding_model=EMBEDDING_MODEL,
-            embedder=models.embed_texts,
+            embedder=embed,
         )
         if index_result.get("mode") != "hybrid":
             warning = index_result.get("warning") or "Hybrid index was not created."
@@ -245,7 +255,7 @@ async def _run_demo() -> dict[str, Any]:
                 file_ids=[file_id],
                 limit=4,
                 embedding_model=EMBEDDING_MODEL,
-                embedder=models.embed_texts,
+                embedder=embed,
             )
             hits = [_hit_payload(hit) for hit in result.get("hits") or []]
             messages, citations = evidence_messages(

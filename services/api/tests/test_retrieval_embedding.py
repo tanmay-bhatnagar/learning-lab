@@ -5,6 +5,7 @@ import asyncio
 
 import pytest
 
+from lab.contracts import EmbeddingUnavailable
 from lab.embedding_config import EMBEDDING_FORMAT_VERSION, format_for_embedding
 from lab.retrieval import index_chunks, search
 
@@ -74,6 +75,61 @@ def test_vectors_from_unprefixed_index_are_not_mixed(tmp_path):
                                 embedding_model="nomic-embed-text", embedder=embedder))
     assert result["mode"] == "keyword"
     assert "Re-upload" in result["warning"]
+
+
+def _chunk(text="calibration value is 42"):
+    return {"chunk_id": "f:000", "file_id": "f", "file_name": "a.pdf", "chunk_index": 0,
+            "text": text, "headings": [], "pages": [1], "bboxes": [], "asset_ids": [],
+            "content_hash": "abc"}
+
+
+def _store(tmp_path):
+    class Store:
+        def file_path(self, topic, name):
+            return tmp_path / name
+    return Store()
+
+
+async def _unavailable(texts: list[str], model: str):
+    raise EmbeddingUnavailable("Embedding model 'nomic-embed-text' is not installed locally")
+
+
+async def _rejected(texts: list[str], model: str):
+    raise ValueError("Embedding input exceeds the 2048-token context limit.")
+
+
+def test_unavailable_embedder_still_builds_a_searchable_keyword_index(tmp_path):
+    store = _store(tmp_path)
+    result = asyncio.run(index_chunks(store, "topic", "f", [_chunk()],
+                                      embedding_model="nomic-embed-text", embedder=_unavailable))
+    assert result["mode"] == "keyword"
+    assert result["embedding_model"] == ""
+    assert "not installed" in result["warning"]
+    found = asyncio.run(search(store, "topic", "calibration", file_ids=["f"]))
+    assert [hit["chunk_id"] for hit in found["hits"]] == ["f:000"]
+
+
+def test_rejected_document_embedding_fails_loudly(tmp_path):
+    with pytest.raises(ValueError, match="context limit"):
+        asyncio.run(index_chunks(_store(tmp_path), "topic", "f", [_chunk()],
+                                 embedding_model="nomic-embed-text", embedder=_rejected))
+    assert not (tmp_path / "retrieval.sqlite").exists()
+
+
+@pytest.mark.parametrize("embedder,reason", [(_unavailable, "not installed"), (_rejected, "context limit")])
+def test_query_embedding_failures_degrade_to_keyword_search(tmp_path, embedder, reason):
+    store = _store(tmp_path)
+
+    async def working(texts: list[str], model: str):
+        return [[1.0, 0.0] for _ in texts]
+
+    asyncio.run(index_chunks(store, "topic", "f", [_chunk()],
+                             embedding_model="nomic-embed-text", embedder=working))
+    result = asyncio.run(search(store, "topic", "calibration", file_ids=["f"],
+                                embedding_model="nomic-embed-text", embedder=embedder))
+    assert result["mode"] == "keyword"
+    assert [hit["chunk_id"] for hit in result["hits"]] == ["f:000"]
+    assert reason in result["warning"]
 
 
 def test_format_for_embedding_roles():

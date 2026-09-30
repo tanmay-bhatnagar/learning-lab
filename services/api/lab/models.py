@@ -7,6 +7,8 @@ import re
 import httpx
 
 from lab.context import DEFAULT_CONTEXT_LIMIT, estimate_tokens, prepare_context
+from lab.contracts import EmbeddingUnavailable
+from lab.embedding_config import normalize_ollama_embed_error
 
 OLLAMA_URL = os.environ.get('OLLAMA_BASE_URL', 'http://localhost:11434').rstrip('/')
 
@@ -160,33 +162,40 @@ async def list_models() -> dict:
 
 
 async def embed_texts(texts: list[str], model: str, *, generation_lock: asyncio.Lock) -> list[list[float]]:
-    """Return validated embedding vectors for local models via POST /api/embed."""
+    """Return validated embedding vectors for local models via POST /api/embed.
+
+    Raises EmbeddingUnavailable when the model or service cannot be used, and
+    ValueError when Ollama rejects the input or returns malformed vectors.
+    """
     if not isinstance(texts, list) or not texts or any(type(text) is not str for text in texts):
         raise ValueError('texts must be a non-empty list of strings')
     async with generation_lock:
-        async with _client() as client:
-            tags = await _tags(client)
-            tag = _find_tag(tags, model)
-            if tag is None:
-                raise ValueError('Requested model is not installed locally')
-            if _is_remote(model, tag):
-                raise ValueError('Remote/cloud models are not supported; select a local model')
-            info = await _show(client, model)
-            if _is_remote(model, info):
-                raise ValueError('Remote/cloud models are not supported; select a local model')
-            response = await client.post('/api/embed', json={'model': model, 'input': texts,
-                                                               'truncate': False,
-                                                               'keep_alive': 0})
-            if response.status_code >= 400:
+        try:
+            async with _client() as client:
+                tags = await _tags(client)
+                tag = _find_tag(tags, model)
+                if tag is None:
+                    raise EmbeddingUnavailable(
+                        f'Embedding model {model!r} is not installed locally; run `ollama pull {model}`')
+                if _is_remote(model, tag):
+                    raise EmbeddingUnavailable('Remote/cloud models are not supported; select a local model')
+                info = await _show(client, model)
+                if _is_remote(model, info):
+                    raise EmbeddingUnavailable('Remote/cloud models are not supported; select a local model')
+                response = await client.post('/api/embed', json={'model': model, 'input': texts,
+                                                                   'truncate': False,
+                                                                   'keep_alive': 0})
                 if response.status_code >= 500:
                     response.raise_for_status()
-                from lab.embedding_config import normalize_ollama_embed_error
-                try:
-                    body = response.json()
-                except ValueError:
-                    body = response.text
-                raise ValueError(normalize_ollama_embed_error(model, response.status_code, body))
-            return _validate_embeddings(texts, response.json())
+                if response.status_code >= 400:
+                    try:
+                        body = response.json()
+                    except ValueError:
+                        body = response.text
+                    raise ValueError(normalize_ollama_embed_error(model, response.status_code, body))
+                return _validate_embeddings(texts, response.json())
+        except httpx.HTTPError as exc:
+            raise EmbeddingUnavailable(f'Embedding service unavailable ({type(exc).__name__}): {exc}') from exc
 
 
 async def stream_chat(messages: list[dict], model: str,

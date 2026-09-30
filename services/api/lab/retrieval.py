@@ -5,13 +5,13 @@ import base64
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
-import httpx
-
 from .embedding_config import embedding_index_key, format_for_embedding
 from .index import TopicIndex
-from .contracts import Citation, IndexedChunk
+from .contracts import Citation, EmbeddingUnavailable, IndexedChunk
 from .storage import read_bytes
 
+# Embedders raise EmbeddingUnavailable when the model cannot serve requests and
+# ValueError when the input or response is invalid.
 Embedder = Callable[[list[str], str], Awaitable[list[list[float]]]]
 
 
@@ -47,8 +47,8 @@ async def index_chunks(
                 chunk["embedding"] = vector
                 chunk["embedding_model"] = embedding_index_key(embedding_model)
             mode = "hybrid"
-        except httpx.HTTPError as exc:
-            warning = f"Embedding index unavailable ({type(exc).__name__}): {exc}"
+        except EmbeddingUnavailable as exc:
+            warning = f"Embedding index unavailable; keyword index only: {exc}"
 
     with TopicIndex(topic_index_path(store, topic)) as index:
         result = index.replace_file(file_id, indexed)
@@ -76,8 +76,9 @@ async def search(
                 embedding_model,
             )
             vector = vectors[0]
-        except httpx.HTTPError as exc:
-            warning = f"Semantic search unavailable ({type(exc).__name__}): {exc}"
+        except (EmbeddingUnavailable, ValueError) as exc:
+            # Query embedding is best-effort: long questions or a missing model fall back to keywords.
+            warning = f"Semantic search unavailable; keyword retrieval was used: {exc}"
 
     path = topic_index_path(store, topic)
     if not path.exists():

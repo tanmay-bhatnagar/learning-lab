@@ -61,6 +61,25 @@ def test_require_docling_artifacts_empty_dir(demo, monkeypatch, tmp_path):
         demo._require_docling_artifacts()
 
 
+def test_embedder_passes_one_generation_lock(demo, monkeypatch):
+    import asyncio
+
+    from lab import models
+
+    locks = []
+
+    async def embed_texts(texts, model, *, generation_lock):
+        locks.append(generation_lock)
+        return [[0.0] for _ in texts]
+
+    monkeypatch.setattr(models, "embed_texts", embed_texts)
+    embed = demo._embedder()
+    assert asyncio.run(embed(["a"], "nomic-embed-text")) == [[0.0]]
+    asyncio.run(embed(["b"], "nomic-embed-text"))
+    assert len(locks) == 2 and locks[0] is locks[1]
+    assert isinstance(locks[0], asyncio.Lock)
+
+
 def test_chunk_preview_truncates_long_text(demo):
     record = {
         "chunk_id": "demo:000",
