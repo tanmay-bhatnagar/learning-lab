@@ -1,0 +1,44 @@
+name: Engineering checks
+on:
+  push:
+    branches: [dev, main]
+  pull_request:
+    branches: [dev, main]
+permissions:
+  contents: read
+jobs:
+  checks:
+    runs-on: macos-14
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Install dependencies
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install -r services/api/requirements-macos-py313.lock -r requirements-engineering.txt
+          npm ci --prefix apps/web
+      - name: Validate agents and engineering tooling
+        run: |
+          .venv/bin/python scripts/check_engineering.py
+          .venv/bin/python -m ruff check .
+          .venv/bin/python -m ruff check --select E4,E7,E9,F,I scripts/check_engineering.py scripts/verify_workspace.py tests/test_verify_workspace.py
+          .venv/bin/python -m ruff format --check scripts/check_engineering.py scripts/verify_workspace.py tests/test_verify_workspace.py
+      - run: make test
+      - run: make build
+      - name: Verify isolated HTTP upload flow
+        run: .venv/bin/python scripts/verify_workspace.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: verification-evidence
+          path: .local/verification/
+          include-hidden-files: true
+          if-no-files-found: ignore
