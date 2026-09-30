@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from lab.http.deps import AppDeps
-from lab.http.schemas import Settings
-from lab.storage import checked, read_json, write_json
+from lab.web.deps import AppDeps
+from lab.web.schemas import Settings
+from lab.web.settings_store import load_settings
+from lab.storage import checked, write_json
 
 
 def router(deps: AppDeps) -> APIRouter:
@@ -18,7 +19,7 @@ def router(deps: AppDeps) -> APIRouter:
 
     @routes.get("/api/settings")
     def get_settings():
-        return Settings(**read_json(deps.store.settings, {})).model_dump()
+        return load_settings(deps.store).model_dump()
 
     @routes.put("/api/settings")
     def set_settings(body: Settings):
@@ -28,12 +29,6 @@ def router(deps: AppDeps) -> APIRouter:
 
     @routes.get("/api/models")
     async def models():
-        try:
-            return await deps.backend().list_models()
-        except (OSError, RuntimeError, ValueError, TypeError, KeyError) as exc:
-            return {
-                "models": [],
-                "error": f"Model service unavailable ({type(exc).__name__}); check the local model service and backend dependencies.",
-            }
+        return await deps.model_backend.list_models()
 
     return routes

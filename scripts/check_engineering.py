@@ -14,7 +14,7 @@ EFFORTS = frozenset({"low", "medium", "high", "xhigh", "max", "ultra"})
 LAB = "services/api/lab"
 WEB = "apps/web/src"
 FRAMEWORKS = frozenset({"fastapi", "starlette"})
-HTTP_LAYER = (f"{LAB}/main.py", f"{LAB}/asgi.py", f"{LAB}/http/")
+HTTP_LAYER = (f"{LAB}/main.py", f"{LAB}/asgi.py", f"{LAB}/web/")
 CONFIG_MODULE = f"{LAB}/config.py"
 # Today's offenders; each refactor slice deletes the entries it resolves. Stale entries fail.
 PENDING = {

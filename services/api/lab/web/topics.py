@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from lab.http.deps import AppDeps
-from lab.http.locks import topic_lock
-from lab.http.schemas import LearningGoalInput, TopicInput
+from lab.web.deps import AppDeps
+from lab.web.locks import topic_lock
+from lab.web.schemas import LearningGoalInput, TopicInput
 from lab.storage import read_json, write_json
 
 

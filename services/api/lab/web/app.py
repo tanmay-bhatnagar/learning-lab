@@ -3,29 +3,30 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from lab.config import AppConfig, load_config
+from lab.contracts import ModelGateway
 from lab.errors import DomainError
-from lab.http import chat, files, settings, topics
-from lab.http.deps import AppDeps
-from lab.http.middleware import UploadBodyLimit, browser_boundary_middleware
+from lab.models import OllamaGateway
 from lab.storage import Store
+from lab.web import chat, files, settings, topics
+from lab.web.deps import AppDeps, ParserFn, RetrieverFn, StructuredParserFn
+from lab.web.middleware import UploadBodyLimit, browser_boundary_middleware
 
 
 def create_app(
     root: Path | str | None = None,
     settings_path: Path | str | None = None,
-    model_backend: Any | None = None,
-    converter: Any | None = None,
-    structured_parser: Any | None = None,
-    retriever: Any | None = None,
+    model_backend: ModelGateway | None = None,
+    structured_parser: StructuredParserFn | None = None,
+    retriever: RetrieverFn | None = None,
     max_upload_bytes: int | None = None,
-    parser_map: dict[str, Any] | None = None,
+    parser_map: dict[str, ParserFn] | None = None,
     config: AppConfig | None = None,
 ) -> FastAPI:
     """Build the Learning Lab API; explicit arguments override environment defaults."""
@@ -34,38 +35,22 @@ def create_app(
         settings_path=Path(settings_path) if settings_path is not None else None,
         max_upload_bytes=max_upload_bytes,
     )
-    import lab.docling_pipeline as docling_pipeline
-    import lab.embedding_config as embedding_config
-    import lab.models as models
-
-    models.configure(loaded.ollama_base_url)
-    docling_pipeline.configure(loaded.docling_artifacts_path)
-    embedding_config.configure(loaded.embedding_tokenizer_root)
-
     store = Store(loaded.learning_root, loaded.settings_path)
+    gateway = model_backend or OllamaGateway(loaded.ollama_base_url)
     deps = AppDeps(
         store=store,
         config=loaded,
-        model_backend=model_backend,
+        model_backend=gateway,
         structured_parser=structured_parser,
         retriever=retriever,
+        parser_map=parser_map,
     )
-    if parser_map is not None:
-        deps.parser_map = parser_map
-    elif converter is not None:
-        deps.parser_map = {
-            "markitdown": converter,
-            "anydoc": converter,
-            "docling": converter,
-        }
 
     app = FastAPI(title="Learning Lab")
     app.state.deps = deps
 
     @app.exception_handler(DomainError)
-    async def domain_error_handler(_request: Request, exc: DomainError):
-        from fastapi.responses import JSONResponse
-
+    async def domain_error_handler(_request: Request, exc: DomainError) -> JSONResponse:
         return JSONResponse(status_code=exc.status_code, content={"detail": exc.message})
 
     origins = ["http://localhost:5173", "http://127.0.0.1:5173"]

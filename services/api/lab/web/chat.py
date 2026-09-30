@@ -2,20 +2,21 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 
 from anyio import CancelScope
 from fastapi import APIRouter
 
 from lab.chat_prompt import build_chat_prompt
-from lab.chat_session import history_messages
+from lab.chat_session import append_assistant_message, append_user_message, history_messages, with_session_context
 from lab.errors import Conflict
-from lab.http.deps import AppDeps
-from lab.http.middleware import FinalizedStreamingResponse
-from lab.http.schemas import ChatInput, Settings
 from lab.retrieval import evidence_messages, search
 from lab.storage import read_bytes, read_json
+from lab.web.deps import AppDeps
+from lab.web.locks import acquire_topic_lock
+from lab.web.middleware import FinalizedStreamingResponse
+from lab.web.schemas import ChatInput
+from lab.web.settings_store import load_settings
 
 
 def router(deps: AppDeps) -> APIRouter:
@@ -27,10 +28,7 @@ def router(deps: AppDeps) -> APIRouter:
 
     @routes.post("/api/topics/{topic}/chat")
     async def chat(topic: str, body: ChatInput):
-        topic_lock_obj = deps.locks.setdefault(topic, asyncio.Lock())
-        if topic_lock_obj.locked():
-            raise Conflict("This topic is busy. Wait for its current upload or reply to finish.")
-        await topic_lock_obj.acquire()
+        lease = await acquire_topic_lock(deps.locks, topic, reject_if_busy=True)
         try:
             session = deps.store.session(topic)
             attachments: list[dict[str, object]] = []
@@ -45,7 +43,7 @@ def router(deps: AppDeps) -> APIRouter:
                     attachments.append(
                         {"role": "user", "content": f"UNTRUSTED ATTACHMENT ({record['name']}):\n{content}"}
                     )
-            current = Settings(**read_json(deps.store.settings, {}))
+            current = load_settings(deps.store)
             indexed_ids = [record["id"] for record in selected_records if record.get("index_status") == "ready"]
             search_result: dict[str, object] = {"hits": [], "mode": "none"}
             path = deps.store.file_path(topic, "retrieval.sqlite")
@@ -71,12 +69,12 @@ def router(deps: AppDeps) -> APIRouter:
             vision = False
             if search_result.get("hits"):
                 try:
-                    available = await deps.backend().list_models()
+                    available = await deps.model_backend.list_models()
                     vision = any(
                         item.get("id") == body.model and item.get("vision") is True
                         for item in available.get("models", [])
                     )
-                except (OSError, RuntimeError, ValueError, TypeError, KeyError):
+                except (OSError, RuntimeError, ValueError):
                     vision = False
             evidence, citations = evidence_messages(
                 deps.store,
@@ -100,12 +98,13 @@ def router(deps: AppDeps) -> APIRouter:
                 context_limit=body.context_limit,
                 retrieval_record=retrieval_record,
             )
-            session["messages"].append({"role": "user", "content": body.message, "file_ids": body.file_ids})
+            session = append_user_message(session, body.message, body.file_ids)
             deps.store.save_session(topic, session)
         except BaseException:
-            topic_lock_obj.release()
+            lease.release()
             raise
 
+        lease.hand_off()
         assistant = {
             "role": "assistant",
             "content": "",
@@ -133,10 +132,13 @@ def router(deps: AppDeps) -> APIRouter:
                     finally:
                         if not complete:
                             assistant["incomplete"] = True
-                            session["messages"].append(assistant)
-                            deps.store.save_session(topic, session)
+                            session_updated = append_assistant_message(session, assistant)
+                            try:
+                                deps.store.save_session(topic, session_updated)
+                            except Exception:  # noqa: BLE001 - best-effort incomplete save after stream failure
+                                pass
                 finally:
-                    topic_lock_obj.release()
+                    lease.release()
 
         async def events():
             nonlocal complete, stream
@@ -145,7 +147,7 @@ def router(deps: AppDeps) -> APIRouter:
                 return json.dumps(event, ensure_ascii=False) + "\n"
 
             try:
-                stream = deps.backend().stream_chat(
+                stream = deps.model_backend.stream_chat(
                     prompt,
                     body.model,
                     body.think,
@@ -174,9 +176,11 @@ def router(deps: AppDeps) -> APIRouter:
                             "retrieval": retrieval_record,
                             "context": merged_context,
                         }
-                        session["context"] = merged_context
-                        session["messages"].append(assistant)
-                        deps.store.save_session(topic, session)
+                        session_updated = with_session_context(
+                            append_assistant_message(session, assistant),
+                            merged_context,
+                        )
+                        deps.store.save_session(topic, session_updated)
                         complete = True
                         yield line(event)
                         break
@@ -190,7 +194,7 @@ def router(deps: AppDeps) -> APIRouter:
                             "message": "Model stream ended before completion. Partial output was saved; retry when the local model service is ready.",
                         }
                     )
-            except (OSError, RuntimeError, ValueError, TypeError) as exc:
+            except Exception as exc:  # noqa: BLE001 - stream must always end with done or error event
                 yield line(
                     {
                         "type": "error",

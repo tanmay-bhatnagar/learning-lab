@@ -14,7 +14,7 @@ The API app owns one model-generation lock shared by embedding and chat generati
 | --- | --- |
 | `apps/web/src/main.tsx`, `api.ts` | Browser workspace, files, settings, conversation and transport |
 | `apps/web/src/citations.tsx`, `retrievalTrace.tsx` | Per-answer source display and retrieval inspection |
-| `services/api/lab/http/` | HTTP routers, middleware, request schemas and app factory |
+| `services/api/lab/web/` | HTTP routers, middleware, request schemas and app factory |
 | `services/api/lab/config.py` | Frozen `AppConfig` and environment defaults |
 | `services/api/lab/errors.py` | Domain error taxonomy |
 | `services/api/lab/contracts.py` | Typed records and gateway/store protocols |
