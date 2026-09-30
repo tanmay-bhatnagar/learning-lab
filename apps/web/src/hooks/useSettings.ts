@@ -1,8 +1,12 @@
-import { useCallback, useRef, useState } from 'react';
-import { api, json } from '../api';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { api, json } from '../api/client';
 import { settingsSchema, type Context, type Model, type Settings } from '../api/types';
 import { modelLabel, modelSelection, validateContext } from '../modelControls';
 import { errorText } from '../lib/errors';
+import { isBusy, type Activity } from '../state/activity';
+import type { useActivity } from './useActivity';
+
+type ActivityApi = Pick<ReturnType<typeof useActivity>, 'begin' | 'end'>;
 
 export function useSettings(
   settings: Settings,
@@ -11,32 +15,34 @@ export function useSettings(
   models: Model[],
   setContext: (value: Context) => void,
   setError: (message: string) => void,
-  streamActive: () => boolean,
-  uploadLocked: () => boolean,
-  busy: () => boolean,
+  activity: Activity,
+  activityApi: ActivityApi,
 ) {
-  const [draft, setDraft] = useState<Settings>(settings);
-  const [saving, setSaving] = useState(false);
+  const [draft, setDraft] = useState(settings);
+  const [trackedSettings, setTrackedSettings] = useState(settings);
   const [notice, setNotice] = useState('');
   const [switching, setSwitching] = useState('');
   const [selectionStatus, setSelectionStatus] = useState('');
   const [selectionError, setSelectionError] = useState('');
-  const persistenceLock = useRef(false);
-
-  const syncDraft = useCallback((value: Settings) => {
-    setDraft(value);
-  }, []);
+  const settingsRef = useRef(settings);
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
+  if (settings !== trackedSettings) {
+    setTrackedSettings(settings);
+    setDraft(settings);
+  }
 
   const persistSettings = useCallback(
     async (next: Settings, selectedModel?: Model) => {
-      if (persistenceLock.current || saving || busy() || streamActive() || uploadLocked()) return;
+      const op = selectedModel ? 'selectModel' : 'saveSettings';
+      if (isBusy(activity) || activity === 'creatingTopic') return;
       const validation = validateContext(next.context_limit);
       if (validation) {
         setError(validation);
         return;
       }
-      persistenceLock.current = true;
-      setSaving(true);
+      if (!activityApi.begin(op)) return;
       setError('');
       setNotice('');
       setSelectionStatus('');
@@ -47,7 +53,9 @@ export function useSettings(
         setSettings(value);
         setDraft(value);
         setParser(value.parser);
-        if (value.model !== settings.model || value.context_limit !== settings.context_limit) setContext({});
+        if (value.model !== settingsRef.current.model || value.context_limit !== settingsRef.current.context_limit) {
+          setContext({});
+        }
         if (value.model !== next.model)
           throw new Error('The server did not apply the selected model. Please select it again.');
         if (selectedModel) setSelectionStatus(`${modelLabel(selectedModel)} selected. Your next message will use it.`);
@@ -56,48 +64,38 @@ export function useSettings(
         if (selectedModel) setSelectionError(errorText(e));
         else setError(errorText(e));
       } finally {
-        persistenceLock.current = false;
-        setSaving(false);
         setSwitching('');
+        activityApi.end();
       }
     },
-    [
-      busy,
-      setContext,
-      setError,
-      setParser,
-      setSettings,
-      settings.context_limit,
-      settings.model,
-      streamActive,
-      uploadLocked,
-    ],
+    [activity, activityApi, setContext, setError, setParser, setSettings],
   );
 
   const selectModel = useCallback(
     (id: string) => {
       const model = models.find((m) => m.id === id);
-      if (model && id !== settings.model) void persistSettings(modelSelection(settings, model), model);
+      if (model && id !== settingsRef.current.model)
+        void persistSettings(modelSelection(settingsRef.current, model), model);
     },
-    [models, persistSettings, settings],
+    [models, persistSettings],
   );
 
-  const saveDraft = useCallback(async () => {
-    await persistSettings(draft);
-  }, [draft, persistSettings]);
+  const saveDraft = useCallback(
+    async (event?: React.FormEvent) => {
+      event?.preventDefault();
+      await persistSettings(draft);
+    },
+    [draft, persistSettings],
+  );
 
   return {
     draft,
     setDraft,
-    syncDraft,
-    saving,
     notice,
     setNotice,
     switching,
     selectionStatus,
     selectionError,
-    persistenceLock,
-    persistSettings,
     selectModel,
     saveDraft,
   };

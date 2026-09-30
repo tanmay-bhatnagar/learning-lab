@@ -12,11 +12,6 @@ export default defineConfig(
     languageOptions: { globals: globals.browser },
     rules: { 'no-empty': ['error', { allowEmptyCatch: false }] },
   },
-  // Data-fetch and persistence hooks reset UI state when their input changes; allowed at this boundary.
-  {
-    files: ['src/hooks/**/*.ts'],
-    rules: { 'react-hooks/set-state-in-effect': 'off' },
-  },
   {
     files: ['tests/**/*.{js,mjs,ts,tsx}', '*.config.{js,ts}'],
     extends: [js.configs.recommended, tseslint.configs.recommended],

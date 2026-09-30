@@ -17,27 +17,23 @@ function readThinkingPrefs(): Record<string, boolean | string> {
   }
 }
 
-export function writeThinkingPrefs(value: Record<string, boolean | string>): void {
+function writeThinkingPrefs(value: Record<string, boolean | string>): string {
   try {
     parsePayload(thinkingPrefsSchema, value, 'thinking preferences');
     localStorage.setItem(STORAGE_KEY, JSON.stringify(value));
+    return '';
   } catch {
-    /* quota or private mode — prefs stay in memory for this session */
+    /* quota or private mode */
+    return 'Thinking preferences could not be saved in this browser.';
   }
 }
 
 export function useThinkingPrefs() {
   const [thinking, setThinking] = useState<Record<string, boolean | string>>(readThinkingPrefs);
-  const [storageError, setStorageError] = useState('');
+  const [storageError, setStorageError] = useState(() => writeThinkingPrefs(readThinkingPrefs()));
 
   useEffect(() => {
-    try {
-      parsePayload(thinkingPrefsSchema, thinking, 'thinking preferences');
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(thinking));
-      setStorageError('');
-    } catch {
-      setStorageError('Thinking preferences could not be saved in this browser.');
-    }
+    queueMicrotask(() => setStorageError(writeThinkingPrefs(thinking)));
   }, [thinking]);
 
   const setThink = useCallback((value: boolean | string, modelId: string) => {

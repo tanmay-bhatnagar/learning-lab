@@ -22,10 +22,8 @@ export function App() {
     sidebar,
     setSidebar,
     closeSidebarOnMobile,
-    setRevision,
     newTopic,
     setNewTopic,
-    creating,
     preview,
     setPreview,
     previewTab,
@@ -34,6 +32,7 @@ export function App() {
     setFollow,
     bottom,
     selectTopic,
+    reloadTopic,
     bootstrap: {
       topics,
       topic,
@@ -49,23 +48,8 @@ export function App() {
       initialize,
       refreshModels,
     },
-    session: {
-      messages,
-      files,
-      selected,
-      setSelected,
-      context,
-      goalDraft,
-      setGoalDraft,
-      goalNotice,
-      topicLoading,
-      topicReady,
-      input,
-      setInput,
-    },
-    chat: { sending, stop },
+    session,
     uploads: {
-      uploading,
       dragging,
       setDragging,
       dropBlocked,
@@ -78,7 +62,6 @@ export function App() {
     settingsUi: {
       draft,
       setDraft,
-      saving,
       notice,
       setNotice,
       switching,
@@ -88,24 +71,46 @@ export function App() {
       saveDraft,
     },
     previewState: { markdown, previewLoading, previewError },
+    storageError,
+    activity,
     busy,
+    sending,
     activeTopic,
     activeModel,
     draftModel,
     uploadBlocked,
     goalSavable,
-    goalSaving,
     thinkValue,
     setThink,
     createTopic,
     saveLearningGoal,
     send,
+    stop,
     upload,
     refreshFiles,
   } = state;
 
+  const {
+    messages,
+    files,
+    selected,
+    context,
+    goalDraft,
+    goalNotice,
+    topicLoading,
+    topicReady,
+    input,
+    setInput,
+    setGoalDraft,
+    dispatch: sessionDispatch,
+  } = session;
+
   const meter = contextMeter(context, settings);
-  const bannerMessage = error || migrationError;
+  const bannerMessage = [error, migrationError, storageError].filter(Boolean).join(' ');
+  const creating = activity === 'creatingTopic';
+  const uploading = activity === 'uploading';
+  const saving = activity === 'savingSettings';
+  const goalSaving = activity === 'savingGoal';
 
   return (
     <div className={`app ${sidebar ? '' : 'collapsed'}`}>
@@ -140,7 +145,7 @@ export function App() {
           busy={busy}
           loading={loading}
           onReload={() => {
-            if (topic) setRevision((v) => v + 1);
+            if (topic) reloadTopic();
             else void initialize();
           }}
           onDismiss={() => setError('')}
@@ -168,10 +173,7 @@ export function App() {
             onSelectModel={selectModel}
             onRefreshModels={() => void refreshModels()}
             onThinkChange={setThink}
-            onSave={(event) => {
-              event.preventDefault();
-              void saveDraft();
-            }}
+            onSave={(event) => void saveDraft(event)}
             onBack={() => {
               setDraft(settings);
               setPage('workspace');
@@ -236,9 +238,7 @@ export function App() {
                 uploadBlocked={uploadBlocked}
                 dragDepthRef={dragDepthRef}
                 onParserChange={setParser}
-                onToggleFile={(fileId, checked) =>
-                  setSelected((previous) => (checked ? [...previous, fileId] : previous.filter((id) => id !== fileId)))
-                }
+                onToggleFile={(fileId, checked) => sessionDispatch({ type: 'selectionToggled', fileId, checked })}
                 onInspect={(file) => {
                   setPreview(file);
                   setPreviewTab('markdown');

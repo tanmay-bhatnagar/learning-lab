@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { api, json } from '../api';
+import { api, json } from '../api/client';
 import { modelsResponseSchema, settingsSchema, topicsResponseSchema } from '../api/types';
 import type { Model, Settings, Topic } from '../api/types';
 import { DEFAULT_SETTINGS, normalizeSettings } from '../modelControls';
@@ -66,6 +66,7 @@ export function useBootstrap() {
   }, []);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- mount bootstrap must trigger one async load
     void initialize();
   }, [initialize]);
 
