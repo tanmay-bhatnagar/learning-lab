@@ -249,14 +249,13 @@ describe('App characterization', () => {
     expect(screen.queryByText('Preview markdown')).not.toBeInTheDocument();
   });
 
-  test('Refresh files reloads whole topic, clearing input and selection (baseline)', async () => {
-    installFakeApi({
+  test('Refresh files re-fetches the file list without clearing conversation or input', async () => {
+    const fake = installFakeApi({
       messages: { 'topic-a': [{ role: 'user', content: 'Keep this?' }] },
     });
     const user = userEvent.setup();
     render(<App />);
     await waitForAppReady();
-    expect(screen.getByText('Keep this?')).toBeInTheDocument();
     await user.type(screen.getByRole('textbox', { name: 'Message' }), 'typed before refresh');
 
     await openFilesTab(user);
@@ -264,15 +263,15 @@ describe('App characterization', () => {
     await user.click(checkbox);
     expect(checkbox).toBeChecked();
 
+    fake.removeFile('topic-a', 'file-1');
     await user.click(screen.getByRole('button', { name: 'Refresh files' }));
-    await waitFor(() => expect(screen.queryByText(/Loading topic/i)).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText('paper-a.pdf')).not.toBeInTheDocument());
 
     const tabs = document.querySelector('.tabs') as HTMLElement | null;
     if (!tabs) throw new Error('Workspace tabs missing');
     await user.click(within(tabs).getByRole('button', { name: /Conversation/i }));
-    await waitFor(() => expect(screen.getByText('Keep this?')).toBeInTheDocument());
-    expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue('');
-    await openFilesTab(user);
-    expect(screen.getByRole('checkbox', { name: /paper-a.pdf/i })).not.toBeChecked();
+    expect(screen.getByText('Keep this?')).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue('typed before refresh');
+    expect(screen.queryByRole('checkbox', { name: /paper-a.pdf/i })).not.toBeInTheDocument();
   });
 });

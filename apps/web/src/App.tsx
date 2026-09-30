@@ -475,6 +475,18 @@ export function App() {
     event.preventDefault();
     await persistSettings(draft);
   }
+  async function refreshFiles() {
+    if (!topic || busy) return;
+    setError('');
+    try {
+      const attachments = await api<{ files: LabFile[] }>(`${topicPath(topic)}/files`);
+      const nextFiles = attachments.files;
+      setFiles(nextFiles);
+      setSelected((previous) => previous.filter((id) => nextFiles.some((file) => file.id === id)));
+    } catch (e) {
+      setError(errorText(e));
+    }
+  }
   useEffect(() => {
     const preventFileNavigation = (event: DragEvent) => {
       if (Array.from(event.dataTransfer?.types || []).includes('Files')) {
@@ -1039,7 +1051,7 @@ export function App() {
                     <button className="text-button" onClick={() => setTab('chat')}>
                       Return to conversation →
                     </button>
-                    <button className="text-button" disabled={busy} onClick={() => setRevision((v) => v + 1)}>
+                    <button className="text-button" disabled={busy} onClick={() => void refreshFiles()}>
                       Refresh files
                     </button>
                   </div>
