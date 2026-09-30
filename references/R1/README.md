@@ -14,7 +14,7 @@ Snapshot as of 30 September 2026. The [interactive system map](system-map.html) 
 
 | Order | Work |
 | --- | --- |
-| 1 | Open cited PDF pages; add a learning goal to each topic; flag content the parser could not extract faithfully. |
+| 1 | Implemented: citation links open cited PDF pages; topic learning goals persist and inform chat; extraction diagnostics show reported failures, suspected limitations, and unassessed fidelity. |
 | 2 | Multiple saved conversations per topic; per-turn trace and retrieval evaluation baseline. |
 | 3 | Document outline, section summaries and material map. |
 | 4 | LangGraph workflow, retrieval tools, tool-call validation and scoped approvals. |

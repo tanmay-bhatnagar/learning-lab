@@ -3,6 +3,7 @@ import { BookOpen, ChevronDown } from 'lucide-react';
 import type { Citation, LabFile, MessageRetrieval } from './api';
 import { assetApiUrl, headingsLabel, pagesLabel, resolveAssetId } from './retrievalTraceHelpers';
 import { citationChunkLabel, hasSources, modeBadgeLabel, sourcesButtonLabel } from './citationsHelpers';
+import { originalPdfUrl } from './api';
 
 function CitationAssets({ topic, file, assets }: { topic: string; file: LabFile | undefined; assets: string[] }) {
   if (!assets.length) return null;
@@ -34,11 +35,17 @@ function CitationAssets({ topic, file, assets }: { topic: string; file: LabFile 
 
 function CitationCard({ citation, file, topic, index }: { citation: Citation; file: LabFile | undefined; topic: string; index: number }) {
   const chunkLabel = citationChunkLabel(citation.chunk_index);
+  const pages = [...new Set(citation.pages)].filter(page => Number.isInteger(page) && page > 0).sort((a, b) => a - b);
+  const unavailablePages = pages.filter(page => file?.page_count != null && page > file.page_count);
   return (
     <article className="citation-card" aria-labelledby={`citation-${citation.chunk_id}-${index}`}>
       <header className="citation-card-header">
         <h4 id={`citation-${citation.chunk_id}-${index}`}>{citation.file_name}</h4>
-        <p className="citation-card-meta">{headingsLabel(citation.headings)} · {pagesLabel(citation.pages)}{chunkLabel ? ` · ${chunkLabel}` : ''}</p>
+        <p className="citation-card-meta">{headingsLabel(citation.headings)} · {pages.length ? pages.map(page => (
+          file?.status === 'ready' && !unavailablePages.includes(page)
+            ? <React.Fragment key={page}><a href={originalPdfUrl(topic, file.id, page)} target="_blank" rel="noopener noreferrer">Page {page}</a>{page !== pages[pages.length - 1] ? ', ' : ''}</React.Fragment>
+            : <React.Fragment key={page}>Page {page} unavailable{page !== pages[pages.length - 1] ? ', ' : ''}</React.Fragment>
+        )) : citation.pages.length ? 'Page target unavailable' : pagesLabel(citation.pages)}{chunkLabel ? ` · ${chunkLabel}` : ''}</p>
       </header>
       {citation.text && <pre className="citation-excerpt">{citation.text}</pre>}
       <CitationAssets topic={topic} file={file} assets={citation.assets || []} />

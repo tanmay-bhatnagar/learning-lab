@@ -3,10 +3,12 @@ FastAPI localhost:8765; Vite localhost:5173 proxies /api. JSON errors use detail
 GET /api/health
 GET /api/topics -> {topics:[{id,name}]}
 POST /api/topics {name} -> {id,name}
-GET /api/topics/{topic}/files -> {files:[{id,name,status,parser,markdown_name?,docling_name?,chunks_name?,parse_name?,index_status?,index_mode?,page_count?,asset_count?,warnings?,error?}]}
-POST /api/topics/{topic}/files multipart file and parser (docling|markitdown|anydoc) -> file record (conversion is synchronous in a worker thread). Docling is the default. It persists native JSON, Markdown, chunk JSONL, page renders, figure crops, a parse manifest, and a topic-scoped SQLite retrieval index. MarkItDown and AnyDoc remain unindexed fallback converters.
+GET /api/topics/{topic} -> {id,name,learning_goal?}; older topic records may omit the optional goal.
+PUT /api/topics/{topic}/learning-goal {learning_goal:string<=2000} -> saved goal. Empty text clears it. Chat includes a nonempty value as explicitly user-authored topic context.
+GET /api/topics/{topic}/files -> {files:[{id,name,status,parser,markdown_name?,docling_name?,chunks_name?,parse_name?,index_status?,index_mode?,page_count?,asset_count?,warnings?,extraction_diagnostics?,error?}]}. Docling diagnostics use confirmed_failure, suspected_limitation, or unassessed; no reported issues leaves fidelity unassessed. Legacy and older records are displayed as unassessed.
+POST /api/topics/{topic}/files multipart file and parser (docling|markitdown|anydoc) -> file record (conversion is synchronous in a worker thread). Docling is the default. It persists native JSON, Markdown, chunk JSONL, page renders, figure crops, a version 2 parse manifest with extraction diagnostics, and a topic-scoped SQLite retrieval index. Older manifests remain readable. `page_count` counts pages in the parsed document whether or not page renders exist. MarkItDown and AnyDoc remain unindexed fallback converters.
 GET /api/topics/{topic}/files/{file}/markdown -> {markdown:string}
-GET /api/topics/{topic}/files/{file}/original -> PDF
+GET /api/topics/{topic}/files/{file}/original -> PDF; browser fragment `#page=N` opens a cited page where the PDF viewer supports it.
 GET /api/topics/{topic}/files/{file}/parsed -> DoclingDocument JSON
 GET /api/topics/{topic}/files/{file}/chunks -> {chunks:[...]}
 GET /api/topics/{topic}/files/{file}/assets/{asset_id} -> PNG

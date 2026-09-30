@@ -89,6 +89,21 @@ def test_settings_crud_archive_preserves_original(setup):
     assert client.get(f"/api/topics/{topic}/files").status_code == 404
 
 
+def test_learning_goal_validation_persistence_rename_and_chat_context(setup):
+    client, topic, _, _, model, build = setup
+    goal = "Understand linear algebra well enough to explain eigenvectors."
+    assert client.put(f"/api/topics/{topic}/learning-goal", json={"learning_goal": goal}).json() == {"learning_goal": goal}
+    assert client.put(f"/api/topics/{topic}/learning-goal", json={"learning_goal": "x" * 2001}).status_code == 422
+    renamed = client.patch(f"/api/topics/{topic}", json={"name": "Renamed topic"}).json()
+    assert renamed["learning_goal"] == goal
+    restarted = build()
+    assert restarted.get(f"/api/topics/{topic}").json()["learning_goal"] == goal
+    assert chat(restarted, topic).status_code == 200
+    system_message = model.calls[-1][0]["content"]
+    assert "USER-AUTHORED LEARNING GOAL FOR THIS TOPIC" in system_message
+    assert goal in system_message
+
+
 @pytest.mark.parametrize("name,data,parser,status", [
     ("../escape.pdf", b"%PDF-1", "markitdown", 400),
     ("..\\escape.pdf", b"%PDF-1", "markitdown", 400),

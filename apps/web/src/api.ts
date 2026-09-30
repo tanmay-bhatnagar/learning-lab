@@ -1,4 +1,4 @@
-export type Topic = { id: string; name: string };
+export type Topic = { id: string; name: string; learning_goal?: string };
 export type LabAsset = { id: string; name: string; kind: string; page?: number; caption?: string; bbox?: unknown; doc_ref?: string };
 export type LabFile = {
   id: string;
@@ -15,6 +15,7 @@ export type LabFile = {
   page_count?: number;
   assets?: LabAsset[];
   warnings?: string[];
+  extraction_diagnostics?: { status: 'confirmed_failure' | 'suspected_limitation' | 'unassessed'; note: string; findings: string[] };
   error?: string;
 };
 export type FileChunk = {
@@ -78,6 +79,7 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
 export const json = (body: unknown, method = 'POST'): RequestInit => ({ method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 export const topicPath = (id: string) => `/topics/${encodeURIComponent(id)}`;
 export const filePath = (topic: string, fileId: string) => `${topicPath(topic)}/files/${encodeURIComponent(fileId)}`;
+export const originalPdfUrl = (topic: string, fileId: string, page: number) => `/api${filePath(topic, fileId)}/original#page=${page}`;
 export const fileChunksPath = (topic: string, fileId: string) => `${filePath(topic, fileId)}/chunks`;
 export const fileAssetPath = (topic: string, fileId: string, assetId: string) => `${filePath(topic, fileId)}/assets/${encodeURIComponent(assetId)}`;
 export const retrievalTracePath = (topic: string) => `${topicPath(topic)}/retrieval/trace`;

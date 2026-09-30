@@ -157,8 +157,11 @@ def parse_and_persist(
             created.append(path)
 
         parse_warnings = list(parsed.warnings) + list(chunk_warnings)
+        rendered_pages = {asset.page for asset in parsed.images if asset.kind == "page"}
+        missing_page_images = sorted(set(parsed.document.pages) - rendered_pages)
+        extraction_diagnostics = _extraction_diagnostics(parsed.warnings, missing_page_images)
         manifest = {
-            "schema_version": 1,
+            "schema_version": 2,
             "source_sha256": hashlib.sha256(data).hexdigest(),
             "parser": "docling",
             "parser_version": parsed.parser_version,
@@ -173,6 +176,7 @@ def parse_and_persist(
             "chunks_name": chunks_name,
             "assets": list(asset_by_id.values()),
             "warnings": parse_warnings,
+            "extraction_diagnostics": extraction_diagnostics,
         }
         if embedding_model:
             manifest["embedding_model"] = embedding_model
@@ -190,13 +194,31 @@ def parse_and_persist(
             "parse_name": parse_name,
             "content_sha256": manifest["source_sha256"],
             "parser_version": parsed.parser_version,
-            "page_count": sum(1 for asset in parsed.images if asset.kind == "page"),
+            "page_count": len(parsed.document.pages),
             "asset_count": sum(1 for asset in parsed.images if asset.kind == "figure"),
             "assets": list(asset_by_id.values()),
             "warnings": parse_warnings,
+            "extraction_diagnostics": extraction_diagnostics,
         }
         return updates, records
     except Exception:
         for path in reversed(created):
             path.unlink(missing_ok=True)
         raise
+
+
+def _extraction_diagnostics(warnings: list[str], missing_page_images: list[int] | None = None) -> dict[str, Any]:
+    """Summarize parser signals without treating a clean run as fidelity proof."""
+    findings = list(warnings)
+    findings.extend(f"Page {page}: preview image was not rendered; inspect the original PDF."
+                    for page in missing_page_images or [])
+    if any("partial_success" not in warning for warning in warnings):
+        status = "confirmed_failure"
+        note = "Docling reported a conversion component failure; extraction fidelity is not established."
+    elif findings:
+        status = "suspected_limitation"
+        note = "Conversion or page rendering may be incomplete; inspect the original for omissions."
+    else:
+        status = "unassessed"
+        note = "Docling reported no extraction issues; fidelity remains unassessed."
+    return {"status": status, "note": note, "findings": findings}

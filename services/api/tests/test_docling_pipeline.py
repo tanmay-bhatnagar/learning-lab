@@ -458,7 +458,7 @@ def test_parse_persist_applies_embed_limit_to_figure_captions(monkeypatch, tmp_p
     )
     parsed = ParseArtifacts(
         markdown="# Figure", docling={}, images=[asset], warnings=[],
-        parser_version="test", document=object(),
+        parser_version="test", document=SimpleNamespace(pages={1: None, 2: None, 3: None, 4: None}),
     )
     monkeypatch.setattr(parse_pipeline, "parse_pdf_bytes", lambda *args, **kwargs: parsed)
     monkeypatch.setattr(parse_pipeline, "chunk_tokenizer", lambda model: (tokenizer, []))
@@ -470,15 +470,27 @@ def test_parse_persist_applies_embed_limit_to_figure_captions(monkeypatch, tmp_p
     store = Store(tmp_path / "topics", tmp_path / "settings.json")
     topic = store.create("Caption limits")["id"]
 
-    _, records = parse_pipeline.parse_and_persist(
+    updates, records = parse_pipeline.parse_and_persist(
         store, topic, data=b"pdf", filename="figure.pdf",
         original_name="2026_09_30_figure.pdf", file_id="file1",
     )
 
     figure_chunks = [record for record in records if ":figure:" in record["chunk_id"]]
     assert records[0]["text"] == code_source
+    assert updates["page_count"] == 4
+    assert updates["extraction_diagnostics"]["status"] == "suspected_limitation"
+    assert "Page 4: preview image was not rendered" in updates["extraction_diagnostics"]["findings"][-1]
     assert "".join(record["text"] for record in figure_chunks) == "captiontextlong"
     assert all(len(record["text"]) <= 8 for record in figure_chunks)
+
+
+def test_extraction_diagnostics_distinguish_failure_limitation_and_unassessed():
+    assert parse_pipeline._extraction_diagnostics([])["status"] == "unassessed"
+    partial = parse_pipeline._extraction_diagnostics(["Docling reported partial_success."])
+    assert partial["status"] == "suspected_limitation"
+    failure = parse_pipeline._extraction_diagnostics(["layout: page conversion failed (page 2)"])
+    assert failure["status"] == "confirmed_failure"
+    assert "fidelity is not established" in failure["note"]
 
 
 def test_chunk_docling_document_raises_on_import_error(monkeypatch):

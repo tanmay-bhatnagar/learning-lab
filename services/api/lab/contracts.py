@@ -66,3 +66,4 @@ class ParseUpdates(TypedDict):
     asset_count: int
     assets: list[ArtifactAsset]
     warnings: list[str]
+    extraction_diagnostics: dict[str, object]

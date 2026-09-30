@@ -5,7 +5,7 @@ export function sourcesCount(retrieval: MessageRetrieval | undefined): number {
 }
 
 export function hasSources(retrieval: MessageRetrieval | undefined): boolean {
-  return sourcesCount(retrieval) > 0;
+  return sourcesCount(retrieval) > 0 || Boolean(retrieval?.warning);
 }
 
 export function sourcesButtonLabel(count: number): string {

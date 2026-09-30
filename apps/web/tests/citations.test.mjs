@@ -17,6 +17,7 @@ const {
   sourcesButtonLabel,
   sourcesCount,
 } = await load('citationsHelpers');
+const { originalPdfUrl } = await load('api');
 
 test('sources helpers count citations and build button labels', () => {
   const retrieval = { mode: 'keyword', citations: [{ chunk_id: 'a' }, { chunk_id: 'b' }] };
@@ -24,6 +25,7 @@ test('sources helpers count citations and build button labels', () => {
   assert.equal(sourcesCount(retrieval), 2);
   assert.equal(hasSources(retrieval), true);
   assert.equal(hasSources({ mode: 'none', citations: [] }), false);
+  assert.equal(hasSources({ mode: 'fallback', citations: [], warning: 'No matches were available.' }), true);
   assert.equal(sourcesButtonLabel(3), 'Sources (3)');
 });
 
@@ -33,4 +35,8 @@ test('citation labels expose mode badges, locations, and chunk numbers', () => {
   assert.equal(citationLocation('paper.pdf', ['Intro', 'Setup'], [2, 3]), 'paper.pdf · Intro › Setup · Pages 2, 3');
   assert.equal(citationChunkLabel(0), 'Chunk 1');
   assert.equal(citationChunkLabel(undefined), null);
+});
+
+test('citation PDF links use the topic-scoped API route and page fragment', () => {
+  assert.equal(originalPdfUrl('quantum', 'paper1', 3), '/api/topics/quantum/files/paper1/original#page=3');
 });

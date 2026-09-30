@@ -58,6 +58,18 @@ class TopicInput(BaseModel):
         return value
 
 
+class LearningGoalInput(BaseModel):
+    learning_goal: str = Field(max_length=2000)
+
+    @field_validator("learning_goal")
+    @classmethod
+    def clean_learning_goal(cls, value):
+        value = value.strip()
+        if any(ord(char) < 32 and char not in "\n\t" for char in value):
+            raise ValueError("Learning goal must contain printable text.")
+        return value
+
+
 class Settings(BaseModel):
     model: str = Field(default="", max_length=200)
     context_limit: int = Field(default=32768, ge=1024, le=32768)
@@ -142,9 +154,18 @@ def create_app(root=None, settings_path=None, model_backend=None, converter=None
     @app.put("/api/topics/{topic}")
     async def rename_topic(topic: str, body: TopicInput):
         async with lock(topic):
-            data = {"id": topic, "name": body.name}
-            write_json(store.topic(topic) / "topic.json", data)
+            path = store.topic(topic) / "topic.json"
+            data = {**read_json(path), "name": body.name}
+            write_json(path, data)
             return data
+
+    @app.put("/api/topics/{topic}/learning-goal")
+    async def save_learning_goal(topic: str, body: LearningGoalInput):
+        async with lock(topic):
+            path = store.topic(topic) / "topic.json"
+            data = {**read_json(path), "learning_goal": body.learning_goal}
+            write_json(path, data)
+            return {"learning_goal": body.learning_goal}
 
     @app.delete("/api/topics/{topic}")
     async def archive_topic(topic: str):
@@ -218,7 +239,12 @@ def create_app(root=None, settings_path=None, model_backend=None, converter=None
                         with store.file_path(topic, markdown_name).open("x", encoding="utf-8") as stream:
                             stream.write(markdown)
                         record.update(status="ready", markdown_name=markdown_name,
-                                      index_status="not_indexed")
+                                      index_status="not_indexed",
+                                      extraction_diagnostics={
+                                          "status": "unassessed",
+                                          "note": "Extraction fidelity was not assessed for this parser.",
+                                          "findings": [],
+                                      })
                 except Exception as exc:
                     record.update(status="error", error=str(exc) if isinstance(exc, ValueError) else f"Conversion failed ({type(exc).__name__}); check the PDF or use local OCR for scanned pages.")
                 write_json(store.topic(topic) / "files.json", records)
@@ -363,7 +389,12 @@ def create_app(root=None, settings_path=None, model_backend=None, converter=None
             citations = [pair[1] for pair in evidence_pairs]
             evidence_start = 1 + len(history)
             atomic_indices = set(range(evidence_start, evidence_start + len(evidence)))
-            prompt = [{"role": "system", "content": SYSTEM_RULES}, *history, *evidence,
+            topic_metadata = read_json(store.topic(topic) / "topic.json", {})
+            learning_goal = topic_metadata.get("learning_goal", "").strip()
+            system_content = SYSTEM_RULES
+            if learning_goal:
+                system_content += f"\n\nUSER-AUTHORED LEARNING GOAL FOR THIS TOPIC (context, not evidence):\n{learning_goal}"
+            prompt = [{"role": "system", "content": system_content}, *history, *evidence,
                       *attachments, {"role": "user", "content": body.message}]
             try:
                 prompt, prompt_context, _, retained_indices = prepare_context_details(
