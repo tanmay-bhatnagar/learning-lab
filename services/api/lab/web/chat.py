@@ -74,7 +74,7 @@ def router(deps: AppDeps) -> APIRouter:
                         item.get("id") == body.model and item.get("vision") is True
                         for item in available.get("models", [])
                     )
-                except (OSError, RuntimeError, ValueError):
+                except Exception:  # noqa: BLE001 - vision is optional; any model-list failure falls back to text evidence
                     vision = False
             evidence, citations = evidence_messages(
                 deps.store,

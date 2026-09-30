@@ -29,6 +29,12 @@ def router(deps: AppDeps) -> APIRouter:
 
     @routes.get("/api/models")
     async def models():
-        return await deps.model_backend.list_models()
+        try:
+            return await deps.model_backend.list_models()
+        except Exception as exc:  # noqa: BLE001 - the model list reports any backend failure as an error payload
+            return {
+                "models": [],
+                "error": f"Model service unavailable ({type(exc).__name__}); check the local model service and backend dependencies.",
+            }
 
     return routes

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import re
-import sqlite3
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -96,6 +95,7 @@ def router(deps: AppDeps) -> APIRouter:
                             tokenizer_root=deps.config.embedding_tokenizer_root,
                         )
                         record = {**record, **updates}
+                        embedder = deps.embedder()
                         try:
                             index_result = await index_chunks(
                                 deps.store,
@@ -103,10 +103,10 @@ def router(deps: AppDeps) -> APIRouter:
                                 file_id,
                                 chunks,
                                 embedding_model=current.embedding_model,
-                                embedder=deps.embedder(),
+                                embedder=embedder,
                             )
                             record = ready_from_docling(record, updates, index_result)
-                        except (ValueError, OSError, RuntimeError, sqlite3.Error) as exc:
+                        except Exception as exc:  # noqa: BLE001 - a parsed document stays ready; indexing failure becomes a warning
                             record = ready_index_error(record, updates, exc)
                     else:
                         convert = parser_map.get(parser)
