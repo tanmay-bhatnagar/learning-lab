@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "services/api"))
+DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434"
 
 SAMPLES = [
     ("plain", "hello world"),
@@ -25,12 +25,28 @@ SAMPLES = [
 ]
 
 
-async def _ollama_counts(model: str, texts: list[str]) -> list[int | None]:
+def _ensure_api_on_path() -> None:
+    api_root = str(ROOT / "services/api")
+    current = os.environ.get("PYTHONPATH", "")
+    parts = [part for part in current.split(os.pathsep) if part]
+    if api_root in parts:
+        return
+    os.environ["PYTHONPATH"] = os.pathsep.join([api_root, *parts])
+    os.execv(sys.executable, [sys.executable, *sys.argv])
+
+
+_ensure_api_on_path()
+
+
+async def _ollama_counts(base_url: str, model: str, texts: list[str]) -> list[int | None]:
     import httpx
-    from lab import models
 
     counts: list[int | None] = []
-    async with models._client() as client:
+    async with httpx.AsyncClient(
+        base_url=base_url.rstrip("/"),
+        trust_env=False,
+        timeout=httpx.Timeout(300, connect=5),
+    ) as client:
         for text in texts:
             try:
                 response = await client.post(
@@ -52,6 +68,7 @@ def main() -> None:
     from lab.embedding_config import count_embedding_tokens, tokenizer_path
 
     model = os.environ.get("EMBEDDING_MODEL", "nomic-embed-text")
+    base_url = os.environ.get("OLLAMA_BASE_URL", DEFAULT_OLLAMA_BASE_URL)
     path = tokenizer_path(model)
     if path is None or not path.is_dir():
         print(
@@ -70,7 +87,7 @@ def main() -> None:
     texts = [text for _, text in SAMPLES]
     local_counts = [count_embedding_tokens(text, model) for text in texts]
     try:
-        ollama_counts = asyncio.run(_ollama_counts(model, texts))
+        ollama_counts = asyncio.run(_ollama_counts(base_url, model, texts))
     except Exception as exc:  # noqa: BLE001 - any Ollama failure is reported, not fatal
         ollama_counts = [None] * len(texts)
         ollama_error = f"{type(exc).__name__}: {exc}"
@@ -93,6 +110,7 @@ def main() -> None:
             {
                 "status": "ok",
                 "model": model,
+                "ollama_base_url": base_url.rstrip("/"),
                 "tokenizer_path": str(path.resolve()),
                 "ollama_error": ollama_error,
                 "samples": rows,
