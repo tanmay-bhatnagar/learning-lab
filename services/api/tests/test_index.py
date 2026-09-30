@@ -3,7 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from lab.index import IndexError, TopicIndex, content_hash
+from lab.hashing import content_hash
+from lab.index import IndexInputError, TopicIndex
 
 
 def _chunk(
@@ -169,7 +170,7 @@ def test_missing_embeddings_are_skipped_for_vector_search(index: TopicIndex) -> 
 
 
 def test_malformed_embedding_dimensions(index: TopicIndex) -> None:
-    with pytest.raises(IndexError, match="same dimension"):
+    with pytest.raises(IndexInputError, match="same dimension"):
         index.replace_file(
             "file-a",
             [
@@ -181,7 +182,7 @@ def test_malformed_embedding_dimensions(index: TopicIndex) -> None:
         "file-a",
         [_chunk("c1", "file-a", chunk_index=0, text="stored", embedding=[1.0, 0.0])],
     )
-    with pytest.raises(IndexError, match="dimension"):
+    with pytest.raises(IndexInputError, match="dimension"):
         index.vector_search([1.0, 0.0, 0.0])
 
 

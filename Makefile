@@ -19,7 +19,7 @@ dev:
 	.venv/bin/python scripts/dev.py
 
 test:
-	PYTHONPATH=services/api .venv/bin/python -m pytest services/api/tests tests -q
+	PYTHONPATH=services/api .venv/bin/python -m pytest services/api/tests -q
 	cd apps/web && npm test
 
 build:

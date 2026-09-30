@@ -204,8 +204,7 @@ def test_parse_pdf_bytes_returns_artifacts(monkeypatch):
 
 def test_parse_pdf_bytes_uses_env_artifacts_path(monkeypatch):
     _install_docling_mocks(monkeypatch)
-    monkeypatch.setenv("DOCLING_ARTIFACTS_PATH", "/cache/docling")
-    docling_pipeline.parse_pdf_bytes(b"%PDF-1.7\n")
+    docling_pipeline.parse_pdf_bytes(b"%PDF-1.7\n", artifacts_path="/cache/docling")
     assert FakePdfPipelineOptions.last_kwargs["artifacts_path"] == "/cache/docling"
 
 
@@ -327,8 +326,8 @@ def test_parse_pdf_bytes_surfaces_partial_success_warnings(monkeypatch):
     )
 
     artifacts = docling_pipeline.parse_pdf_bytes(b"%PDF-1.7\n")
-    assert artifacts.warnings[0] == "Docling reported partial_success."
-    assert "layout: skipped table (page 4)" in artifacts.warnings[1]
+    assert artifacts.warnings[0].message == "Docling reported partial_success."
+    assert artifacts.warnings[1].message == "layout: skipped table (page 4)"
 
 
 def test_chunk_docling_document_returns_json_ready_chunks(monkeypatch):
@@ -373,7 +372,7 @@ def test_enforce_embed_limit_splits_oversize_chunks_at_word_boundaries(monkeypat
         "picture_asset_ids": [],
     }
 
-    pieces = chunking._enforce_embed_limit(record, "nomic-embed-text")
+    pieces = chunking.enforce_embed_limit(record, "nomic-embed-text")
 
     assert [piece["text"] for piece in pieces] == ["one two three four five ", "six ", "seven"]
     assert "".join(piece["text"] for piece in pieces) == record["text"]
@@ -398,7 +397,7 @@ def test_enforce_embed_limit_preserves_multiline_python_and_bounded_headings(mon
         "picture_asset_ids": [],
     }
 
-    pieces = chunking._enforce_embed_limit(record, "nomic-embed-text")
+    pieces = chunking.enforce_embed_limit(record, "nomic-embed-text")
     reconstructed = "".join(piece["text"] for piece in pieces)
 
     assert len(pieces) > 1
@@ -418,7 +417,7 @@ def test_enforce_embed_limit_keeps_fitting_chunks(monkeypatch):
         "bboxes": [],
         "picture_asset_ids": [],
     }
-    assert chunking._enforce_embed_limit(record, "nomic-embed-text") == [record]
+    assert chunking.enforce_embed_limit(record, "nomic-embed-text") == [record]
 
 
 def test_enforce_embed_limit_splits_indivisible_text_and_rejects_oversized_headings(monkeypatch):
@@ -432,13 +431,13 @@ def test_enforce_embed_limit_splits_indivisible_text_and_rejects_oversized_headi
         "bboxes": [],
         "picture_asset_ids": [],
     }
-    pieces = chunking._enforce_embed_limit(record, "nomic-embed-text")
+    pieces = chunking.enforce_embed_limit(record, "nomic-embed-text")
     assert [piece["text"] for piece in pieces] == ["abcd", "efgh", "ij"]
     assert all(len(piece["text"]) <= 4 for piece in pieces)
 
     record["headings"] = ["heading too long"]
     with pytest.raises(ValueError, match="headings.*shorten or remove"):
-        chunking._enforce_embed_limit(record, "nomic-embed-text")
+        chunking.enforce_embed_limit(record, "nomic-embed-text")
 
 
 def test_enforce_embed_limit_counts_embedding_special_tokens(monkeypatch):
@@ -471,7 +470,7 @@ def test_enforce_embed_limit_counts_embedding_special_tokens(monkeypatch):
         "bboxes": [],
         "picture_asset_ids": [],
     }
-    pieces = chunking._enforce_embed_limit(record, "unknown-model", tokenizer=tokenizer)
+    pieces = chunking.enforce_embed_limit(record, "unknown-model", tokenizer=tokenizer)
     assert len(pieces) > 1
     assert all(count_with_chunk_tokenizer(piece["text"], "unknown-model", tokenizer) <= 4 for piece in pieces)
 
@@ -498,7 +497,7 @@ def test_parse_persist_applies_embed_limit_to_figure_captions(monkeypatch, tmp_p
         document=SimpleNamespace(pages={1: None, 2: None, 3: None, 4: None}),
     )
     monkeypatch.setattr(parse_pipeline, "parse_pdf_bytes", lambda *args, **kwargs: parsed)
-    monkeypatch.setattr(parse_pipeline, "chunk_tokenizer", lambda model: (tokenizer, []))
+    monkeypatch.setattr(parse_pipeline, "chunk_tokenizer", lambda model, **kwargs: (tokenizer, []))
     monkeypatch.setattr(
         parse_pipeline,
         "chunk_docling_document",
@@ -540,10 +539,10 @@ def test_parse_persist_applies_embed_limit_to_figure_captions(monkeypatch, tmp_p
 
 
 def test_extraction_diagnostics_distinguish_failure_limitation_and_unassessed():
-    assert parse_pipeline._extraction_diagnostics([])["status"] == "unassessed"
-    partial = parse_pipeline._extraction_diagnostics(["Docling reported partial_success."])
+    assert parse_pipeline._extraction_diagnostics([], [])["status"] == "unassessed"
+    partial = parse_pipeline._extraction_diagnostics(["partial_success"], ["Docling reported partial_success."])
     assert partial["status"] == "suspected_limitation"
-    failure = parse_pipeline._extraction_diagnostics(["layout: page conversion failed (page 2)"])
+    failure = parse_pipeline._extraction_diagnostics(["layout"], ["layout: page conversion failed (page 2)"])
     assert failure["status"] == "confirmed_failure"
     assert "fidelity is not established" in failure["note"]
 

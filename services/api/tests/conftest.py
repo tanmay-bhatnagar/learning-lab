@@ -1,4 +1,9 @@
-import sys
-from pathlib import Path
+import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+@pytest.fixture
+def parser_map_factory():
+    def _factory(fn):
+        return {"markitdown": fn, "anydoc": fn}
+
+    return _factory

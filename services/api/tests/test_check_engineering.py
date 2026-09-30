@@ -1,7 +1,7 @@
 import importlib.util
 from pathlib import Path
 
-SCRIPT = Path(__file__).resolve().parents[1] / "scripts/check_engineering.py"
+SCRIPT = Path(__file__).resolve().parents[3] / "scripts/check_engineering.py"
 SPEC = importlib.util.spec_from_file_location("check_engineering", SCRIPT)
 check = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(check)
@@ -40,12 +40,12 @@ def test_framework_import_outside_http_layer_fails(monkeypatch, tmp_path):
     root = seed(
         tmp_path,
         {
-            f"{check.LAB}/main.py": "from fastapi import FastAPI\n",
-            f"{check.LAB}/http/topics.py": "from fastapi import APIRouter\n",
-            f"{check.LAB}/storage.py": "import os\n\nfrom fastapi import HTTPException\n",
+            f"{check.LAB}/web/app.py": "from fastapi import FastAPI\n",
+            f"{check.LAB}/web/topics.py": "from fastapi import APIRouter\n",
+            f"{check.LAB}/parsers.py": "import os\n\nfrom fastapi import HTTPException\n",
         },
     )
-    assert check.structure_errors(root) == [f"{check.LAB}/storage.py:3: framework-import is not allowed here"]
+    assert check.structure_errors(root) == [f"{check.LAB}/parsers.py:3: framework-import is not allowed here"]
 
 
 def test_environment_read_outside_config_module_fails(monkeypatch, tmp_path):
@@ -54,10 +54,10 @@ def test_environment_read_outside_config_module_fails(monkeypatch, tmp_path):
         tmp_path,
         {
             check.CONFIG_MODULE: "import os\nROOT = os.environ.get('LEARNING_LAB_ROOT')\n",
-            f"{check.LAB}/models.py": "import os\nURL = os.getenv('OLLAMA_BASE_URL')\n",
+            f"{check.LAB}/parsers.py": "import os\nROOT = os.environ.get('LEARNING_LAB_ROOT')\n",
         },
     )
-    assert check.structure_errors(root) == [f"{check.LAB}/models.py:2: environment-read is not allowed here"]
+    assert check.structure_errors(root) == [f"{check.LAB}/parsers.py:2: environment-read is not allowed here"]
 
 
 def test_silent_catch_in_web_source_fails(monkeypatch, tmp_path):
@@ -71,14 +71,14 @@ def test_pending_exemption_allows_offender_and_fails_once_stale(monkeypatch, tmp
         check,
         "PENDING",
         {
-            "framework-import": frozenset({f"{check.LAB}/storage.py"}),
-            "environment-read": frozenset({f"{check.LAB}/models.py"}),
+            "framework-import": frozenset({f"{check.LAB}/parsers.py"}),
+            "environment-read": frozenset({f"{check.LAB}/parsers.py"}),
             "silent-catch": frozenset(),
         },
     )
-    root = seed(tmp_path, {f"{check.LAB}/storage.py": "from fastapi import HTTPException\n"})
+    root = seed(tmp_path, {f"{check.LAB}/parsers.py": "from fastapi import HTTPException\n"})
     assert check.structure_errors(root) == [
-        f"{check.LAB}/models.py: stale environment-read exemption; remove it from PENDING"
+        f"{check.LAB}/parsers.py: stale environment-read exemption; remove it from PENDING"
     ]
 
 

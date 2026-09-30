@@ -16,7 +16,6 @@ DEFAULT_EMBED_CONTEXT_LIMIT = 2048
 EMBEDDING_FORMAT_VERSION = "nomic-search-prefix-v1"
 
 _CODE_ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_TOKENIZER_DIR = _CODE_ROOT / "data/external/modelweights/tokenizers/bert-base-uncased"
 
 
 @dataclass(frozen=True)
@@ -62,18 +61,17 @@ def embedding_model_config(model: str) -> EmbeddingModelConfig | None:
     return None
 
 
-def tokenizer_root() -> Path:
-    override = os.environ.get("EMBEDDING_TOKENIZER_ROOT", "").strip()
-    if override:
-        return Path(override).expanduser().resolve()
+def resolve_tokenizer_root(tokenizer_root_path: Path | str | None = None) -> Path:
+    if tokenizer_root_path is not None:
+        return Path(tokenizer_root_path).expanduser().resolve()
     return (_CODE_ROOT / "data/external/modelweights/tokenizers").resolve()
 
 
-def tokenizer_path(model: str) -> Path | None:
+def tokenizer_path(model: str, *, tokenizer_root_path: Path | None = None) -> Path | None:
     config = embedding_model_config(model)
     if config is None:
         return None
-    return tokenizer_root() / config.tokenizer_dir
+    return resolve_tokenizer_root(tokenizer_root_path) / config.tokenizer_dir
 
 
 def _tokenizer_files_present(path: Path) -> bool:
@@ -119,6 +117,7 @@ def _load_transformers_tokenizer(path: str):
 def chunk_tokenizer(
     embedding_model: str,
     *,
+    tokenizer_root_path: Path | None = None,
     chunk_token_limit: int = DEFAULT_CHUNK_TOKEN_LIMIT,
 ) -> tuple[Any, list[str]]:
     """Return a HybridChunker-compatible tokenizer and any warnings."""
@@ -131,7 +130,7 @@ def chunk_tokenizer(
         )
         return _ConservativeTokenizer(chunk_token_limit), warnings
 
-    path = tokenizer_root() / config.tokenizer_dir
+    path = resolve_tokenizer_root(tokenizer_root_path) / config.tokenizer_dir
     if not _tokenizer_files_present(path):
         warnings.append(
             f"Embedding tokenizer files missing at {path}; run `make embedding-tokenizer`. "

@@ -4,38 +4,13 @@
 from pathlib import Path
 import os
 import signal
-import socket
 import subprocess
 import sys
 import time
-import urllib.request
+
+from process_helpers import available_port, stop_processes, wait_ready
 
 ROOT = Path(__file__).resolve().parents[1]
-
-
-def available_port(preferred):
-    with socket.socket() as sock:
-        try:
-            sock.bind(("127.0.0.1", preferred))
-        except OSError:
-            sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
-
-
-def wait_ready(url, children, timeout=20):
-    deadline = time.monotonic() + timeout
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-    while time.monotonic() < deadline:
-        if any(child.poll() is not None for child in children):
-            raise RuntimeError("A Learning Lab service exited during startup; see its error above.")
-        try:
-            with opener.open(url, timeout=0.5) as response:
-                if response.status == 200:
-                    return
-        except OSError:
-            pass
-        time.sleep(0.1)
-    raise RuntimeError(f"Startup timed out waiting for {url}")
 
 
 def stop(*_):
@@ -56,8 +31,6 @@ def main():
     children = []
     runtime_env = {
         **os.environ,
-        # Keep Docling artifacts with the project's other local model weights.
-        # An explicit path also prevents unexpected background network downloads.
         "DOCLING_ARTIFACTS_PATH": str(ROOT / "data/external/modelweights/docling"),
     }
     for sig in (signal.SIGINT, signal.SIGTERM):
@@ -69,7 +42,8 @@ def main():
                     str(ROOT / ".venv/bin/python"),
                     "-m",
                     "uvicorn",
-                    "lab.main:app",
+                    "lab.asgi:create_app_factory",
+                    "--factory",
                     "--app-dir",
                     "services/api",
                     "--host",
@@ -99,16 +73,11 @@ def main():
         print(str(error), file=sys.stderr)
         return 1
     finally:
-        for child in children:
-            if child.poll() is None:
-                child.terminate()
-        for child in children:
-            try:
-                child.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                child.kill()
-                child.wait()
+        stop_processes(children)
 
 
 if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1] in ("-h", "--help"):
+        print("Run local Learning Lab API and web dev servers.")
+        sys.exit(0)
     sys.exit(main())

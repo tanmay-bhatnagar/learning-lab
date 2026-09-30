@@ -7,19 +7,8 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
-from lab.main import create_app
-
-
-class FakeModel:
-    async def list_models(self):
-        return {"models": [{"id": "fake"}]}
-
-    async def stream_chat(self, messages, model, think, context_limit):
-        yield {"type": "token", "text": "answer"}
-        yield {
-            "type": "done",
-            "context": {"used": 1, "limit": context_limit, "estimated": True, "truncated_messages": 0},
-        }
+from lab.web.app import create_app
+from tests.fakes import FakeModel
 
 
 def _scope(topic, body, spec_version):
@@ -73,7 +62,7 @@ def test_disconnect_before_streaming_releases_topic_lock(tmp_path, spec_version,
     )
     if not http_middleware:
         app.user_middleware = [item for item in app.user_middleware if item.cls.__name__ != "BaseHTTPMiddleware"]
-    topic = app.state.store.create("Disconnect")["id"]
+    topic = app.state.deps.store.create("Disconnect")["id"]
     asyncio.run(_disconnected_chat(app, topic, spec_version))
     client = TestClient(app)
     response = client.post(f"/api/topics/{topic}/chat", json={"message": "Again", "file_ids": [], "model": "fake"})

@@ -14,7 +14,7 @@ from lab.embedding_config import (
 )
 
 
-def _bbox_to_dict(bbox) -> dict[str, Any]:
+def _bbox_to_dict(bbox: Any) -> dict[str, Any]:
     return bbox.model_dump(mode="json", by_alias=True, exclude_none=True)
 
 
@@ -24,7 +24,7 @@ def _picture_ref_map(image_assets: Sequence[ImageAsset] | None) -> dict[str, str
     return {asset.doc_ref: asset.id for asset in image_assets if asset.kind == "figure" and asset.doc_ref}
 
 
-def _extract_pages_and_bboxes(doc_items) -> tuple[list[int], list[dict[str, Any]]]:
+def _extract_pages_and_bboxes(doc_items: Any) -> tuple[list[int], list[dict[str, Any]]]:
     pages: list[int] = []
     bboxes: list[dict[str, Any]] = []
     seen_pages: set[int] = set()
@@ -41,7 +41,7 @@ def _extract_pages_and_bboxes(doc_items) -> tuple[list[int], list[dict[str, Any]
 
 
 def _linked_picture_asset_ids(
-    doc_items,
+    doc_items: Any,
     ref_to_asset: Mapping[str, str],
 ) -> list[str]:
     linked: list[str] = []
@@ -66,12 +66,12 @@ def _linked_picture_asset_ids(
 
 
 def chunk_docling_document(
-    document,
+    document: Any,
     *,
     image_assets: Sequence[ImageAsset] | None = None,
     embedding_model: str = "",
-    chunker=None,
-    tokenizer=None,
+    chunker: Any | None = None,
+    tokenizer: Any | None = None,
     **chunker_kwargs: Any,
 ) -> tuple[list[ChunkRecord], list[str]]:
     """Chunk a DoclingDocument with HybridChunker into JSON-serializable records."""
@@ -100,9 +100,7 @@ def chunk_docling_document(
             "bboxes": bboxes,
             "picture_asset_ids": _linked_picture_asset_ids(doc_items, ref_to_asset),
         }
-        chunks.extend(
-            _enforce_embed_limit(record, embedding_model, tokenizer=tokenizer) if chunker is None else [record]
-        )
+        chunks.extend(enforce_embed_limit(record, embedding_model, tokenizer=tokenizer))
     for index, record in enumerate(chunks):
         record["index"] = index
     return chunks, warnings
@@ -112,7 +110,9 @@ def _contextualize(headings: Sequence[str] | None, text: str) -> str:
     return "\n".join([*(headings or []), text])
 
 
-def _enforce_embed_limit(record: ChunkRecord, embedding_model: str, *, tokenizer=None) -> list[ChunkRecord]:
+def enforce_embed_limit(
+    record: ChunkRecord, embedding_model: str, *, tokenizer: Any | None = None
+) -> list[ChunkRecord]:
     """Split chunks that HybridChunker left above the embedding limit.
 
     HybridChunker's max_tokens is a merge target: joined sub-chunks can exceed

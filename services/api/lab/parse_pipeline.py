@@ -7,11 +7,11 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .chunking import _enforce_embed_limit, chunk_docling_document
-from .contracts import ArtifactAsset, IndexedChunk, ParseUpdates
-from .docling_pipeline import parse_pdf_bytes
+from .chunking import chunk_docling_document, enforce_embed_limit
+from .contracts import ArtifactAsset, IndexedChunk, ParseUpdates, StoreProtocol
+from .docling_pipeline import parse_pdf_bytes, stored_warning_messages, warning_codes
 from .embedding_config import chunk_tokenizer, embedding_format_metadata
-from .index import content_hash
+from .hashing import content_hash
 from .storage import write_bytes, write_json, write_text
 
 
@@ -47,7 +47,7 @@ def _indexed_record(
 
 
 def parse_and_persist(
-    store,
+    store: StoreProtocol,
     topic: str,
     *,
     data: bytes,
@@ -55,6 +55,8 @@ def parse_and_persist(
     original_name: str,
     file_id: str,
     embedding_model: str = "",
+    artifacts_path: str | Path | None = None,
+    tokenizer_root: Path | None = None,
 ) -> tuple[ParseUpdates, list[IndexedChunk]]:
     """Parse an immutable PDF and write derived files atomically one file at a time.
 
@@ -63,8 +65,8 @@ def parse_and_persist(
     base = original_name[:-4]
     created: list[Path] = []
     try:
-        parsed = parse_pdf_bytes(data, filename=filename)
-        tokenizer, tokenizer_warnings = chunk_tokenizer(embedding_model)
+        parsed = parse_pdf_bytes(data, filename=filename, artifacts_path=artifacts_path)
+        tokenizer, tokenizer_warnings = chunk_tokenizer(embedding_model, tokenizer_root_path=tokenizer_root)
         raw_chunks, chunk_warnings = chunk_docling_document(
             parsed.document,
             image_assets=parsed.images,
@@ -126,7 +128,7 @@ def parse_and_persist(
                 continue
             stored = asset_by_id[asset.id]
             text = asset.caption.strip()
-            bounded = _enforce_embed_limit(
+            bounded = enforce_embed_limit(
                 {
                     "text": text,
                     "contextualized_text": text,
@@ -184,10 +186,15 @@ def parse_and_persist(
             writer(path, value)
             created.append(path)
 
-        parse_warnings = list(parsed.warnings) + list(chunk_warnings)
+        docling_messages = stored_warning_messages(parsed.warnings)
+        parse_warnings = docling_messages + list(chunk_warnings)
         rendered_pages = {asset.page for asset in parsed.images if asset.kind == "page"}
         missing_page_images = sorted(set(parsed.document.pages) - rendered_pages)
-        extraction_diagnostics = _extraction_diagnostics(parsed.warnings, missing_page_images)
+        extraction_diagnostics = _extraction_diagnostics(
+            warning_codes(parsed.warnings),
+            docling_messages,
+            missing_page_images,
+        )
         manifest = {
             "schema_version": 2,
             "source_sha256": hashlib.sha256(data).hexdigest(),
@@ -235,13 +242,26 @@ def parse_and_persist(
         raise
 
 
-def _extraction_diagnostics(warnings: list[str], missing_page_images: list[int] | None = None) -> dict[str, Any]:
+def _legacy_warning_code(stored: str) -> str:
+    if stored in ("Docling reported partial_success.", "docling:partial_success"):
+        return "partial_success"
+    if ":" in stored:
+        return stored.split(":", 1)[0]
+    return stored
+
+
+def _extraction_diagnostics(
+    warning_codes_list: list[str],
+    stored_warnings: list[str],
+    missing_page_images: list[int] | None = None,
+) -> dict[str, Any]:
     """Summarize parser signals without treating a clean run as fidelity proof."""
-    findings = list(warnings)
+    codes = warning_codes_list or [_legacy_warning_code(w) for w in stored_warnings]
+    findings = list(stored_warnings)
     findings.extend(
         f"Page {page}: preview image was not rendered; inspect the original PDF." for page in missing_page_images or []
     )
-    if any("partial_success" not in warning for warning in warnings):
+    if any(code != "partial_success" for code in codes):
         status = "confirmed_failure"
         note = "Docling reported a conversion component failure; extraction fidelity is not established."
     elif findings:

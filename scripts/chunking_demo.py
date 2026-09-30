@@ -125,18 +125,19 @@ def _require_docling_artifacts() -> str:
 
 
 def _embedder():
-    from lab import models
+    from lab.models import OllamaGateway
 
+    gateway = OllamaGateway()
     lock = asyncio.Lock()
 
     async def embed(texts: list[str], model: str) -> list[list[float]]:
-        return await models.embed_texts(texts, model, generation_lock=lock)
+        return await gateway.embed_texts(texts, model, generation_lock=lock)
 
     return embed
 
 
 async def _require_ollama_embedding(model: str, embed) -> None:
-    from lab.contracts import EmbeddingUnavailable
+    from lab.errors import EmbeddingUnavailable
 
     try:
         await embed(["preflight"], model)

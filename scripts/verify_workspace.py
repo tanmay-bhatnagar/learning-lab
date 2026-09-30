@@ -16,6 +16,8 @@ import uuid
 from collections.abc import Mapping
 from pathlib import Path
 
+from process_helpers import available_port, stop_processes, wait_ready
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -37,13 +39,6 @@ def isolated_environment(inherited_env: Mapping[str, str], run_dir: Path, api_ur
         "DOCLING_ARTIFACTS_PATH": str(run_dir / "docling-artifacts"),
         "OTEL_SDK_DISABLED": "true",
     }
-
-
-def available_port() -> int:
-    """Return an ephemeral loopback port selected by the operating system."""
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
 
 
 def preflight() -> tuple[str, str, str]:
@@ -115,36 +110,6 @@ def require(condition: bool, message: str) -> None:
         raise RuntimeError(message)
 
 
-def wait_ready(url, processes, timeout=35):
-    """Wait for a local endpoint while detecting early service exits."""
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        exited = [(proc.args, proc.returncode) for proc in processes if proc.poll() is not None]
-        if exited:
-            raise RuntimeError(f"A verification service exited during startup: {exited}")
-        try:
-            status, _, _ = request(url, timeout=1)
-            if status == 200:
-                return
-        except OSError:
-            pass
-        time.sleep(0.15)
-    raise RuntimeError(f"Timed out waiting for {url}")
-
-
-def stop_processes(processes):
-    """Stop and reap only the process objects created by this run."""
-    for process in processes:
-        if process.poll() is None:
-            process.terminate()
-    for process in processes:
-        try:
-            process.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait()
-
-
 def multipart_upload(url, pdf):
     """Upload a synthetic PDF selecting MarkItDown explicitly."""
     boundary = "----learninglab" + uuid.uuid4().hex
@@ -166,7 +131,7 @@ def run_verification(run_dir, processes, api_port, web_port):
     """Exercise services and return evidence for this verification run."""
     api_url = f"http://127.0.0.1:{api_port}"
     web_url = f"http://127.0.0.1:{web_port}"
-    wait_ready(f"{web_url}/api/health", processes)
+    wait_ready(f"{web_url}/api/health", processes, timeout=35)
     status, _, body = request(f"{web_url}/api/health")
     require(
         status == 200 and json.loads(body).get("status") == "ok",
@@ -254,7 +219,7 @@ def main(argv: list[str] | None = None) -> int:
         fixture = pdf_fixture()
         fixture_path = run_dir / "fixture.pdf"
         fixture_path.write_bytes(fixture)
-        api_port = available_port()
+        api_port = available_port(None)
         if args.serve:
             web_port = 5173
             with socket.socket() as listener:
@@ -265,12 +230,12 @@ def main(argv: list[str] | None = None) -> int:
                         "Port 5173 is occupied. --serve uses this fixed port because the app only allows browser writes from port 5173; close that listener and retry. No process was stopped."
                     ) from exc
         else:
-            web_port = available_port()
+            web_port = available_port(None)
         while web_port == api_port:
             if args.serve:
-                api_port = available_port()
+                api_port = available_port(None)
             else:
-                web_port = available_port()
+                web_port = available_port(None)
         api_url = f"http://127.0.0.1:{api_port}"
         env = isolated_environment(os.environ, run_dir, api_url)
         logs = {}
@@ -283,7 +248,8 @@ def main(argv: list[str] | None = None) -> int:
                     python,
                     "-m",
                     "uvicorn",
-                    "lab.main:app",
+                    "lab.asgi:create_app_factory",
+                    "--factory",
                     "--app-dir",
                     str(ROOT / "services/api"),
                     "--host",
@@ -298,7 +264,7 @@ def main(argv: list[str] | None = None) -> int:
                 start_new_session=True,
             )
         )
-        wait_ready(f"{api_url}/api/health", processes)
+        wait_ready(f"{api_url}/api/health", processes, timeout=35)
         processes.append(
             subprocess.Popen(
                 [
@@ -318,7 +284,7 @@ def main(argv: list[str] | None = None) -> int:
             )
         )
         if args.serve:
-            wait_ready(f"http://127.0.0.1:{web_port}/api/health", processes)
+            wait_ready(f"http://127.0.0.1:{web_port}/api/health", processes, timeout=35)
             evidence.update(
                 status="serving",
                 api_url=api_url,
