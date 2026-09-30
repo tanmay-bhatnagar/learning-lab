@@ -55,7 +55,7 @@ Phases 3 and 4 start only after Phase 2 is merged, and then run in parallel. G-2
 | FE-2 hooks own effects | code | FE-1 | FE-0 unchanged and passing | `App` has no `fetch`, `localStorage` or `window` calls | done `750a216` |
 | FE-3 components | code | FE-2 | FE-0 unchanged and passing; one `VisualAssets` | `main.tsx` only calls `createRoot` | done `3f0211c` |
 | FE-4 zod boundary | code | FE-3 | Tests for malformed responses and stream events | No `as T` casts on responses or stream JSON | done `25fc13a`; Refresh files `7ca3c16`; audit fixes `d9e15ef`..`88a5ee9`; merged `2cffacc` |
-| FE exit | usage | FE-4 | A browser run of the [usage flows](../../.agents/skills/usage/references/flows.md) on an isolated root, with evidence under `.local/verification/` | Tanmay's go-ahead to close the track | not started |
+| FE exit | usage | FE-4 | A browser run of the [usage flows](../../.agents/skills/usage/references/flows.md) on an isolated root, with evidence under `.local/verification/` | Tanmay's go-ahead to close the track | evidence ready, awaiting Tanmay's go-ahead: 13 browser flows pass in `.local/verification/20261001-022207-8f8ae5f9/browser_flows.json` (script `browser_flows.mjs`, screenshots `browser_*.png`); the run found null-field schema rejections, fixed in `a4335b4` |
 | BE-0 characterization | debug or review | Phase 2 | Shared `tests/fakes.py` uses the production gateway signature | The tests listed in the review pass on the current code | done `39dcdf6` |
 | BE-1 error taxonomy | code | BE-0 | Status codes and messages are identical (compared by test) | No `fastapi` import outside the HTTP layer; `IndexError` renamed | done `60ed318` |
 | BE-2 contracts | code | BE-1 | JSON written by the new types matches fixtures from the current code | `ANN` ignores for `lab/` removed | done `23a2be1` (combined with BE-3 and BE-4) |
@@ -65,7 +65,7 @@ Phases 3 and 4 start only after Phase 2 is merged, and then run in parallel. G-2
 | BE-6 retrieval | code | BE-4 | Retrieval-trace output is unchanged for the fixtures | An explicit fallback flag; the index is checked before embedding | done `7f60a1b` |
 | BE-7 model adapter | code | BE-4 | Payload and think tests are pure; a live Ollama smoke on an isolated root | One owner for the context budget | done `d433557` |
 | BE-8 hygiene | code | BE-5, BE-6, BE-7 | One backend test root; no `sys.path` hacks | `architecture.md` ownership table rewritten | done `65d86f2`; audit fixes `d8437cc`..`7f07646`; merged `ed8aba7` |
-| BE exit | usage | BE-8 | `verify_workspace.py`, a Docling smoke and a live chat on an isolated root | Tanmay's go-ahead to close the track | not started |
+| BE exit | usage | BE-8 | `verify_workspace.py`, a Docling smoke and a live chat on an isolated root | Tanmay's go-ahead to close the track | evidence ready, awaiting Tanmay's go-ahead: `verify_workspace.py` (`.local/verification/20261001-024851-9fd18378/evidence.json`), the Docling smoke, the live Ollama chat and the browser chat run above |
 
 ## Per-slice handoff
 
