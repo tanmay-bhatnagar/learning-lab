@@ -54,6 +54,19 @@ const readyFile = (id: string, name: string): LabFile => ({
   index_status: 'ready',
   index_mode: 'hybrid',
   page_count: 3,
+  asset_count: 0,
+  assets: [
+    {
+      id: 'page_000001',
+      name: `${id}.page_000001.png`,
+      kind: 'page',
+      page: 1,
+      bbox: null,
+      caption: null,
+      doc_ref: null,
+    },
+  ],
+  warnings: [],
 });
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -72,7 +85,7 @@ async function* defaultStream(body: Record<string, unknown>, signal: AbortSignal
     type: 'done',
     model: String(body.model ?? defaultSettings.model),
     context: { used: 100, limit: Number(body.context_limit ?? defaultSettings.context_limit) },
-    retrieval: { mode: 'none', citations: [] },
+    retrieval: { mode: 'none', warning: null, citations: [] },
   };
 }
 

@@ -10,11 +10,11 @@ export type ContextMeter = {
 
 export function contextMeter(context: Context, settings: Settings): ContextMeter {
   const limit = context.limit || settings.context_limit;
-  const used = context.used;
+  const used = context.used ?? undefined;
   const percent = Math.min(100, Math.max(0, ((used || 0) / limit) * 100));
   const label =
     used === undefined
       ? 'Context tokens'
       : `${context.estimated ? '~' : ''}${used.toLocaleString()} / ${limit.toLocaleString()}`;
-  return { limit, used, estimated: context.estimated, percent, label };
+  return { limit, used, estimated: context.estimated ?? undefined, percent, label };
 }

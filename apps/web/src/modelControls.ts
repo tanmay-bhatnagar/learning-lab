@@ -25,7 +25,7 @@ export function modelLabel(model: Model | string): string {
   return [name, parameters?.toUpperCase(), quantizationLabel(quantization)].filter(Boolean).join(' · ');
 }
 
-export function quantizationLabel(quantization?: string): string | undefined {
+export function quantizationLabel(quantization?: string | null): string | undefined {
   if (!quantization?.trim()) return undefined;
   const bits = quantization.match(/^q(\d+)/i)?.[1];
   return bits ? `${bits}-bit` : undefined;

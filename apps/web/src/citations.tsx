@@ -61,7 +61,7 @@ export function MessageSources({
 }: {
   topic: string;
   files: LabFile[];
-  retrieval?: MessageRetrieval;
+  retrieval?: MessageRetrieval | null;
 }) {
   const [open, setOpen] = useState(false);
   const panelId = useId();

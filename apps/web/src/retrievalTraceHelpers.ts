@@ -52,11 +52,11 @@ export function modeLabel(mode: RetrievalTraceMode | undefined): string {
   return retrievalModeLabel(mode, 'No matches');
 }
 
-export function pagesLabel(pages: number[] | undefined): string {
+export function pagesLabel(pages: number[] | null | undefined): string {
   if (!pages?.length) return 'No page';
   return pages.length === 1 ? `Page ${pages[0]}` : `Pages ${pages.join(', ')}`;
 }
 
-export function headingsLabel(headings: string[] | undefined): string {
+export function headingsLabel(headings: string[] | null | undefined): string {
   return headings?.length ? headings.join(' › ') : 'No heading';
 }
