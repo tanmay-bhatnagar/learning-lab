@@ -1,5 +1,6 @@
-"""Validate project agent configuration, skill discovery, and local doc links."""
+"""Validate project agent configuration, skill discovery, local doc links, and code structure."""
 
+import ast
 import re
 import sys
 import tomllib
@@ -9,6 +10,82 @@ import yaml
 
 ROLES = frozenset({"research", "code", "design", "debug", "review", "usage"})
 EFFORTS = frozenset({"low", "medium", "high", "xhigh", "max", "ultra"})
+
+LAB = "services/api/lab"
+WEB = "apps/web/src"
+FRAMEWORKS = frozenset({"fastapi", "starlette"})
+HTTP_LAYER = (f"{LAB}/main.py", f"{LAB}/asgi.py", f"{LAB}/http/")
+CONFIG_MODULE = f"{LAB}/config.py"
+# Today's offenders; each refactor slice deletes the entries it resolves. Stale entries fail.
+PENDING = {
+    "framework-import": frozenset({f"{LAB}/storage.py"}),
+    "environment-read": frozenset(
+        {f"{LAB}/main.py", f"{LAB}/docling_pipeline.py", f"{LAB}/embedding_config.py", f"{LAB}/models.py"}
+    ),
+    "silent-catch": frozenset({f"{WEB}/api.ts", f"{WEB}/main.tsx"}),
+}
+UNBOUND_CATCH = re.compile(r"\bcatch\s*\{\s*(\S)?(\S)?")
+
+
+def framework_imports(source: str) -> list[int]:
+    """Line numbers importing a web framework."""
+    lines = []
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            names = [alias.name for alias in node.names]
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            names = [node.module]
+        else:
+            continue
+        if any(name.split(".", 1)[0] in FRAMEWORKS for name in names):
+            lines.append(node.lineno)
+    return sorted(lines)
+
+
+def environment_reads(source: str) -> list[int]:
+    """Line numbers reading process environment through `os`."""
+    lines = []
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Attribute) and node.attr in {"environ", "getenv", "environb", "getenvb"}:
+            if isinstance(node.value, ast.Name) and node.value.id == "os":
+                lines.append(node.lineno)
+        elif isinstance(node, ast.ImportFrom) and node.module == "os":
+            if any(alias.name in {"environ", "getenv", "environb", "getenvb"} for alias in node.names):
+                lines.append(node.lineno)
+    return sorted(lines)
+
+
+def silent_catches(source: str) -> list[int]:
+    """Line numbers of TypeScript catches that discard the error without an opening comment."""
+    return [
+        source.count("\n", 0, match.start()) + 1
+        for match in UNBOUND_CATCH.finditer(source)
+        if (match.group(1) or "") + (match.group(2) or "") not in {"//", "/*"}
+    ]
+
+
+def structure_errors(root: Path) -> list[str]:
+    """Return layering violations and stale exemptions under `root`."""
+    found: dict[str, dict[str, list[int]]] = {check: {} for check in PENDING}
+    for path in sorted((root / LAB).rglob("*.py")):
+        relative = path.relative_to(root).as_posix()
+        source = path.read_text()
+        if not relative.startswith(HTTP_LAYER) and (lines := framework_imports(source)):
+            found["framework-import"][relative] = lines
+        if relative != CONFIG_MODULE and (lines := environment_reads(source)):
+            found["environment-read"][relative] = lines
+    for path in sorted((root / WEB).rglob("*.ts*")):
+        relative = path.relative_to(root).as_posix()
+        if lines := silent_catches(path.read_text()):
+            found["silent-catch"][relative] = lines
+    errors = []
+    for check, files in found.items():
+        for relative, lines in files.items():
+            if relative not in PENDING[check]:
+                errors.append(f"{relative}:{lines[0]}: {check} is not allowed here")
+        for relative in sorted(PENDING[check] - files.keys()):
+            errors.append(f"{relative}: stale {check} exemption; remove it from PENDING")
+    return errors
 
 
 def validate(root: Path) -> list[str]:
@@ -82,11 +159,12 @@ def validate(root: Path) -> list[str]:
 
 def main() -> int:
     """Report wiring errors; success does not certify model access or agent behavior."""
-    errors = validate(Path(__file__).resolve().parents[1])
+    root = Path(__file__).resolve().parents[1]
+    errors = validate(root) + structure_errors(root)
     if errors:
         print("\n".join(errors), file=sys.stderr)
         return 1
-    print("PASS: six agent configs, skill metadata, routing, and local doc links")
+    print("PASS: six agent configs, skill metadata, routing, local doc links, and code structure")
     return 0
 
 
