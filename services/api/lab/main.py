@@ -8,6 +8,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 from typing import Literal
 
+from anyio import CancelScope
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, StreamingResponse
@@ -45,6 +46,27 @@ class UploadBodyLimit:
                     raise HTTPException(413, "Request body exceeds the configured upload limit.")
             return message
         await self.app(scope, bounded_receive, send)
+
+
+class FinalizedStreamingResponse(StreamingResponse):
+    """Run `on_close` once however the response ends, including before streaming starts.
+
+    Starlette abandons an unstarted body iterator when the client disconnects, so the
+    generator's own `finally` cannot be relied on to release resources.
+    """
+    def __init__(self, content, *, on_close, **kwargs):
+        super().__init__(content, **kwargs)
+        self.on_close = on_close
+
+    async def __call__(self, scope, receive, send):
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            with CancelScope(shield=True):
+                try:
+                    await self.body_iterator.aclose()
+                finally:
+                    await self.on_close()
 
 
 class TopicInput(BaseModel):
@@ -423,11 +445,32 @@ def create_app(root=None, settings_path=None, model_backend=None, converter=None
             topic_lock.release()
             raise
 
+        assistant = {"role": "assistant", "content": "", "thinking": "", "model": body.model,
+                     "retrieval": retrieval_record}
+        complete = False
+        finished = False
+        stream = None
+
+        async def finish():
+            nonlocal finished
+            if finished:
+                return
+            finished = True
+            with CancelScope(shield=True):
+                try:
+                    try:
+                        if stream is not None and hasattr(stream, "aclose"):
+                            await stream.aclose()
+                    finally:
+                        if not complete:
+                            assistant["incomplete"] = True
+                            session["messages"].append(assistant)
+                            store.save_session(topic, session)
+                finally:
+                    topic_lock.release()
+
         async def events():
-            assistant = {"role": "assistant", "content": "", "thinking": "", "model": body.model,
-                         "retrieval": retrieval_record}
-            complete = False
-            stream = None
+            nonlocal complete, stream
             def line(event):
                 return json.dumps(event, ensure_ascii=False) + "\n"
             try:
@@ -464,18 +507,8 @@ def create_app(root=None, settings_path=None, model_backend=None, converter=None
             except Exception as exc:
                 yield line({"type": "error", "message": f"Chat failed ({type(exc).__name__}). Check the local model service and retry; your message is saved."})
             finally:
-                try:
-                    try:
-                        if stream is not None and hasattr(stream, "aclose"):
-                            await stream.aclose()
-                    finally:
-                        if not complete:
-                            assistant["incomplete"] = True
-                            session["messages"].append(assistant)
-                            store.save_session(topic, session)
-                finally:
-                    topic_lock.release()
-        return StreamingResponse(events(), media_type="application/x-ndjson", headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
+                await finish()
+        return FinalizedStreamingResponse(events(), on_close=finish, media_type="application/x-ndjson", headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
 
     return app
 
