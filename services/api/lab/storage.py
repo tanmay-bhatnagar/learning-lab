@@ -82,6 +82,24 @@ def write_text(path, text):
     write_bytes(path, text.encode("utf-8"))
 
 
+def write_new_bytes(path, data):
+    """Durably create `path`; raise FileExistsError rather than replace an existing file."""
+    checked(path)
+    if not isinstance(data, bytes):
+        raise TypeError("Stored artifact data must be bytes.")
+    temp = checked(path.parent / f".write-{uuid.uuid4().hex}.tmp")
+    try:
+        with temp.open("xb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        checked(path)
+        # A hard link publishes the complete file atomically and, unlike os.replace, never overwrites.
+        os.link(temp, path)
+    finally:
+        temp.unlink(missing_ok=True)
+
+
 class Store:
     def __init__(self, root, settings):
         self.root = checked(root)
