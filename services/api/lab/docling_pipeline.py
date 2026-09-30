@@ -40,11 +40,18 @@ class ParseArtifacts:
     document: Any
 
 
+_configured_artifacts_path: str | Path | None = None
+
+
+def configure(artifacts_path: str | Path | None = None) -> None:
+    global _configured_artifacts_path
+    _configured_artifacts_path = artifacts_path
+
+
 def _artifacts_path(explicit: str | Path | None) -> str | Path | None:
     if explicit is not None:
         return explicit
-    env = os.environ.get("DOCLING_ARTIFACTS_PATH", "").strip()
-    return env or None
+    return _configured_artifacts_path
 
 
 def _build_converter(*, images_scale: float, artifacts_path: str | Path | None):

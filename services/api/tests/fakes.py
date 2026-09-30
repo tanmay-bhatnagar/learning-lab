@@ -47,9 +47,7 @@ class FakeModel:
                     "used": 42,
                     "limit": context_limit,
                     "estimated": True,
-                    "truncated_messages": context_metadata.get("truncated_messages", 0)
-                    if context_metadata
-                    else 0,
+                    "truncated_messages": context_metadata.get("truncated_messages", 0) if context_metadata else 0,
                 },
                 "model": model,
             }

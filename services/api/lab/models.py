@@ -2,7 +2,6 @@
 
 import asyncio
 import json
-import os
 import re
 
 import httpx
@@ -11,11 +10,17 @@ from lab.context import DEFAULT_CONTEXT_LIMIT, estimate_tokens, prepare_context
 from lab.errors import EmbeddingUnavailable
 from lab.embedding_config import normalize_ollama_embed_error
 
-OLLAMA_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
+_DEFAULT_OLLAMA_URL = "http://localhost:11434"
+_ollama_base_url = _DEFAULT_OLLAMA_URL
 
 
-def _client():
-    return httpx.AsyncClient(base_url=OLLAMA_URL, trust_env=False, timeout=httpx.Timeout(300, connect=5))
+def configure(ollama_base_url: str) -> None:
+    global _ollama_base_url
+    _ollama_base_url = ollama_base_url.rstrip("/") or _DEFAULT_OLLAMA_URL
+
+
+def _client() -> httpx.AsyncClient:
+    return httpx.AsyncClient(base_url=_ollama_base_url, trust_env=False, timeout=httpx.Timeout(300, connect=5))
 
 
 def _thinking(model: str, info: dict) -> dict:

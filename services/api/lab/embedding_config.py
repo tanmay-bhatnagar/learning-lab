@@ -62,10 +62,17 @@ def embedding_model_config(model: str) -> EmbeddingModelConfig | None:
     return None
 
 
+_configured_tokenizer_root: Path | None = None
+
+
+def configure(tokenizer_root_path: Path | str | None = None) -> None:
+    global _configured_tokenizer_root
+    _configured_tokenizer_root = Path(tokenizer_root_path).expanduser().resolve() if tokenizer_root_path else None
+
+
 def tokenizer_root() -> Path:
-    override = os.environ.get("EMBEDDING_TOKENIZER_ROOT", "").strip()
-    if override:
-        return Path(override).expanduser().resolve()
+    if _configured_tokenizer_root is not None:
+        return _configured_tokenizer_root
     return (_CODE_ROOT / "data/external/modelweights/tokenizers").resolve()
 
 

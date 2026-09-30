@@ -204,7 +204,7 @@ def test_parse_pdf_bytes_returns_artifacts(monkeypatch):
 
 def test_parse_pdf_bytes_uses_env_artifacts_path(monkeypatch):
     _install_docling_mocks(monkeypatch)
-    monkeypatch.setenv("DOCLING_ARTIFACTS_PATH", "/cache/docling")
+    docling_pipeline.configure("/cache/docling")
     docling_pipeline.parse_pdf_bytes(b"%PDF-1.7\n")
     assert FakePdfPipelineOptions.last_kwargs["artifacts_path"] == "/cache/docling"
 

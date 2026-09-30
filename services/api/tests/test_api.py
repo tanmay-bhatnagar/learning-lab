@@ -416,16 +416,17 @@ def test_in_flight_upload_is_not_marked_interrupted(tmp_path):
 
 
 def test_upload_without_parser_defaults_to_docling(tmp_path):
+    from tests.test_retrieval_api import fake_structured_parser
+
     root = tmp_path.resolve() / "Learning"
     settings = tmp_path.resolve() / "state" / "settings.json"
-    parsers = []
-    client = TestClient(
-        create_app(
-            root,
-            settings,
-            converter=lambda data, parser: parsers.append(parser) or "# PDF\n",
-        )
-    )
+    calls = []
+
+    def tracking_parser(*args, **kwargs):
+        calls.append("docling")
+        return fake_structured_parser(*args, **kwargs)
+
+    client = TestClient(create_app(root, settings, structured_parser=tracking_parser))
     topic = client.post("/api/topics", json={"name": "Docs"}).json()["id"]
     response = client.post(
         f"/api/topics/{topic}/files",
@@ -435,4 +436,4 @@ def test_upload_without_parser_defaults_to_docling(tmp_path):
     assert response.status_code == 201
     assert record["status"] == "ready"
     assert record["parser"] == "docling"
-    assert parsers == ["docling"]
+    assert calls == ["docling"]

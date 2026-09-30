@@ -69,7 +69,7 @@ def main():
                     str(ROOT / ".venv/bin/python"),
                     "-m",
                     "uvicorn",
-                    "lab.main:app",
+                    "lab.asgi:app",
                     "--app-dir",
                     "services/api",
                     "--host",

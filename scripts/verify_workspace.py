@@ -283,7 +283,7 @@ def main(argv: list[str] | None = None) -> int:
                     python,
                     "-m",
                     "uvicorn",
-                    "lab.main:app",
+                    "lab.asgi:app",
                     "--app-dir",
                     str(ROOT / "services/api"),
                     "--host",

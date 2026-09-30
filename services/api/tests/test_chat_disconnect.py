@@ -62,7 +62,7 @@ def test_disconnect_before_streaming_releases_topic_lock(tmp_path, spec_version,
     )
     if not http_middleware:
         app.user_middleware = [item for item in app.user_middleware if item.cls.__name__ != "BaseHTTPMiddleware"]
-    topic = app.state.store.create("Disconnect")["id"]
+    topic = app.state.deps.store.create("Disconnect")["id"]
     asyncio.run(_disconnected_chat(app, topic, spec_version))
     client = TestClient(app)
     response = client.post(f"/api/topics/{topic}/chat", json={"message": "Again", "file_ids": [], "model": "fake"})

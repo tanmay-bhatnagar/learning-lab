@@ -190,9 +190,9 @@ def test_chat_citations_follow_real_model_context_trimming_with_legacy_attachmen
         }
 
     try:
-        monkeypatch.setattr(
-            main_module, "convert_pdf", lambda data, parser: "Legacy attachment text. " + ("extra " * 50)
-        )
+        from lab import parsers
+
+        monkeypatch.setattr(parsers, "convert_pdf", lambda data, parser: "Legacy attachment text. " + ("extra " * 50))
         root = tmp_path / "Learning"
         client = TestClient(
             create_app(
@@ -522,7 +522,9 @@ def test_partial_chat_still_attaches_retrieval(tmp_path):
     _turn_retriever.calls = []
 
     class FailingModel(FakeModel):
-        async def stream_chat(self, messages, model, think, context_limit):
+        async def stream_chat(
+            self, messages, model, think, context_limit, context_metadata=None, *, generation_lock=None
+        ):
             self.calls.append(messages)
             yield {"type": "token", "text": "partial"}
             raise RuntimeError("offline")
@@ -557,7 +559,9 @@ def test_index_failure_keeps_successful_docling_artifacts_available(tmp_path, mo
     async def fail_index(*args, **kwargs):
         raise RuntimeError("database unavailable")
 
-    monkeypatch.setattr(main_module, "index_chunks", fail_index)
+    import lab.http.files as files_module
+
+    monkeypatch.setattr(files_module, "index_chunks", fail_index)
     root = tmp_path / "Learning"
     settings = tmp_path / "state" / "settings.json"
     client = TestClient(
