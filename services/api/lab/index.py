@@ -171,15 +171,33 @@ def _fuse_ranked_hits(
 class TopicIndex:
     """Per-topic search index backed by SQLite FTS5 and optional embeddings."""
 
-    def __init__(self, db_path: str | Path):
+    def __init__(self, db_path: str | Path, *, read_only: bool = False):
         self.db_path = Path(db_path)
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(self.db_path, timeout=5.0)
+        self._schema_version = SCHEMA_VERSION
+        if read_only and not self.db_path.is_file():
+            raise IndexInputError(f"Retrieval index is missing: {self.db_path}")
+        if not read_only:
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        database = f"{self.db_path.resolve().as_uri()}?mode=ro" if read_only else str(self.db_path)
+        try:
+            self._conn = sqlite3.connect(database, timeout=5.0, uri=read_only)
+        except sqlite3.DatabaseError as exc:
+            raise IndexInputError(f"Retrieval index is corrupt: {self.db_path}") from exc
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA foreign_keys = ON")
         self._conn.execute("PRAGMA busy_timeout = 5000")
-        self._conn.execute("PRAGMA journal_mode = WAL")
-        self._ensure_schema()
+        if not read_only:
+            self._conn.execute("PRAGMA journal_mode = WAL")
+        if read_only:
+            try:
+                self._validate_existing_schema()
+            except (sqlite3.DatabaseError, IndexInputError) as exc:
+                self._conn.close()
+                if isinstance(exc, sqlite3.DatabaseError):
+                    raise IndexInputError(f"Retrieval index is corrupt: {self.db_path}") from exc
+                raise
+        else:
+            self._ensure_schema()
 
     @property
     def connection(self) -> sqlite3.Connection:
@@ -213,6 +231,44 @@ class TopicIndex:
             return
         if version["version"] != SCHEMA_VERSION:
             raise IndexInputError(f"Unsupported schema version {version['version']}; expected {SCHEMA_VERSION}")
+
+    def _validate_existing_schema(self) -> None:
+        current = self._conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='schema_version'"
+        ).fetchone()
+        if current is None:
+            raise IndexInputError("Retrieval index has no schema_version table")
+        version = self._conn.execute("SELECT version FROM schema_version").fetchone()
+        if version is None or version["version"] not in (1, SCHEMA_VERSION):
+            raise IndexInputError("Retrieval index has an unsupported or empty schema version")
+        self._schema_version = version["version"]
+        required = {"chunks", "chunks_fts", "chunk_embeddings"}
+        present = {
+            row["name"] for row in self._conn.execute("SELECT name FROM sqlite_master WHERE type IN ('table', 'view')")
+        }
+        if not required.issubset(present):
+            raise IndexInputError("Retrieval index is missing required tables")
+        required_columns = {
+            "chunks": {
+                "chunk_id",
+                "file_id",
+                "file_name",
+                "chunk_index",
+                "text",
+                "headings_json",
+                "pages_json",
+                "bboxes_json",
+                "asset_ids_json",
+                "content_hash",
+                "has_embedding",
+            },
+            "chunk_embeddings": {"chunk_id", "dimension", "vector"},
+        }
+        for table, expected in required_columns.items():
+            actual = {row["name"] for row in self._conn.execute(f"PRAGMA table_info({table})")}
+            if not expected.issubset(actual):
+                raise IndexInputError(f"Retrieval index table {table} is incomplete")
+        self._conn.execute("SELECT text FROM chunks_fts LIMIT 0")
 
     def _create_schema_v1(self) -> None:
         self._conn.executescript(
@@ -443,6 +499,8 @@ class TopicIndex:
             return []
         file_ids = _validate_file_ids(file_ids)
         if file_ids == []:
+            return []
+        if self._schema_version == 1:
             return []
 
         params: list[Any] = []

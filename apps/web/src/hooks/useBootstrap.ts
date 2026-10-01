@@ -16,19 +16,33 @@ export function useBootstrap() {
   const [modelError, setModelError] = useState('');
   const [migrationError, setMigrationError] = useState('');
   const migrationLock = useRef(false);
+  const modelRequest = useRef(0);
+  const mounted = useRef(true);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      modelRequest.current += 1;
+    };
+  }, []);
 
   const refreshModels = useCallback(async () => {
+    const request = ++modelRequest.current;
     setModelError('');
     try {
       const result = await api('/models', modelsResponseSchema);
+      if (!mounted.current || request !== modelRequest.current) return;
       setModels(result.models);
       setModelError(result.error || '');
     } catch (e) {
+      if (!mounted.current || request !== modelRequest.current) return;
       setModelError(errorText(e));
     }
   }, []);
 
   const initialize = useCallback(async () => {
+    const modelRequestId = ++modelRequest.current;
     setLoading(true);
     setError('');
     const results = await Promise.allSettled([
@@ -41,10 +55,12 @@ export function useBootstrap() {
       setTopics(t.value.topics);
       setTopic((current) => current || t.value.topics[0]?.id || '');
     } else setError(errorText(t.reason));
-    if (m.status === 'fulfilled') {
+    if (m.status === 'fulfilled' && mounted.current && modelRequestId === modelRequest.current) {
       setModels(m.value.models);
       setModelError(m.value.error || '');
-    } else setModelError(errorText(m.reason));
+    } else if (m.status === 'rejected' && mounted.current && modelRequestId === modelRequest.current) {
+      setModelError(errorText(m.reason));
+    }
     if (s.status === 'fulfilled') {
       const { settings: value, migrated } = normalizeSettings(s.value);
       setSettings(value);

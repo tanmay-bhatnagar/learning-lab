@@ -16,7 +16,7 @@ IndexMode = Literal["hybrid", "keyword", "none"]
 class ExtractionDiagnostics(TypedDict):
     status: str
     note: NotRequired[str]
-    findings: list[dict[str, object]]
+    findings: list[str]
 
 
 class FileRecord(TypedDict, total=False):
@@ -112,8 +112,8 @@ class ArtifactAsset(TypedDict):
     kind: str
     page: int | None
     bbox: dict[str, object] | None
-    caption: str
-    doc_ref: str
+    caption: str | None
+    doc_ref: str | None
 
 
 class ParseUpdates(TypedDict):

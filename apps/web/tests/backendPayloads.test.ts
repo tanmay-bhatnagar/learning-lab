@@ -38,7 +38,7 @@ const doclingFile = {
   extraction_diagnostics: {
     status: 'unassessed',
     note: 'Docling reported no extraction issues; fidelity remains unassessed.',
-    findings: [],
+    findings: ['docling: test component warning (page 1)'],
   },
   index_status: 'ready',
   index_mode: 'hybrid',

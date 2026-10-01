@@ -10,6 +10,16 @@ from reportlab.pdfgen import canvas
 
 from lab.chunking import chunk_docling_document
 from lab.docling_pipeline import parse_pdf_bytes
+from lab.docling_pipeline import ParserWarning
+
+
+def warning_payload(warnings: list[ParserWarning | str]) -> list[dict[str, str]]:
+    return [
+        {"code": warning.code, "message": warning.message}
+        if isinstance(warning, ParserWarning)
+        else {"code": "chunking", "message": warning}
+        for warning in warnings
+    ]
 
 
 def synthetic_pdf() -> bytes:
@@ -55,7 +65,7 @@ def main() -> None:
                 "chunks": len(chunks),
                 "page_images": sum(asset.kind == "page" for asset in parsed.images),
                 "figure_images": sum(asset.kind == "figure" for asset in parsed.images),
-                "warnings": parsed.warnings + chunk_warnings,
+                "warnings": warning_payload([*parsed.warnings, *chunk_warnings]),
                 "hyperlink_preserved": "https://example.com/calibration" in json.dumps(parsed.docling),
             },
             indent=2,

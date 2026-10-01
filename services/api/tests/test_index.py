@@ -1,4 +1,5 @@
 import math
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -57,6 +58,48 @@ def test_exact_term_keyword_search(index: TopicIndex) -> None:
     assert [hit["chunk_id"] for hit in hits] == ["c1"]
     assert hits[0]["trace"]["keyword"]["rank"] == 1
     assert isinstance(hits[0]["trace"]["keyword"]["score"], float)
+
+
+def test_read_only_open_does_not_initialize_existing_empty_database(tmp_path: Path) -> None:
+    path = tmp_path / "retrieval.sqlite"
+    path.touch()
+    with pytest.raises(IndexInputError, match="corrupt|schema|empty"):
+        TopicIndex(path, read_only=True)
+    assert path.stat().st_size == 0
+
+
+def test_read_only_legacy_index_keeps_keyword_retrieval_without_migrating(tmp_path: Path) -> None:
+    path = tmp_path / "retrieval.sqlite"
+    with TopicIndex(path) as index:
+        index.replace_file("file-a", [_chunk("legacy:0", "file-a", chunk_index=0, text="quantum mechanics")])
+    with sqlite3.connect(path) as connection:
+        connection.execute("ALTER TABLE chunk_embeddings DROP COLUMN model")
+        connection.execute("UPDATE schema_version SET version = 1")
+
+    with TopicIndex(path, read_only=True) as index:
+        hits = index.hybrid_search("quantum", [0.1, 0.2], file_ids=["file-a"], vector_model="new-model")
+        assert [hit["chunk_id"] for hit in hits] == ["legacy:0"]
+        assert hits[0]["trace"]["embedding"]["rank"] is None
+    with sqlite3.connect(path) as connection:
+        assert connection.execute("SELECT version FROM schema_version").fetchone()[0] == 1
+
+
+def test_read_only_open_rejects_index_missing_selected_file(tmp_path: Path) -> None:
+    from lab.errors import CorruptData
+    from lab.retrieval import search
+    from lab.storage import Store
+
+    store = Store(tmp_path / "Learning", tmp_path / "settings.json")
+    topic = store.create("Index check")["id"]
+    path = store.file_path(topic, "retrieval.sqlite")
+    index = TopicIndex(path)
+    index.replace_file("other-file", [_chunk("other:0", "other-file", chunk_index=0, text="present")])
+    index.close()
+
+    with pytest.raises(CorruptData, match="Indexed evidence is missing"):
+        import asyncio
+
+        asyncio.run(search(store, topic, "query", file_ids=["selected-file"]))
 
 
 def test_fts_special_characters_do_not_break_search(index: TopicIndex) -> None:

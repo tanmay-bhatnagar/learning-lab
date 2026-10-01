@@ -4,7 +4,7 @@ import { topicChatPath } from '../api/urls';
 import type { Model, Settings } from '../api/types';
 import { chatRequest } from '../modelControls';
 import { aborted, errorText } from '../lib/errors';
-import { applyStreamEvent, failTurn, startTurn } from '../state/chatStream';
+import { applyStreamEvent, failTurn, rejectTurn, startTurn } from '../state/chatStream';
 import type { TopicSession } from './useTopicSession';
 import type { useActivity } from './useActivity';
 
@@ -41,6 +41,8 @@ export function useChat(
       if (!input || !topic || !activeModel || !topicReady || !activityApi.begin('send')) return;
 
       const message = input;
+      const originalDraft = session.input;
+      let accepted = false;
       const controller = new AbortController();
       streamController.current = controller;
       const target = topic;
@@ -62,10 +64,19 @@ export function useChat(
               value: (previous) => applyStreamEvent(previous, event),
             });
           },
+          () => {
+            accepted = true;
+          },
         );
       } catch (e) {
         if (topicRef.current !== target) return;
         const stopRequested = aborted(e);
+        if (!accepted) {
+          session.dispatch({ type: 'inputChanged', value: originalDraft });
+          session.dispatch({ type: 'messagesChanged', value: rejectTurn });
+          setError(errorText(e));
+          return;
+        }
         setError(
           stopRequested
             ? 'Response stopped. Partial text is shown below; reload history to confirm what was saved.'

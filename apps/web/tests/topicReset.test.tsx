@@ -20,6 +20,8 @@ async function renderWithBannerError() {
   render(<App />);
   await waitFor(() => expect(screen.queryByText(/Connecting to your workspace/i)).not.toBeInTheDocument());
   await waitFor(() => expect(screen.getByRole('button', { name: 'Topic A' })).toBeInTheDocument());
+  await waitFor(() => expect(screen.getByRole('textbox', { name: 'Message' })).not.toBeDisabled());
+  await waitFor(() => expect(screen.getByText('Hello from Topic A')).toBeInTheDocument());
   await user.type(screen.getByRole('textbox', { name: 'Message' }), 'Fail please');
   await user.click(screen.getByRole('button', { name: 'Send message' }));
   await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/Model unavailable/i));

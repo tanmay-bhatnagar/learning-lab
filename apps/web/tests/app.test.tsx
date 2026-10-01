@@ -17,6 +17,7 @@ afterEach(() => {
 async function waitForAppReady() {
   await waitFor(() => expect(screen.queryByText(/Connecting to your workspace/i)).not.toBeInTheDocument());
   await waitFor(() => expect(screen.getByRole('button', { name: 'Topic A' })).toBeInTheDocument());
+  await waitFor(() => expect(screen.getByRole('textbox', { name: 'Message' })).not.toBeDisabled());
 }
 
 async function openFilesTab(user: ReturnType<typeof userEvent.setup>) {
@@ -52,6 +53,35 @@ function uploadThroughInput(files: File[]) {
 }
 
 describe('App characterization', () => {
+  test('preflight chat rejection preserves the draft and removes the optimistic turn', async () => {
+    installFakeApi({ chatStatus: 422 });
+    const user = userEvent.setup();
+    render(<App />);
+    await waitForAppReady();
+    const composer = screen.getByRole('textbox', { name: 'Message' });
+    await user.type(composer, 'A prompt that does not fit');
+    await user.click(screen.getByRole('button', { name: 'Send message' }));
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/Prompt does not fit/i));
+    expect(composer).toHaveValue('A prompt that does not fit');
+    expect(document.querySelector('.message-list')).not.toHaveTextContent('A prompt that does not fit');
+  });
+
+  test('older model refresh response cannot replace the latest completed model list', async () => {
+    const fake = installFakeApi();
+    const user = userEvent.setup();
+    render(<App />);
+    await waitForAppReady();
+    await user.click(screen.getByRole('button', { name: /Settings/i }));
+    fake.pauseNextModelsGet();
+    await user.click(screen.getByRole('button', { name: 'Refresh available models' }));
+    fake.setModels([{ id: 'new-model', name: 'new-model', display_name: 'New model', thinking: { type: 'none' } }]);
+    await user.click(screen.getByRole('button', { name: 'Refresh available models' }));
+    await waitFor(() => expect(screen.getByRole('option', { name: 'New model' })).toBeInTheDocument());
+    fake.releaseModelsGet();
+    await waitFor(() => expect(screen.getByRole('option', { name: 'New model' })).toBeInTheDocument());
+    expect(screen.getByRole('option', { name: /Qwen 3\.5 · 9B.*unavailable/ })).toBeInTheDocument();
+  });
+
   test('topic switch resets messages, files, selection, goal and input; goal save blocked until ready', async () => {
     installFakeApi({
       messages: {
@@ -367,5 +397,59 @@ describe('App characterization', () => {
     fake.releaseFilesGet();
     await waitFor(() => expect(screen.getByText('paper-b.pdf')).toBeInTheDocument());
     expect(screen.queryByText('paper-a.pdf')).not.toBeInTheDocument();
+  });
+
+  test('Refresh files cannot overwrite an upload completed while the refresh is pending', async () => {
+    const fake = installFakeApi();
+    const user = userEvent.setup();
+    render(<App />);
+    await waitForAppReady();
+    await openFilesTab(user);
+    fake.pauseNextFilesGet('topic-a');
+    await user.click(screen.getByRole('button', { name: 'Refresh files' }));
+    uploadThroughInput([pdfFile('new-upload.pdf')]);
+    await waitFor(() => expect(screen.getByText('new-upload.pdf')).toBeInTheDocument());
+    fake.releaseFilesGet();
+    await waitFor(() => expect(screen.getByText('new-upload.pdf')).toBeInTheDocument());
+  });
+
+  test('legacy rendered-image count does not block citations to later physical pages', async () => {
+    installFakeApi({
+      files: {
+        'topic-a': [{ id: 'legacy', name: 'legacy.pdf', status: 'ready', parser: 'markitdown', page_count: 1 }],
+      },
+      messages: {
+        'topic-a': [
+          {
+            role: 'assistant',
+            content: 'See page four.',
+            retrieval: {
+              mode: 'keyword',
+              citations: [
+                {
+                  chunk_id: 'legacy:0',
+                  file_id: 'legacy',
+                  file_name: 'legacy.pdf',
+                  headings: [],
+                  pages: [4],
+                  bboxes: [],
+                  assets: [],
+                  trace: {},
+                  text: 'Evidence on page four.',
+                },
+              ],
+            },
+          },
+        ],
+      },
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    await waitForAppReady();
+    await user.click(screen.getByRole('button', { name: /Sources/i }));
+    expect(screen.getByRole('link', { name: 'Page 4' })).toHaveAttribute(
+      'href',
+      '/api/topics/topic-a/files/legacy/original#page=4',
+    );
   });
 });

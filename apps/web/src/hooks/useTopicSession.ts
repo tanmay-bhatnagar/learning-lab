@@ -27,16 +27,26 @@ export function useTopicSession(
   const [reloadToken, setReloadToken] = useState(0);
   const topicRef = useRef(topic);
   const refreshController = useRef<AbortController | null>(null);
+  const fileRevision = useRef(0);
 
   useEffect(() => {
     topicRef.current = topic;
   }, [topic]);
+  useEffect(
+    () => () => {
+      refreshController.current?.abort();
+      refreshController.current = null;
+    },
+    [topic],
+  );
   if (topic !== trackedTopic) {
     setTrackedTopic(topic);
     dispatch({ type: 'topicRequested' });
   }
 
   const reload = useCallback(() => {
+    fileRevision.current += 1;
+    refreshController.current?.abort();
     dispatch({ type: 'topicRequested' });
     setReloadToken((value) => value + 1);
   }, []);
@@ -78,9 +88,10 @@ export function useTopicSession(
     const controller = new AbortController();
     refreshController.current = controller;
     const target = topic;
+    const revision = fileRevision.current;
     try {
       const attachments = await api(topicFilesPath(target), filesResponseSchema, { signal: controller.signal });
-      if (controller.signal.aborted || topicRef.current !== target) return;
+      if (controller.signal.aborted || topicRef.current !== target || revision !== fileRevision.current) return;
       dispatch({ type: 'filesRefreshed', files: attachments.files });
     } catch (e) {
       if (aborted(e) || topicRef.current !== target) return;
@@ -121,6 +132,8 @@ export function useTopicSession(
   );
 
   const appendFile = useCallback((file: LabFile) => {
+    fileRevision.current += 1;
+    refreshController.current?.abort();
     dispatch({ type: 'fileUploaded', file });
   }, []);
 

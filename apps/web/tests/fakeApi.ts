@@ -20,6 +20,7 @@ export type FakeApiOptions = {
   settings?: Settings;
   models?: Model[];
   modelsError?: string;
+  chatStatus?: number;
   topicLoadDelayMs?: number;
   stream?: StreamScript;
   onSettingsPut?: (settings: Settings) => Settings | void;
@@ -108,8 +109,9 @@ export function createFakeApi(options: FakeApiOptions = {}) {
   }
   Object.assign(topicGoals, options.topicGoals ?? {});
   let settings: Settings = { ...defaultSettings, ...options.settings };
-  const models = options.models ?? [defaultModel];
+  let models = options.models ?? [defaultModel];
   const modelsError = options.modelsError;
+  const chatStatus = options.chatStatus ?? 200;
   let streamScript: StreamScript = options.stream ?? defaultStream;
   let onSettingsPut = options.onSettingsPut;
   let onLearningGoalPut = options.onLearningGoalPut;
@@ -118,6 +120,8 @@ export function createFakeApi(options: FakeApiOptions = {}) {
     topicLoadDelayMs > 0 ? new Promise((resolve) => setTimeout(resolve, topicLoadDelayMs)) : Promise.resolve();
   let pendingFilesPause: string | null = null;
   let filesGetRelease: (() => void) | null = null;
+  let pendingModelsPause = false;
+  let modelsGetRelease: (() => void) | null = null;
   let pendingGoalPause: string | null = null;
   let goalPutRelease: (() => void) | null = null;
   let chatStreamPaused = false;
@@ -152,7 +156,14 @@ export function createFakeApi(options: FakeApiOptions = {}) {
       return jsonResponse(created);
     }
     if (apiPath === '/models' && method === 'GET') {
-      return jsonResponse({ models, ...(modelsError ? { error: modelsError } : {}) });
+      const responseModels = models;
+      if (pendingModelsPause) {
+        pendingModelsPause = false;
+        await new Promise<void>((resolve) => {
+          modelsGetRelease = resolve;
+        });
+      }
+      return jsonResponse({ models: responseModels, ...(modelsError ? { error: modelsError } : {}) });
     }
     if (apiPath === '/settings' && method === 'GET') {
       return jsonResponse(settings);
@@ -180,6 +191,7 @@ export function createFakeApi(options: FakeApiOptions = {}) {
       return jsonResponse({ messages: messages[topicId] ?? [], context: { used: 50, limit: settings.context_limit } });
     }
     if (rest === '/files' && method === 'GET') {
+      const responseFiles = [...(files[topicId] ?? [])];
       await delayTopicLoad();
       if (pendingFilesPause === topicId) {
         pendingFilesPause = null;
@@ -187,7 +199,7 @@ export function createFakeApi(options: FakeApiOptions = {}) {
           filesGetRelease = resolve;
         });
       }
-      return jsonResponse({ files: files[topicId] ?? [] });
+      return jsonResponse({ files: responseFiles });
     }
     if (rest === '/files' && method === 'POST') {
       const form = init?.body as FormData;
@@ -212,6 +224,7 @@ export function createFakeApi(options: FakeApiOptions = {}) {
       return jsonResponse({ learning_goal: body.learning_goal });
     }
     if (rest === '/chat' && method === 'POST') {
+      if (chatStatus !== 200) return jsonResponse({ detail: 'Prompt does not fit.' }, chatStatus);
       const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
       const signal = init?.signal ?? new AbortController().signal;
       const encoder = new TextEncoder();
@@ -282,6 +295,16 @@ export function createFakeApi(options: FakeApiOptions = {}) {
     },
     setStream(script: StreamScript) {
       streamScript = script;
+    },
+    setModels(value: Model[]) {
+      models = value;
+    },
+    pauseNextModelsGet() {
+      pendingModelsPause = true;
+    },
+    releaseModelsGet() {
+      modelsGetRelease?.();
+      modelsGetRelease = null;
     },
     setOnSettingsPut(handler: (settings: Settings) => Settings | void) {
       onSettingsPut = handler;

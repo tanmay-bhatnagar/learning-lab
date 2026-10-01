@@ -36,3 +36,7 @@ export function failTurn(messages: Message[], stopped: boolean): { messages: Mes
       : undefined,
   };
 }
+
+export function rejectTurn(messages: Message[]): Message[] {
+  return messages.length >= 2 ? messages.slice(0, -2) : messages;
+}

@@ -8,8 +8,8 @@ from typing import Any, Awaitable, Callable
 
 from .contracts import Citation, IndexedChunk, StoreProtocol
 from .embedding_config import embedding_index_key, format_for_embedding
-from .errors import EmbeddingUnavailable
-from .index import TopicIndex
+from .errors import CorruptData, EmbeddingUnavailable
+from .index import IndexInputError, TopicIndex
 from .storage import read_bytes
 
 # Embedders raise EmbeddingUnavailable when the model cannot serve requests and
@@ -88,24 +88,37 @@ async def search(
             warning = f"Semantic search unavailable; keyword retrieval was used: {exc}"
 
     used_opening_chunks_fallback = False
-    with TopicIndex(path) as index:
-        hits = index.hybrid_search(
-            query,
-            vector,
-            file_ids=file_ids,
-            limit=limit,
-            vector_model=embedding_index_key(embedding_model) if vector is not None else None,
-        )
-        if not hits and file_ids:
-            hits = index.get_chunks(file_ids=file_ids)[: min(limit, 2)]
-            used_opening_chunks_fallback = bool(hits)
-            for rank, hit in enumerate(hits, start=1):
-                hit["trace"] = {
-                    "keyword": {"rank": None, "score": None},
-                    "embedding": {"rank": None, "score": None},
-                    "fusion": {"rank": rank, "score": 0.0},
-                }
-            warning = warning or "No query match; using bounded opening chunks from the selected file."
+    try:
+        with TopicIndex(path, read_only=True) as index:
+            if file_ids:
+                indexed_ids = {chunk["file_id"] for chunk in index.get_chunks(file_ids=file_ids)}
+                missing_ids = sorted(set(file_ids) - indexed_ids)
+                if missing_ids:
+                    raise CorruptData(
+                        "Indexed evidence is missing for one or more selected files. "
+                        "Restore retrieval.sqlite or re-upload the selected files."
+                    )
+            hits = index.hybrid_search(
+                query,
+                vector,
+                file_ids=file_ids,
+                limit=limit,
+                vector_model=embedding_index_key(embedding_model) if vector is not None else None,
+            )
+            if not hits and file_ids:
+                hits = index.get_chunks(file_ids=file_ids)[: min(limit, 2)]
+                used_opening_chunks_fallback = bool(hits)
+                for rank, hit in enumerate(hits, start=1):
+                    hit["trace"] = {
+                        "keyword": {"rank": None, "score": None},
+                        "embedding": {"rank": None, "score": None},
+                        "fusion": {"rank": rank, "score": 0.0},
+                    }
+                warning = warning or "No query match; using bounded opening chunks from the selected file."
+    except IndexInputError as exc:
+        raise CorruptData(
+            "The topic retrieval index is empty or corrupt. Restore retrieval.sqlite or re-upload the selected files."
+        ) from exc
     semantic = any(hit.get("trace", {}).get("embedding", {}).get("rank") is not None for hit in hits)
     mode = "hybrid" if semantic else ("fallback" if used_opening_chunks_fallback else "keyword")
     if vector is not None and hits and not semantic and not used_opening_chunks_fallback:

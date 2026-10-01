@@ -19,7 +19,14 @@ function CitationCard({
 }) {
   const chunkLabel = citationChunkLabel(citation.chunk_index);
   const pages = [...new Set(citation.pages)].filter((page) => Number.isInteger(page) && page > 0).sort((a, b) => a - b);
-  const unavailablePages = pages.filter((page) => file?.page_count != null && page > file.page_count);
+  const pageCount = file?.page_count;
+  const renderedPages = file?.assets?.filter((asset) => asset.kind === 'page').map((asset) => asset.page);
+  const physicalPageCountKnown =
+    pageCount != null &&
+    renderedPages != null &&
+    renderedPages.length === pageCount &&
+    renderedPages.every((page, index) => page === index + 1);
+  const unavailablePages = pages.filter((page) => pageCount != null && physicalPageCountKnown && page > pageCount);
   const readyFile = file?.status === 'ready' ? file : undefined;
   return (
     <article className="citation-card" aria-labelledby={`citation-${citation.chunk_id}-${index}`}>

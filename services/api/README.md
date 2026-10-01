@@ -1,7 +1,7 @@
 # Learning Lab API
 
 Install from this directory: `python -m pip install -e '.[test]'` (or `make setup` from Code).
-Run one process: `uvicorn lab.asgi:app --host 127.0.0.1 --port 8765`; `make dev` starts it with the web app.
+Run one process: `uvicorn lab.asgi:create_app_factory --factory --host 127.0.0.1 --port 8765`; `make dev` starts it with the web app.
 Tests: `make test` from Code. `docs/API.md` is the HTTP and model-adapter contract.
 
 `LEARNING_LAB_ROOT` overrides Code's sibling Learning directory.

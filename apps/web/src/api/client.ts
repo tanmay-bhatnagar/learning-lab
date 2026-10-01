@@ -40,11 +40,18 @@ export async function api<T>(path: string, schema: z.ZodType<T>, init: RequestIn
   return parsePayload(schema, body, path);
 }
 
-export async function stream(path: string, body: unknown, signal: AbortSignal, onEvent: (event: StreamEvent) => void) {
+export async function stream(
+  path: string,
+  body: unknown,
+  signal: AbortSignal,
+  onEvent: (event: StreamEvent) => void,
+  onAccepted: () => void = () => {},
+) {
   const response = await fetch(`/api${path}`, { ...json(body), signal });
   if (!response.ok) {
     throw new Error(await readErrorDetail(response, `Chat failed (${response.status})`));
   }
+  onAccepted();
   if (!response.body) throw new Error('The server returned no response stream.');
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
