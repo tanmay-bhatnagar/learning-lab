@@ -14,6 +14,7 @@ DEFAULT_SETTINGS_NAME = "settings.json"
 DEFAULT_MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434"
 DEFAULT_EMBEDDING_TOKENIZER_ROOT = (CODE_ROOT / "data" / "external" / "modelweights" / "tokenizers").resolve()
+DEFAULT_RUNTIME_POLICY_PATH = CODE_ROOT.parent / "AGENTS.md"
 
 _UNSET: Any = object()
 
@@ -36,6 +37,7 @@ class AppConfig:
     ollama_base_url: str
     docling_artifacts_path: Path | None
     embedding_tokenizer_root: Path
+    runtime_policy_path: Path
 
 
 def load_config(
@@ -46,6 +48,7 @@ def load_config(
     ollama_base_url: str | None = None,
     docling_artifacts_path: Path | None = _UNSET,
     embedding_tokenizer_root: Path | None = _UNSET,
+    runtime_policy_path: Path | None = None,
 ) -> AppConfig:
     """Build config from explicit arguments with environment fallbacks."""
     state_root = Path(os.environ.get("LEARNING_LAB_STATE_ROOT", str(DEFAULT_STATE_ROOT))).expanduser()
@@ -59,6 +62,12 @@ def load_config(
         )
     else:
         resolved_tokenizer = embedding_tokenizer_root or DEFAULT_EMBEDDING_TOKENIZER_ROOT
+    if runtime_policy_path is None:
+        resolved_runtime_policy = (
+            Path(os.environ.get("LEARNING_LAB_POLICY_PATH", str(DEFAULT_RUNTIME_POLICY_PATH))).expanduser().resolve()
+        )
+    else:
+        resolved_runtime_policy = Path(runtime_policy_path).expanduser().resolve()
     return AppConfig(
         learning_root=Path(
             learning_root
@@ -84,4 +93,5 @@ def load_config(
         ).rstrip("/"),
         docling_artifacts_path=resolved_docling,
         embedding_tokenizer_root=Path(resolved_tokenizer).expanduser().resolve(),
+        runtime_policy_path=resolved_runtime_policy,
     )

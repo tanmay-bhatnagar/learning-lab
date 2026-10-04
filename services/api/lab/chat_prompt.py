@@ -23,7 +23,9 @@ def build_chat_prompt(
     citations: list[Citation],
     attachments: list[dict[str, object]],
     question: str,
+    active_topic: str,
     learning_goal: str,
+    runtime_policy: str,
     context_limit: int,
     retrieval_record: dict[str, object],
 ) -> ChatPromptPlan:
@@ -32,7 +34,13 @@ def build_chat_prompt(
     citations = [pair[1] for pair in evidence_pairs]
     evidence_start = 1 + len(history)
     atomic_indices = set(range(evidence_start, evidence_start + len(evidence)))
-    system_content = SYSTEM_RULES
+    system_content = (
+        f"{SYSTEM_RULES}\n\n"
+        "TRUSTED APPLICATION CONTEXT:\n"
+        f"App-selected topic ID {active_topic}; all supplied material belongs to logical topic Learning/{active_topic}/.\n\n"
+        "TRUSTED LEARNING LAB RUNTIME POLICY (governs this application session):\n"
+        f"<runtime-policy>\n{runtime_policy}\n</runtime-policy>"
+    )
     if learning_goal.strip():
         system_content += (
             f"\n\nUSER-AUTHORED LEARNING GOAL FOR THIS TOPIC (context, not evidence):\n{learning_goal.strip()}"

@@ -2,6 +2,7 @@
 """Run a bounded, isolated backend and browser-proxy verification."""
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -22,7 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def isolated_environment(inherited_env: Mapping[str, str], run_dir: Path, api_url: str) -> dict[str, str]:
-    """Build service settings whose persisted data cannot use inherited paths."""
+    """Isolate writable data while directing Docling to the explicit local artifact path."""
     run_dir = Path(run_dir).resolve()
     data_root = run_dir / "Learning"
     state_root = run_dir / "state"
@@ -35,9 +36,23 @@ def isolated_environment(inherited_env: Mapping[str, str], run_dir: Path, api_ur
         "LEARNING_LAB_ROOT": str(data_root),
         "LEARNING_LAB_STATE_ROOT": str(state_root),
         "LEARNING_LAB_SETTINGS": str(state_root / "settings.json"),
+        "LEARNING_LAB_POLICY_PATH": str(run_dir / "runtime-policy.md"),
         "LEARNING_LAB_API_URL": api_url,
-        "DOCLING_ARTIFACTS_PATH": str(run_dir / "docling-artifacts"),
+        "DOCLING_ARTIFACTS_PATH": str(ROOT / "data/external/modelweights/docling"),
         "OTEL_SDK_DISABLED": "true",
+    }
+
+
+def write_runtime_policy_snapshot(run_dir: Path, source_path: Path | None = None) -> dict[str, str]:
+    """Copy the configured policy source into the isolated verification run."""
+    source = Path(source_path) if source_path is not None else ROOT.parent / "AGENTS.md"
+    snapshot = Path(run_dir).resolve() / "runtime-policy.md"
+    policy = source.read_bytes()
+    snapshot.write_bytes(policy)
+    return {
+        "runtime_policy_source": str(source.resolve()),
+        "runtime_policy_snapshot": str(snapshot),
+        "runtime_policy_sha256": hashlib.sha256(policy).hexdigest(),
     }
 
 
@@ -201,6 +216,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Keep isolated services running for browser checks.",
     )
+    parser.add_argument(
+        "--runtime-policy",
+        type=Path,
+        help="Policy source to snapshot for this run (defaults to the parent workspace AGENTS.md).",
+    )
     args = parser.parse_args(argv)
     run_dir = ROOT / ".local/verification" / (time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:8])
     run_dir.mkdir(parents=True)
@@ -216,6 +236,7 @@ def main(argv: list[str] | None = None) -> int:
         signal.signal(sig, handle_interrupt)
     try:
         python, node, vite = preflight()
+        evidence.update(write_runtime_policy_snapshot(run_dir, args.runtime_policy))
         fixture = pdf_fixture()
         fixture_path = run_dir / "fixture.pdf"
         fixture_path.write_bytes(fixture)

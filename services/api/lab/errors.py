@@ -39,6 +39,10 @@ class CorruptData(DomainError):
     status_code = 500
 
 
+class RuntimePolicyUnavailable(DomainError):
+    status_code = 500
+
+
 class EmbeddingUnavailable(Exception):
     """The embedding model cannot serve requests now; retrieval may degrade to keyword search."""
 

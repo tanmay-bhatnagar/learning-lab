@@ -14,7 +14,7 @@ from lab.contracts import ModelGateway
 from lab.errors import DomainError
 from lab.models import OllamaGateway
 from lab.storage import Store
-from lab.web import chat, files, settings, topics
+from lab.web import chat, conversations, files, settings, topics
 from lab.web.deps import AppDeps, ParserFn, RetrieverFn, StructuredParserFn
 from lab.web.middleware import UploadBodyLimit, browser_boundary_middleware
 
@@ -28,12 +28,14 @@ def create_app(
     max_upload_bytes: int | None = None,
     parser_map: dict[str, ParserFn] | None = None,
     config: AppConfig | None = None,
+    runtime_policy_path: Path | None = None,
 ) -> FastAPI:
     """Build the Learning Lab API; explicit arguments override environment defaults."""
     loaded = config or load_config(
         learning_root=Path(root) if root is not None else None,
         settings_path=Path(settings_path) if settings_path is not None else None,
         max_upload_bytes=max_upload_bytes,
+        runtime_policy_path=runtime_policy_path,
     )
     store = Store(loaded.learning_root, loaded.settings_path)
     gateway = model_backend or OllamaGateway(loaded.ollama_base_url)
@@ -70,5 +72,6 @@ def create_app(
     app.include_router(topics.router(deps))
     app.include_router(files.router(deps))
     app.include_router(chat.router(deps))
+    app.include_router(conversations.router(deps))
 
     return app

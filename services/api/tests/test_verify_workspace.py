@@ -1,3 +1,4 @@
+import hashlib
 import importlib.util
 import os
 import subprocess
@@ -43,7 +44,26 @@ def test_isolated_environment_overrides_personal_paths(monkeypatch, tmp_path):
     assert Path(env["LEARNING_LAB_ROOT"]).is_relative_to(tmp_path)
     assert Path(env["LEARNING_LAB_STATE_ROOT"]).is_relative_to(tmp_path)
     assert Path(env["LEARNING_LAB_SETTINGS"]).is_relative_to(tmp_path)
+    assert Path(env["LEARNING_LAB_POLICY_PATH"]) == (tmp_path / "run" / "runtime-policy.md").resolve()
     assert env["LEARNING_LAB_API_URL"] == "http://127.0.0.1:8123"
+
+
+def test_isolated_environment_selects_code_docling_artifacts_even_when_absent(monkeypatch, tmp_path):
+    code_root = tmp_path / "Code"
+    artifacts = code_root / "data/external/modelweights/docling"
+    monkeypatch.setattr(verify, "ROOT", code_root)
+    inherited = {"DOCLING_ARTIFACTS_PATH": "/personal/docling"}
+    run_dir = tmp_path / "run"
+
+    absent = verify.isolated_environment(inherited, run_dir, "http://127.0.0.1:8123")
+    assert absent["DOCLING_ARTIFACTS_PATH"] == str(artifacts)
+    assert not artifacts.exists()
+    assert Path(absent["LEARNING_LAB_ROOT"]) == run_dir / "Learning"
+    assert Path(absent["LEARNING_LAB_STATE_ROOT"]) == run_dir / "state"
+
+    artifacts.mkdir(parents=True)
+    installed = verify.isolated_environment(inherited, run_dir, "http://127.0.0.1:8123")
+    assert installed["DOCLING_ARTIFACTS_PATH"] == str(artifacts)
 
 
 def test_isolated_environment_drops_host_telemetry_settings(monkeypatch, tmp_path):
@@ -57,6 +77,38 @@ def test_isolated_environment_drops_host_telemetry_settings(monkeypatch, tmp_pat
     assert not any(key.startswith("OTEL_") for key in env if key != "OTEL_SDK_DISABLED")
     assert not any(key.startswith("FASTAPI_") for key in env)
     assert env["OTEL_SDK_DISABLED"].lower() == "true"
+
+
+def test_runtime_policy_snapshot_copies_and_hashes_authoritative_file(monkeypatch, tmp_path):
+    code_root = tmp_path / "Code"
+    source = code_root.parent / "AGENTS.md"
+    source.write_text("Authoritative synthetic policy.\n", encoding="utf-8")
+    monkeypatch.setattr(verify, "ROOT", code_root)
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+
+    evidence = verify.write_runtime_policy_snapshot(run_dir)
+
+    snapshot = run_dir / "runtime-policy.md"
+    assert snapshot.read_bytes() == source.read_bytes()
+    assert evidence["runtime_policy_source"] == str(source.resolve())
+    assert evidence["runtime_policy_snapshot"] == str(snapshot.resolve())
+    assert evidence["runtime_policy_sha256"] == hashlib.sha256(source.read_bytes()).hexdigest()
+
+
+def test_runtime_policy_snapshot_accepts_an_explicit_source(monkeypatch, tmp_path):
+    code_root = tmp_path / "Code"
+    default_source = code_root.parent / "AGENTS.md"
+    default_source.write_text("Default policy.\n", encoding="utf-8")
+    explicit_source = tmp_path / "fixture-policy.md"
+    explicit_source.write_text("Explicit CI policy.\n", encoding="utf-8")
+    monkeypatch.setattr(verify, "ROOT", code_root)
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+
+    verify.write_runtime_policy_snapshot(run_dir, explicit_source)
+
+    assert (run_dir / "runtime-policy.md").read_bytes() == explicit_source.read_bytes()
 
 
 def test_shutdown_only_touches_owned_processes():

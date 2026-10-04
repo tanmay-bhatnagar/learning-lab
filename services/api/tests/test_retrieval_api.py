@@ -220,13 +220,27 @@ def test_chat_citations_follow_real_model_context_trimming_with_legacy_attachmen
         assert (root / topic / "retrieval.sqlite").exists()
 
         full_message = "Question with complete durable content."
-        tight = client.post(
+        below_policy_budget = client.post(
             f"/api/topics/{topic}/chat",
             json={
                 "message": full_message,
                 "file_ids": files,
                 "model": "fake",
                 "context_limit": 1536,
+            },
+        )
+        assert below_policy_budget.status_code == 422
+        assert "context limit" in below_policy_budget.text
+        assert not payloads
+        assert client.get(f"/api/topics/{topic}/messages").json()["messages"] == []
+
+        tight = client.post(
+            f"/api/topics/{topic}/chat",
+            json={
+                "message": full_message,
+                "file_ids": files,
+                "model": "fake",
+                "context_limit": 1792,
             },
         )
         tight_events = [json.loads(line) for line in tight.text.splitlines()]
@@ -241,7 +255,7 @@ def test_chat_citations_follow_real_model_context_trimming_with_legacy_attachmen
                 "message": "rank test",
                 "file_ids": files,
                 "model": "fake",
-                "context_limit": 2048,
+                "context_limit": 2304,
             },
         )
         ranked_events = [json.loads(line) for line in ranked.text.splitlines()]

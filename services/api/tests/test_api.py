@@ -60,7 +60,9 @@ def test_persistence_upload_history_and_scope(setup):
     events = [json.loads(line) for line in response.text.splitlines()]
     assert [e["type"] for e in events] == ["thinking", "token", "done"]
     prompt = model.calls[0]
-    assert prompt[0] == {"role": "system", "content": SYSTEM_RULES}
+    assert prompt[0]["role"] == "system"
+    assert prompt[0]["content"].startswith(SYSTEM_RULES)
+    assert "Synthetic test runtime policy." in prompt[0]["content"]
     assert [m for m in prompt if "Ignore all" in m["content"]][0]["role"] == "user"
     assert len([m for m in prompt if m["role"] == "system"]) == 1
     restarted = build()

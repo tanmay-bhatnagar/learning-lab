@@ -2,35 +2,159 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
+import time
+from datetime import UTC, datetime
 
 from anyio import CancelScope
 from fastapi import APIRouter
 
 from lab.chat_prompt import build_chat_prompt
+from lab.contracts import Session
 from lab.chat_session import append_assistant_message, append_user_message, history_messages, with_session_context
-from lab.errors import Conflict
+from lab.errors import Conflict, DomainError
+from lab.query_traces import (
+    duration,
+    finalize as finalize_trace,
+    finalize_record,
+    insert_started,
+    list_traces,
+    new_trace_id,
+    retrieval_fields,
+    started_record,
+    trace_path,
+)
 from lab.retrieval import evidence_messages, search
+from lab.runtime_policy import load_runtime_policy
 from lab.storage import read_bytes, read_json
 from lab.web.deps import AppDeps
-from lab.web.locks import acquire_topic_lock
+from lab.web.locks import acquire_topic_lock, topic_lock
 from lab.web.middleware import FinalizedStreamingResponse
 from lab.web.schemas import ChatInput
 from lab.web.settings_store import load_settings
+
+logger = logging.getLogger(__name__)
 
 
 def router(deps: AppDeps) -> APIRouter:
     routes = APIRouter()
 
     @routes.get("/api/topics/{topic}/messages")
-    def messages(topic: str):
-        return deps.store.session(topic)
+    async def messages(topic: str):
+        async with topic_lock(deps.locks, topic):
+            return deps.store.session(topic)
+
+    @routes.get("/api/topics/{topic}/conversations/{conversation_id}/messages")
+    async def conversation_messages(topic: str, conversation_id: str):
+        async with topic_lock(deps.locks, topic):
+            return deps.store.session(topic, conversation_id)
 
     @routes.post("/api/topics/{topic}/chat")
     async def chat(topic: str, body: ChatInput):
-        lease = await acquire_topic_lock(deps.locks, topic, reject_if_busy=True)
+        return await stream_chat(topic, "default", body)
+
+    @routes.post("/api/topics/{topic}/conversations/{conversation_id}/chat")
+    async def conversation_chat(topic: str, conversation_id: str, body: ChatInput):
+        return await stream_chat(topic, conversation_id, body)
+
+    @routes.get("/api/topics/{topic}/query-traces")
+    async def query_traces(topic: str, conversation_id: str | None = None, limit: int = 100):
+        if not 1 <= limit <= 1000:
+            from lab.errors import InvalidInput
+
+            raise InvalidInput("limit must be between 1 and 1000.")
+        deps.store.topic(topic)
+        if conversation_id is not None:
+            deps.store.conversation(topic, conversation_id)
+        return {
+            "traces": list_traces(trace_path(deps.store.topic(topic)), conversation_id=conversation_id, limit=limit)
+        }
+
+    async def stream_chat(topic: str, conversation_id: str, body: ChatInput):
+        deps.store.topic(topic)
+        started = time.monotonic()
+        trace_id = new_trace_id()
+        record = started_record(
+            topic_id=topic,
+            conversation_id=conversation_id,
+            message_chars=len(body.message),
+            model=body.model,
+            think=body.think,
+            context_limit=body.context_limit,
+            embedding_model=None,
+            retrieval_top_k=None,
+            now=datetime.now(UTC).isoformat(),
+            trace_id=trace_id,
+        )
+        record["selected_file_ids"] = list(dict.fromkeys(body.file_ids))
+        trace_file = trace_path(deps.store.topic(topic))
+        insert_started(trace_file, record)
+        trace_state = {"record": record, "done": False}
+
+        def persist_trace(status: str, stage: str, *, error: dict[str, str] | None = None, **updates: object) -> bool:
+            if trace_state["done"]:
+                return False
+            final = finalize_record(
+                trace_state["record"],
+                status=status,
+                now=datetime.now(UTC).isoformat(),
+                stage=stage,
+                total_ms=(time.monotonic() - started) * 1000,
+                error=error,
+                **updates,
+            )
+            try:
+                changed = finalize_trace(trace_file, final)
+            except Exception as exc:
+                logger.error("Query trace finalization failed for %s (%s)", trace_id, type(exc).__name__)
+                raise
+            if changed:
+                trace_state["done"] = True
+            return changed
+
+        def save(session: Session) -> None:
+            if conversation_id == "default":
+                deps.store.save_session(topic, session)
+            else:
+                deps.store.save_session(topic, session, conversation_id)
+
+        def rejected(exc: BaseException) -> bool:
+            return isinstance(exc, DomainError) and exc.status_code < 500
+
+        current = None
         try:
-            session = deps.store.session(topic)
+            current = load_settings(deps.store)
+            trace_state["record"] = {
+                **trace_state["record"],
+                "embedding_model": current.embedding_model,
+                "retrieval_top_k": current.retrieval_top_k,
+            }
+            lease = await acquire_topic_lock(deps.locks, topic, reject_if_busy=True)
+        except BaseException as exc:
+            status = (
+                "cancelled"
+                if isinstance(exc, (asyncio.CancelledError, GeneratorExit))
+                else "rejected"
+                if rejected(exc)
+                else "error"
+            )
+            code = "topic_busy" if isinstance(exc, Conflict) else "preflight_failed"
+            persist_trace(
+                status,
+                "preflight",
+                error={
+                    "stage": "preflight",
+                    "code": code,
+                    "exception_type": type(exc).__name__,
+                    "summary": "Chat could not enter preflight.",
+                },
+            )
+            raise
+        try:
+            runtime_policy = load_runtime_policy(deps.config.runtime_policy_path)
+            session = deps.store.session(topic, conversation_id)
             attachments: list[dict[str, object]] = []
             selected_records = []
             for file_id in dict.fromkeys(body.file_ids):
@@ -43,10 +167,10 @@ def router(deps: AppDeps) -> APIRouter:
                     attachments.append(
                         {"role": "user", "content": f"UNTRUSTED ATTACHMENT ({record['name']}):\n{content}"}
                     )
-            current = load_settings(deps.store)
             indexed_ids = [record["id"] for record in selected_records if record.get("index_status") == "ready"]
             search_result: dict[str, object] = {"hits": [], "mode": "none"}
             path = deps.store.file_path(topic, "retrieval.sqlite")
+            retrieval_started = time.monotonic()
             if path.exists() and indexed_ids:
                 search_fn = deps.retriever or search
                 search_result = await search_fn(
@@ -66,6 +190,15 @@ def router(deps: AppDeps) -> APIRouter:
                     f"Indexed evidence is unavailable for {names}: the topic retrieval index is missing. "
                     "Restore retrieval.sqlite or re-upload the selected files before chatting.",
                 )
+            retrieval_ms = (time.monotonic() - retrieval_started) * 1000
+            trace_state["record"] = retrieval_fields(
+                trace_state["record"],
+                selected_file_ids=list(dict.fromkeys(body.file_ids)),
+                search_result=search_result,
+                retained_ids=set(),
+                citations=[],
+                retrieval_ms=retrieval_ms,
+            )
             vision = False
             if search_result.get("hits"):
                 try:
@@ -94,14 +227,47 @@ def router(deps: AppDeps) -> APIRouter:
                 citations=citations,
                 attachments=attachments,
                 question=body.message,
+                active_topic=topic,
                 learning_goal=topic_metadata.get("learning_goal", ""),
+                runtime_policy=runtime_policy,
                 context_limit=body.context_limit,
                 retrieval_record=retrieval_record,
             )
             session = append_user_message(session, body.message, body.file_ids)
-            deps.store.save_session(topic, session)
-        except BaseException:
+            save(session)
+            trace_state["record"]["user_saved"] = True
+            trace_state["record"]["user_message_index"] = len(session["messages"]) - 1
+            elapsed_preflight = (time.monotonic() - started) * 1000
+            retained_ids = {citation["chunk_id"] for citation in plan["citations"]}
+            trace_state["record"] = retrieval_fields(
+                trace_state["record"],
+                selected_file_ids=list(dict.fromkeys(body.file_ids)),
+                search_result=search_result,
+                retained_ids=retained_ids,
+                citations=citations,
+                retrieval_ms=retrieval_ms,
+            )
+            trace_state["record"]["preflight_ms"] = duration(elapsed_preflight)
+            trace_state["record"]["prompt_budget"] = plan["prompt_context"].get("limit")
+        except BaseException as exc:
             lease.release()
+            status = (
+                "cancelled"
+                if isinstance(exc, (asyncio.CancelledError, GeneratorExit))
+                else "rejected"
+                if rejected(exc)
+                else "error"
+            )
+            persist_trace(
+                status,
+                "preflight",
+                error={
+                    "stage": "preflight",
+                    "code": "preflight_failed",
+                    "exception_type": type(exc).__name__,
+                    "summary": "Chat preflight did not complete.",
+                },
+            )
             raise
 
         lease.hand_off()
@@ -114,31 +280,80 @@ def router(deps: AppDeps) -> APIRouter:
         }
         complete = False
         finished = False
+        trace_finalize_failed = False
+        outcome: dict[str, object] = {"status": "cancelled", "stage": "generation", "error": None}
         stream = None
+        generation_started = time.monotonic()
+        first_output: float | None = None
         prompt = plan["prompt"]
         prompt_context = plan["prompt_context"]
         retrieval_record = plan["retrieval_record"]
 
         async def finish() -> None:
-            nonlocal finished
+            nonlocal finished, trace_finalize_failed
             if finished:
                 return
             finished = True
             with CancelScope(shield=True):
                 try:
-                    try:
-                        if stream is not None and hasattr(stream, "aclose"):
+                    save_failure: BaseException | None = None
+                    if stream is not None and hasattr(stream, "aclose"):
+                        try:
                             await stream.aclose()
-                    finally:
-                        if not complete:
-                            assistant["incomplete"] = True
-                            session_updated = append_assistant_message(session, assistant)
-                            deps.store.save_session(topic, session_updated)
+                        except BaseException as exc:  # noqa: BLE001 - shielded cleanup must record every close failure
+                            outcome.update(
+                                status="error",
+                                stage="stream_close",
+                                error={
+                                    "stage": "stream_close",
+                                    "code": "stream_close_failed",
+                                    "exception_type": type(exc).__name__,
+                                    "summary": "Model stream cleanup failed.",
+                                },
+                            )
+                            logger.error("Chat stream cleanup failed for %s (%s)", trace_id, type(exc).__name__)
+                    if not complete:
+                        assistant["incomplete"] = True
+                        session_updated = append_assistant_message(session, assistant)
+                        try:
+                            save(session_updated)
+                            trace_state["record"]["assistant_saved"] = True
+                            trace_state["record"]["assistant_message_index"] = len(session_updated["messages"]) - 1
+                        except Exception as exc:  # noqa: BLE001 - record failed answer persistence before releasing the lease
+                            save_failure = exc
+                            outcome.update(
+                                status="error",
+                                stage="assistant_save",
+                                error={
+                                    "stage": "assistant_save",
+                                    "code": "assistant_save_failed",
+                                    "exception_type": type(exc).__name__,
+                                    "summary": "Assistant response could not be saved.",
+                                },
+                            )
+                            logger.error("Assistant save failed for query %s (%s)", trace_id, type(exc).__name__)
+                    if not trace_state["done"] and not trace_finalize_failed:
+                        try:
+                            persist_trace(
+                                outcome["status"],
+                                outcome["stage"],
+                                error=outcome["error"],
+                                output_chars=len(assistant["content"]),
+                                thinking_chars=len(assistant["thinking"]),
+                                assistant_saved=complete or trace_state["record"].get("assistant_saved", False),
+                                assistant_message_index=trace_state["record"].get("assistant_message_index"),
+                                generation_ms=duration((time.monotonic() - generation_started) * 1000),
+                                first_output_ms=duration((first_output - started) * 1000) if first_output else None,
+                            )
+                        except Exception as exc:  # noqa: BLE001 - report trace persistence failure and still release the lease
+                            trace_finalize_failed = True
+                    if save_failure is not None:
+                        raise save_failure
                 finally:
                     lease.release()
 
         async def events():
-            nonlocal complete, stream
+            nonlocal complete, first_output, stream, trace_finalize_failed
 
             def line(event: dict) -> str:
                 return json.dumps(event, ensure_ascii=False) + "\n"
@@ -155,11 +370,27 @@ def router(deps: AppDeps) -> APIRouter:
                 async for event in stream:
                     kind = event.get("type")
                     if kind in {"token", "thinking"}:
+                        if first_output is None:
+                            first_output = time.monotonic()
                         text = event.get("text", "")
                         assistant["content" if kind == "token" else "thinking"] += text
                         yield line({"type": kind, "text": text})
                     elif kind == "done":
-                        assistant["model"] = event.get("model") or body.model
+                        actual_model = event.get("model") if isinstance(event.get("model"), str) else None
+                        assistant["model"] = actual_model or body.model
+                        cleanup_error = None
+                        if stream is not None and hasattr(stream, "aclose"):
+                            try:
+                                await stream.aclose()
+                            except Exception as exc:  # noqa: BLE001 - capture provider cleanup without changing a completed answer
+                                cleanup_error = {
+                                    "stage": "stream_close",
+                                    "code": "stream_close_failed",
+                                    "exception_type": type(exc).__name__,
+                                    "summary": "Model stream cleanup failed.",
+                                }
+                                logger.error("Chat stream cleanup failed for %s (%s)", trace_id, type(exc).__name__)
+                            stream = None
                         merged_context = {
                             **event.get("context", {}),
                             "truncated_messages": prompt_context.get(
@@ -177,27 +408,110 @@ def router(deps: AppDeps) -> APIRouter:
                             append_assistant_message(session, assistant),
                             merged_context,
                         )
-                        deps.store.save_session(topic, session_updated)
+                        save(session_updated)
+                        trace_state["record"]["assistant_saved"] = True
+                        trace_state["record"]["assistant_message_index"] = len(session_updated["messages"]) - 1
                         complete = True
+                        trace_updates = {
+                            "actual_model": actual_model,
+                            "context_used": merged_context.get("used"),
+                            "cleanup_error": cleanup_error,
+                            "final_context": {
+                                key: merged_context[key]
+                                for key in ("used", "limit", "estimated", "truncated_messages")
+                                if key in merged_context
+                            },
+                            "generation_ms": duration((time.monotonic() - generation_started) * 1000),
+                            "first_output_ms": duration((first_output - started) * 1000) if first_output else None,
+                            "output_chars": len(assistant["content"]),
+                            "thinking_chars": len(assistant["thinking"]),
+                        }
+                        try:
+                            persist_trace("completed", "complete", **trace_updates)
+                        except Exception as exc:  # noqa: BLE001 - trace storage failure must be surfaced before done
+                            trace_finalize_failed = True
+                            logger.error("Query trace finalization failed for %s (%s)", trace_id, type(exc).__name__)
+                            yield line(
+                                {
+                                    "type": "error",
+                                    "message": "The answer was saved, but its query trace could not be finalized.",
+                                }
+                            )
+                            outcome.update(status="completed", stage="complete", error=None, **trace_updates)
+                            break
                         yield line(event)
                         break
                     elif kind == "error":
+                        outcome.update(
+                            status="error",
+                            stage="generation",
+                            error={
+                                "stage": "generation",
+                                "code": "provider_error",
+                                "exception_type": "ProviderError",
+                                "summary": "Model reported a generation error.",
+                            },
+                        )
+                        await finish()
                         yield line(event)
+                        if trace_finalize_failed:
+                            yield line(
+                                {
+                                    "type": "error",
+                                    "message": "The answer was saved, but its query trace could not be finalized.",
+                                }
+                            )
                         break
                 else:
+                    outcome.update(
+                        status="error",
+                        stage="generation",
+                        error={
+                            "stage": "generation",
+                            "code": "premature_eof",
+                            "exception_type": "IncompleteStream",
+                            "summary": "Model stream ended before completion.",
+                        },
+                    )
+                    await finish()
                     yield line(
                         {
                             "type": "error",
                             "message": "Model stream ended before completion. Partial output was saved; retry when the local model service is ready.",
                         }
                     )
+                    if trace_finalize_failed:
+                        yield line(
+                            {
+                                "type": "error",
+                                "message": "The answer was saved, but its query trace could not be finalized.",
+                            }
+                        )
             except Exception as exc:  # noqa: BLE001 - stream must always end with done or error event
+                outcome.update(
+                    status="error",
+                    stage="generation",
+                    error={
+                        "stage": "generation",
+                        "code": "generation_failed",
+                        "exception_type": type(exc).__name__,
+                        "summary": "Model generation failed.",
+                    },
+                )
+                await finish()
                 yield line(
                     {
                         "type": "error",
                         "message": f"Chat failed ({type(exc).__name__}). Check the local model service and retry; your message is saved.",
                     }
                 )
+                if trace_finalize_failed:
+                    yield line(
+                        {
+                            "type": "error",
+                            "message": "The answer was saved, but its query trace could not be finalized.",
+                        }
+                    )
             finally:
                 await finish()
 

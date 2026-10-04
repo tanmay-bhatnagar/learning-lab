@@ -61,7 +61,9 @@ def test_prompt_order_system_history_evidence_attachments_question(tmp_path):
     record = _upload(client, topic).json()
     _chat(client, topic, [record["id"]])
     prompt = model.calls[0]
-    assert prompt[0] == {"role": "system", "content": SYSTEM_RULES}
+    assert prompt[0]["role"] == "system"
+    assert prompt[0]["content"].startswith(SYSTEM_RULES)
+    assert "Synthetic test runtime policy." in prompt[0]["content"]
     assert prompt[-1] == {"role": "user", "content": "Explain"}
     attachment_indices = [index for index, message in enumerate(prompt) if "UNTRUSTED ATTACHMENT" in message["content"]]
     assert len(attachment_indices) == 1
