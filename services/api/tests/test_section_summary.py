@@ -44,7 +44,8 @@ def test_plan_contains_complete_section_scope_and_fresh_policy_without_chat_stat
     assert "Synthetic procedure" in user["content"]
     assert "[S1]" in user["content"]
     assert "[S2]" in user["content"]
-    assert len(plan["sources"]) == 2
+    assert len(plan["sources"]) == len(section["source_unit_ids"])
+    assert "[S4]" in user["content"]
     assert plan["prompt_context"]["truncated_messages"] == 0
     assert plan["attempt"]["status"] == "generating"
     assert plan["attempt"]["revision"] == document_map["revision"]
@@ -71,7 +72,13 @@ def test_overfit_summary_refuses_before_a_plan_or_attempt_can_be_saved():
 
 def test_summary_citation_markers_must_be_present_and_belong_to_supplied_source_labels():
     assert validate_source_markers("The method is described here [S1].", ["S1", "S2"]) == ["S1"]
-    for output in ("No source marker.", "A fabricated source [S9]."):
+    for output in (
+        "No source marker.",
+        "A fabricated source [S9].",
+        "A valid source plus zero [S1] [S0].",
+        "A valid source plus malformed number [S1] [S01].",
+        "A valid source plus nonnumeric marker [S1] [SX].",
+    ):
         try:
             validate_source_markers(output, ["S1", "S2"])
         except InvalidInput:
