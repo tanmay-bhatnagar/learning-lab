@@ -170,6 +170,85 @@ def test_caption_is_owned_by_table_once_and_furniture_is_accounted_as_excluded()
     assert all(furniture["id"] not in section["direct_unit_ids"] for section in result["sections"])
 
 
+def test_parent_aggregate_ids_follow_canonical_source_unit_order() -> None:
+    result = _build(_document())
+    parent = next(section for section in result["sections"] if section["title"] == "Repeated")
+    ids_in_document_order = [unit["id"] for unit in result["units"]]
+    expected = [unit_id for unit_id in ids_in_document_order if unit_id in parent["source_unit_ids"]]
+
+    assert parent["source_unit_ids"] == expected
+
+
+def test_shared_caption_reference_is_rejected_instead_of_duplicated() -> None:
+    from lab.errors import CorruptData
+
+    document = DoclingDocument(name="shared-caption")
+    caption = document.add_text(label=DocItemLabel.CAPTION, text="Shared caption")
+    table_data = TableData(
+        num_rows=1,
+        num_cols=1,
+        table_cells=[
+            TableCell(text="Value", start_row_offset_idx=0, end_row_offset_idx=1, start_col_offset_idx=0, end_col_offset_idx=1)
+        ],
+    )
+    document.add_table(table_data, caption=caption)
+    document.add_table(table_data, caption=caption)
+
+    with pytest.raises(CorruptData, match="caption"):
+        _build(document.export_to_dict())
+
+
+def test_body_attached_furniture_layer_is_covered_as_excluded() -> None:
+    document = DoclingDocument(name="body-furniture")
+    document.add_text(
+        label=DocItemLabel.TEXT,
+        text="Header in body tree",
+        content_layer=ContentLayer.FURNITURE,
+        parent=document.body,
+    )
+
+    result = _build(document.export_to_dict())
+    assert result["coverage"]["total_source_items"] == 1
+    assert result["coverage"]["excluded_units"] == 1
+    assert result["units"][0]["content_layer"] == "furniture"
+
+
+def test_caption_page_provenance_is_included_in_table_span() -> None:
+    document = DoclingDocument(name="caption-page-span")
+    document.pages = {
+        1: PageItem(page_no=1, size=Size(width=100, height=100)),
+        2: PageItem(page_no=2, size=Size(width=100, height=100)),
+    }
+    caption = document.add_text(
+        label=DocItemLabel.CAPTION,
+        text="Caption on page two",
+        prov=ProvenanceItem(
+            page_no=2,
+            bbox=BoundingBox(l=0, t=0, r=10, b=10),
+            charspan=(0, 20),
+        ),
+    )
+    document.add_table(
+        TableData(
+            num_rows=1,
+            num_cols=1,
+            table_cells=[
+                TableCell(text="Value", start_row_offset_idx=0, end_row_offset_idx=1, start_col_offset_idx=0, end_col_offset_idx=1)
+            ],
+        ),
+        caption=caption,
+        prov=ProvenanceItem(
+            page_no=1,
+            bbox=BoundingBox(l=0, t=0, r=10, b=10),
+            charspan=(0, 5),
+        ),
+    )
+
+    result = _build(document.export_to_dict())
+    table = next(unit for unit in result["units"] if unit["kind"] == "table")
+    assert table["pages"] == [1, 2]
+
+
 def test_invalid_native_schema_fails_instead_of_returning_empty_map() -> None:
     from lab.errors import CorruptData
 
