@@ -91,3 +91,9 @@ Three pure summary regressions initially fail collection because the module is a
 ### Slice 4 pure-plan checkpoint `fae76cd`
 
 Two tests passed and one scaffold expected two units where the native scope correctly includes four (headings plus text). The writer will assert complete included membership rather than exclude headings to satisfy the test. This strengthens provenance completeness at the cost of extra prompt metadata/tokens. Coordinator also required moving a clock helper from the pure planner into orchestration; timestamps must remain explicit inputs. Marker failures use domain errors. Persistence/provider/cancellation remain unimplemented and unverified at this checkpoint.
+
+### Slice 4 marker repair and real-gateway probe
+
+Independent reviewer found valid [S1] could hide malformed [S0]/[S01]/[SX]. `47e0f60` preserves the failing reproduction; `4787d19` scans all source-like candidates against the exact allowlist and removes clock I/O from the planner. Three pure tests pass. Strict rejection is preferred over partial regex parsing, with a conservative-output-refusal tradeoff.
+
+Coordinator invoked the actual installed Qwen 3.5 4B gateway with fresh synthetic runtime policy and the isolated calibration source. It reached provider done, used [S1] and reported 42, but also described a synthetic-policy detail absent from the document source. This establishes local request/marker compatibility, not summary accuracy or HTTP lifecycle. Writer must explicitly separate policy behavioral guidance from document factual evidence in protected instructions; review will check the prompt, and final usage reruns against the synthetic table document. Stronger instructions mitigate this observed contamination, not enforce semantic entailment. Probe evidence is ignored local JSON; no personal topic/model download was involved.
