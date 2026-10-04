@@ -1,6 +1,6 @@
 # Architecture and ownership
 
-Current state on `dev` as of 1 October 2026. See the [interactive R1 map](../references/R1/system-map.html) for the system and its planned blocks, and the [R1 snapshot](../references/R1/README.md) for validation and remaining work.
+Current state on `dev` as of 4 October 2026. See the [interactive R1 map](../references/R1/system-map.html) for the system and its planned blocks, and the [R1 snapshot](../references/R1/README.md) for validation and remaining work.
 
 ## Runtime path
 
@@ -20,6 +20,7 @@ The API app owns one model-generation lock shared by embedding and chat generati
 | `apps/web/src/citations.tsx`, `retrievalTrace.tsx` | Per-answer source display and retrieval inspection |
 | `services/api/lab/web/` | HTTP routers, middleware, request schemas and app factory |
 | `services/api/lab/config.py` | Frozen `AppConfig` and environment defaults |
+| `services/api/lab/runtime_policy.py` | Request-boundary reading and validation of the configured learning-agent policy |
 | `services/api/lab/errors.py` | Domain error taxonomy |
 | `services/api/lab/contracts.py` | Typed records and gateway/store protocols |
 | `services/api/lab/ingest.py`, `chat_prompt.py`, `chat_session.py` | Pure upload, prompt and session transitions |
@@ -28,14 +29,19 @@ The API app owns one model-generation lock shared by embedding and chat generati
 | `services/api/lab/index.py`, `retrieval.py` | Topic SQLite index, hybrid search and evidence assembly |
 | `services/api/lab/models.py`, `context.py` | Local model gateway, streaming and prompt budget |
 | `services/api/lab/storage.py` | Topic paths, original preservation, file and session records |
+| `services/api/lab/query_traces.py` | Pure diagnostic record construction and versioned topic-local SQLite trace persistence |
 | `services/api/lab/asgi.py` | ASGI entry point |
 | `scripts/dev.py`, `scripts/verify_workspace.py` | Development and verification lifecycle |
+| `evals/retrieval/` | Registered real-PDF gold sets, pure anchor scoring, isolated production retrieval/trace runner |
 
 Personal topics and their PDFs live in `../Learning/<topic>/`, outside this Git repository. Tests override those roots. Model weights and runtime state remain local and ignored by Git.
 
 ## Current limits
 
-- One saved conversation per topic. The selected context can be trimmed for a model request; the saved history remains complete. There is no compaction.
+- Both chat routes read the configured runtime policy before retrieval or generation and include its full text in the protected system message for every selected model. Policy changes apply to the next request; unreadable/invalid policy blocks chat without a fallback. See [runtime policy loading](runtime_policy.md).
+
+- Each topic has a default conversation and can hold additional independent saved conversations. The selected context can be trimmed for a model request; each saved history remains complete. There is no compaction. The browser remembers selected file IDs per conversation; PDFs and the learning goal belong to the topic.
+- Chat requests produce local diagnostic metadata in `query_traces.sqlite`, including rejection, completion, error and cancellation outcomes. A bounded topic-scoped developer API exposes records; no new learner screen or external telemetry is involved. [Trace contract](query_traces.md). The [retrieval evaluation suite](../evals/retrieval/README.md) measures source-anchor coverage, retrieval and retained evidence while checking trace consistency. Generation is simulated; answer quality is unassessed.
 - Indexed Docling files support keyword and local embedding retrieval with a trace. Cited evidence is limited to passages retained in the model prompt. Saved citation page links open the topic-scoped original PDF at the cited page when supported by the browser viewer; invalid or out-of-range targets are shown unavailable.
 - Each topic can store a validated user-authored learning goal. Chat supplies it as learning context, separate from retrieved evidence. Extraction diagnostics persist parser-reported failures and suspected limitations; a clean diagnostic run and legacy parser records remain fidelity-unassessed.
 - Chat is one retrieval pass followed by model streaming. No LangGraph workflow, model tool calls, approval interrupts, understanding checks or progress memory exist yet.

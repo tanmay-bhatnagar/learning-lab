@@ -22,3 +22,15 @@ Only a small synthetic, text-based PDF was used for integration checks. Parser q
 Reasoning can be verbose on small models. A generation-budget cutoff now reports an incomplete response and preserves partial output. The context meter reflects the latest request; preflight budgeting uses conservative estimates, not an exact tokenizer. No summarization or compaction exists.
 
 This build is the local app/ingestion foundation. Full R1 retrieval, LangGraph learning tools and learning-progress workflows remain later increments. Model-executed tools, coding execution, external research, multimodal input and Jetson serving are not enabled.
+
+## 3 October 2026 updates
+
+The multi-conversation increment and its repairs are recorded in [resume validation](2026_10_03_resume_validation.md). Per-query diagnostic trace logging is implemented and independently reviewed; its contract, final automated gates, real-model checks, and coverage limits are recorded in [query traces](query_traces.md). The separate [retrieval evaluation suite](../evals/retrieval/README.md) is implemented; it evaluates registered public PDFs in isolated workspaces with simulated generation.
+
+The three-paper developer baseline and final automated gates are recorded in [retrieval eval validation](retrieval_eval_validation.md). Scores remain descriptive; answer quality is unassessed.
+
+## 5 October 2026 — checkpoint policy and local commit baseline
+
+Recorded the existing local application work in scoped `dev` commits and required frequent checkpoint commits in Code-root AGENTS.md, all six development skills/configs, both parser-reference skills, engineering conventions, repository guidance, review checklist, and task handoff. Failing intermediate tests do not block local checkpoints; completion gates and separate remote-push authorization remain.
+
+Fresh complete-working-tree `make test` passed 282 backend tests plus 21 subtests and 90 web tests; `make build`, engineering checker, Ruff, Python formatting, ESLint, Prettier, and six development-skill validations passed. Intermediate commits were not tested independently. Tests/build logs remain ignored under `.local/checkpoint-tests-20261005.log` and `.local/checkpoint-build-20261005.log`. No browser, real-model/parser, or isolated HTTP rerun; no push, merge, or release.

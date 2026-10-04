@@ -39,12 +39,19 @@ Files land in `data/external/modelweights/tokenizers/bert-base-uncased/`. If Hug
 
 The model selector reads from Ollama. Model changes apply to the next message. Indexed files are searched with SQLite FTS5 and, when the embedding model is installed, local embeddings plus reciprocal-rank fusion. The app uses a 32,768-token context limit; once full, the oldest input is omitted from the model request while the saved conversation remains intact. There is no compaction yet.
 
+## Development instructions
+
+Open this Code repository as the Codex project. [AGENTS.md](AGENTS.md) is the self-contained development policy, including research, alternatives, shared learning, proportional exploration, and reversible implementation for every agent. Six development procedures live in `.agents/skills/`; role configurations live in `.codex/agents/`. The browser backend loads the separate parent learning-agent policy before every chat request, regardless of the selected model. See [runtime policy loading](docs/runtime_policy.md) for configuration, failure behavior, and verification.
+
 ## Repository layout
 
 ```text
 apps/web/          browser UI
 services/api/      local API, parsers, Ollama gateway
-skills/            pinned parser instructions
+.agents/skills/    six development procedures
+.codex/agents/     six development role configurations
+skills/            pinned parser reference instructions
+evals/retrieval/   three-paper retrieval and trace baseline
 data/external/     public parser-benchmark corpus and ignored model weights
 docs/              API and validation notes
 references/R1/     current R1 map and project snapshot
