@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import mapFixture from './fixtures/documentMapApi.json';
+import { mapSectionResponseSchema } from '../src/api/documentMap';
 import { App } from '../src/App';
 import type { LabFile } from '../src/api/types';
 import { createFakeApi } from './fakeApi';
@@ -92,6 +93,11 @@ async function waitForReady() {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('document map navigation', () => {
+  test('section payload schema accepts stale sections returned by the backend', () => {
+    const staleSection = { ...mapFixture.section_response, status: 'stale' };
+    expect(mapSectionResponseSchema.safeParse(staleSection).success).toBe(true);
+  });
+
   test('map selection is independent and builds only after an explicit request', async () => {
     const { mapCalls } = installMapApi();
     const user = userEvent.setup();
