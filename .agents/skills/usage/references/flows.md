@@ -18,3 +18,5 @@ Doctor: request `/api/health` through the printed browser URL; confirm the initi
 Save actions, expected/actual outcomes, screenshots where useful, and artifact observations in the printed evidence directory. Do not erase evidence during teardown. Record untested flows, unavailable models, and missing revision-specific features explicitly. Neither the automated HTTP smoke nor a screenshot alone proves the whole browser journey.
 
 Use real-model and structured-parser checks only for relevant changes and available local dependencies. Do not automatically download models or run the full benchmark corpus.
+
+At consequential verification checkpoints, explain what the run established or changed about the design, remaining uncertainty and next validation owner. The coordinator must deliver that explanation to Tanmay and update the linked durable feature note; raw usage evidence alone does not fulfill learning delivery.

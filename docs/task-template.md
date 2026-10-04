@@ -9,6 +9,8 @@ Use this for substantial delegated work; a short message with the same informati
 - Mandatory entire Product development and exploration policy in [Code-root AGENTS.md](../AGENTS.md#product-development-and-exploration): worker acknowledgement and research expectations:
 - Constraints and authorization already supplied:
 - Decisions, compared alternatives/tradeoffs, what was learned, verified findings versus assumptions, research evidence (or why existing evidence sufficed), and unresolved questions:
+- Learning delivery: user-facing explanation plus linked durable dated decision note, role attribution, actual alternatives/selected branch, remaining uncertainty, next validation owner, and conditions for changing the choice:
+- Report inventory: separate role reports or consolidated note, saved locations, and superseded decisions:
 - Checkpoint slices, Git owner, mandatory local commit cadence (including failing tests), and separate remote-push authorization:
 - Required checks and realistic sample input:
 - Result: checkpoint commit hashes, changed paths, commands/outcomes (passing/failing/unrun), evidence location:

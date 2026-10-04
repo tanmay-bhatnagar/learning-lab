@@ -72,6 +72,22 @@ Public functions and non-obvious helpers get useful docstrings covering contract
 
 All development roles follow the entire [Product development and exploration policy](../AGENTS.md#product-development-and-exploration), with evidence and unresolved research needs carried into assignments and results. Development policy is self-contained in Code; the parent learning-agent runtime policy is not a coding instruction dependency. Define acceptance criteria before implementation. Use the smallest useful design and handoff; no mandatory six-agent ceremony. The coordinator integrates changes. Assign disjoint write paths or separate checkouts and settle shared interfaces first. Reviewers report issues; they do not silently implement changes. Model escalation and scope changes are explicit.
 
+## Learning delivery and decision records
+
+Learning delivery is part of checkpoint acceptance, not an optional final summary. Follow [the mandatory policy](../AGENTS.md#mandatory-learning-delivery-and-decision-records). For consequential choices, explain the evidence-based decision path in the user walkthrough and a dated feature/design note under `docs/`; raw agent reports or commit bodies alone are insufficient. The coordinator owns synthesis, attribution and read-only worker records. Reuse the existing feature note rather than creating duplicate reports for every checkpoint.
+
+A concise paragraph or table should cover:
+
+1. Question or trigger and relevant constraints.
+2. What was learned, with repository, experiment or primary-source references.
+3. Credible alternatives actually considered and meaningful tradeoffs.
+4. Selected approach and the evidence/constraints behind it.
+5. Verified facts versus assumptions and unresolved uncertainty.
+6. Next validation step and owner, plus conditions that would change the choice.
+7. Role attribution, checkpoint commit references when available, and later supersession.
+
+No mandatory diagram or exhaustive internal reasoning transcript is needed. Do not invent deliberations or reasons for earlier decisions. For routine choices, cite established evidence and explain applicability. Keep private/raw evidence under ignored `.local/`; durable notes must be safe to commit. Handoffs state which separate reports or consolidated note exist and link them. Documented uncertainty remains open until the stated validation actually occurs.
+
 ## Checkpoint commits
 
 Follow [mandatory checkpoint commits](../AGENTS.md#mandatory-checkpoint-commits). Commit each reproduction, implementation slice, tracked code/test-loop checkpoint, repair, and durable documentation decision locally on `dev`, including states with failing tests. Record exact checks and failures in the commit body. Shared-checkout workers report checkpoints to the coordinator for immediate commits; isolated writers commit only with assigned Git ownership. Checkpoint commits do not relax completion, merge, or release checks. Remote pushes remain separately authorized.

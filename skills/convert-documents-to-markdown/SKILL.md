@@ -28,3 +28,5 @@ Rules:
 ## Learning Lab development checkpoints
 
 When used for development in this Code repository, follow [mandatory checkpoint commits](../../AGENTS.md#mandatory-checkpoint-commits). Small local commits on `dev` are mandatory at each meaningful checkpoint, including failing code/test-loop states; record passing, failing, and unrun checks. The coordinator owns shared-checkout commits; report checkpoints immediately. Remote pushes require explicit authorization. Keep personal learning material and generated verification outputs out of Git.
+
+For Learning Lab development, also follow [mandatory learning delivery](../../AGENTS.md#mandatory-learning-delivery-and-decision-records): explain consequential choices, actual alternatives, evidence, tradeoffs and uncertainty at checkpoints, in the user walkthrough and durable dated notes. Report to the coordinator when writing is outside your role; keep private source material out of committed notes.

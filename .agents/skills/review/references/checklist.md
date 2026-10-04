@@ -1,6 +1,7 @@
 # Review checklist
 
 - Were small checkpoint commits made throughout the code/test loop, with failures recorded and completion gates still satisfied?
+- At each consequential checkpoint, were decisions explained in the user walkthrough AND durable dated notes, with evidence, actual alternatives, rationale, tradeoffs, uncertainty/validation owner, attribution and superseded choices? Agent reports alone are insufficient.
 - Does the changed user flow meet the acceptance criteria, including failure paths?
 - Are consequential choices supported by evidence, alternatives/tradeoffs explained, uncertainty explicit, and exploration proportional under the entire Code-root policy?
 - Are dependencies explicit, caller inputs preserved, and business decisions separated from I/O?
