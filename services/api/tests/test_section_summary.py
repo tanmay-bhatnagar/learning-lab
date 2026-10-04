@@ -3,7 +3,7 @@ from __future__ import annotations
 from docling_core.types.doc import DoclingDocument
 
 from lab.document_map import build_document_map
-from lab.errors import DoesNotFit
+from lab.errors import DoesNotFit, InvalidInput
 from lab.section_summary import build_section_summary_plan, validate_source_markers
 
 
@@ -74,7 +74,6 @@ def test_summary_citation_markers_must_be_present_and_belong_to_supplied_source_
     for output in ("No source marker.", "A fabricated source [S9]."):
         try:
             validate_source_markers(output, ["S1", "S2"])
-        except ValueError:
+        except InvalidInput:
             continue
         raise AssertionError("missing or unknown source markers must fail completion")
-
