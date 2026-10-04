@@ -77,3 +77,9 @@ Writer added wire validation, pure file eligibility, workspace-owned hook, recur
 ### Slice 3 stable verification `4e22ba1`
 
 Writer passed 95 tests across 24 web test files, production build, lint, formatting and engineering checks. Five focused integration cases cover explicit build, stale rebuild, malformed response/retry, tab persistence, out-of-order file reads and duplicate build clicks. Cached responses now carry topic/file identity to prevent another PDF's map becoming a fallback. Display distinguishes page groups versus stored heading hierarchy and calls counts extracted-source accounting rather than PDF completeness. Stable isolated browser recheck preserved the picker/outline across tabs and left the chat checkbox unchecked; an earlier picker reset occurred during HMR and was not reproduced. Independent race review is still pending.
+
+### Slice 3 clearance and slice 4 handoff
+
+Independent Sol High review passed five focused cases and found one confirmed protocol defect: section GET may return stale while the browser accepted ready only. `20ea2ea` preserves its failing regression; `bf07d09` fixes the strict union, with six focused tests/build/lint/format/engineering passing. Reviewer cleared the bounded navigation implementation subject to that repair. No arbitrary-status relaxation was used; future statuses need explicit contract updates. Broader keyboard/responsive behavior and summary lifecycle remain later usage gates.
+
+Slice 4 begins under the accepted design contract above. Writer owns pure summary planning/attempt records, persistence, HTTP orchestration and focused backend tests; coordinator owns docs/Git. Full fresh policy and section source plus reserve must fit before creating an attempt or model call. Source labels are validated against supplied units, establishing membership only, not semantic accuracy. Cancellation/save-failure/restart races are required test gates before UI controls.
