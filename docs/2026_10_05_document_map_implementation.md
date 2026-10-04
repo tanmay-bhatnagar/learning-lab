@@ -14,7 +14,7 @@ The coordinator owns shared-checkout Git and this consolidated implementation/de
 
 ## Slice 1 — source reconstruction
 
-In progress. Code owns the pure source/outline module and focused synthetic tests. The initial question is whether ordered source units can preserve repeated headings, parent introductions, preamble, tables/captions/formulas and multipage/unlocated content. Native traversal was selected over chunk grouping because chunks drop occurrence identity. The cost is explicit serialization/accounting; the validation gate is complete extracted-source allocation without duplicate parent prompt units.
+Completed source contract at `37e7950`, cleared by independent bounded review (12 focused tests passed); real artifacts remain a later usage gate. Code owns the pure source/outline module and focused synthetic tests. The initial question is whether ordered source units can preserve repeated headings, parent introductions, preamble, tables/captions/formulas and multipage/unlocated content. Native traversal was selected over chunk grouping because chunks drop occurrence identity. The cost is explicit serialization/accounting; the validation gate is complete extracted-source allocation without duplicate parent prompt units.
 
 ## Remaining checkpoints
 
@@ -33,3 +33,13 @@ Application completion and real usage remain unverified until these checkpoints 
 - Independent Sol High review reproduced parent concluding text wrongly assigned to a nested child, dangling native references escaping as IndexError, nonexistent provenance pages accepted, and furniture absent from accounting. These are repair gates before slice 2, not accepted limitations.
 
 The decision question is whether default native traversal/schema validation alone establishes correct section ownership and source accounting. The experiments showed it does not. Explicit map-level structural/reference/page validation was selected over trusting defaults, with bounded extra validation complexity. Native parent ownership takes precedence where expressed, while ordinary flat body siblings still use semantic heading boundaries. Coverage must distinguish included text, caption aliases, unlocated items and excluded furniture. Source-reconstruction correctness remains unverified until repaired tests and independent recheck pass; code owns repairs, reviewer owns independent recheck.
+
+- `f36012b`: eight focused source tests passed; full backend suite passed 290 tests plus 21 subtests. Further independent probes still reproduced canonical subtree ordering, shared-caption duplication, lost caption-page provenance and BODY-attached furniture accounting bugs. A passing suite did not prove source completeness.
+- `09f6dec`: four failing targeted regressions captured those review findings (eight existing cases passed).
+- `37e7950`: canonical source-order aggregation, caption provenance union, explicit all-layer furniture exclusions and shared-caption ownership rejection passed 29 focused map/Docling tests plus Ruff/format/engineering. Coordinator reran the 29 focused tests successfully; independent final recheck passed all 12 focused map cases and cleared slice 1.
+
+Conservative validation decisions: positive provenance referring to a missing native page now raises CorruptData rather than warning/unlocated recovery; absent provenance still maps to Unlocated. Shared captions across multiple owners also fail visibly rather than choosing an arbitrary owner. These supersede the permissive fallback proposal: they avoid wrong citations/duplicated source but prevent navigation on those malformed/ambiguous artifacts. Reopen with a recovery design only if legitimate real artifacts regularly encounter these constraints. Synthetic tests establish the chosen contracts, not real-PDF extraction fidelity; API/usage owners must check isolated real artifacts next.
+
+## Slice 2 — outline persistence and API
+
+In progress. Code owns map storage/API boundaries and tests, plus router registration. Explicit POST builds; GET never creates an outline or invokes a model. Revision binds actual original PDF bytes, exact native artifact bytes and builder version, because a source hash alone misses changed extraction. Identical builds preserve saved work; changed extraction is reported stale before an explicit rebuild. The alternative of embedding maps in conversation records was rejected because map ownership is topic/file, not chat. Corrupt saved records must fail visibly rather than masquerade as not built.
