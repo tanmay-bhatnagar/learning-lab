@@ -39,3 +39,11 @@ Model records also include `display_name` and app-capped `max_context_length`. C
 ## Runtime learning policy
 
 Both chat endpoints read the configured UTF-8 runtime policy before retrieval, model calls, or saving the user turn. Missing, unreadable, blank, or invalid UTF-8 policy returns HTTP 500 with an actionable `detail`; the request records a preflight error trace and saves no conversation turn. The full policy is protected during context budgeting; an unfit policy returns HTTP 422 rather than being omitted or shortened. Non-chat APIs remain available. Configuration and evidence: [runtime policy loading](runtime_policy.md).
+
+## On-demand document outlines
+
+`GET /api/topics/{topic}/files/{file_id}/map` returns `{status:not_built|ready|stale,map:null|record}`. Reading does not build a map or invoke inference. `POST` at the same URL explicitly builds/rebuilds from the original PDF and saved native Docling artifact; identical revisions preserve saved state. Both files must belong to the topic and extraction must be ready. Embedding/index readiness is not required. Markdown-only artifacts cannot provide native sections.
+
+Map schema v1 includes file/revision/source identity, builder version, outline mode (`headings|pages`), recursive sections, ordered source units, coverage, warnings and prior revision history. Revision binds actual PDF bytes and exact structured-artifact bytes. Missing stored map means not built; corrupt/unsupported/inconsistent file identity, source ownership or coverage fails visibly. A valid map whose actual source changed is stale. Rebuild preserves the prior snapshot and does not reassign summaries by heading title.
+
+`GET .../map/sections/{section_id}` returns `{status,section,source_units}`. Section `text` is direct introductory/owned extracted text; `source_unit_ids` and returned source units cover descendants once in canonical document order. Pages include merged-caption provenance. The outline nests only from saved heading levels; missing headings use page-oriented item ownership and absent provenance uses Unlocated. Invalid existing-page references and ambiguous shared captions fail visibly. Coverage accounts for extracted material and explicit exclusions, not certified fidelity against PDF pixels. `latest_attempt` and `last_summary` are initially null; summary generation is a separate operation.
