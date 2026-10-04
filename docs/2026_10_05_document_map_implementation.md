@@ -1,0 +1,26 @@
+# Document map implementation and learning checkpoints
+
+Implementation approved by Tanmay on 5 October 2026. Base: `d477619` on `dev`. The [regenerated plan](2026_10_05_document_map_plan_regenerated.md) and [original plan](2026_10_05_document_map_plan.md) remain preserved design history.
+
+The coordinator owns shared-checkout Git and this consolidated implementation/decision record. Code uses the configured Luna Medium role, review Sol High, usage Luna Medium. All workers read Code-root policies and their skills. Five implementation slices are sequential; each is verified and reviewed before dependent work. Failing-test and repair checkpoints receive additional local commits when needed rather than being hidden in five large commits. Remote publication is not authorized.
+
+## Accepted integration decisions
+
+- Native structured source is the map authority. Existing flat headings stay flat; no default parser change or automatic reparse. Coverage refers to extracted content, not certified PDF fidelity.
+- The same local model gateway receives a fresh full-policy/section/task prompt; chat history and topic goal do not enter summaries. Existing inference lock serializes work and current `keep_alive: 0` is preserved.
+- First version refuses oversized complete-source requests before model generation; no source trimming/top-k substitution.
+- Add to main chat names the currently selected existing conversation, imports a saved immutable summary snapshot with source/provenance metadata, and creates neither a model call nor a side chat. This selects the design recommendation as a routine integration decision within the user's implementation approval. Import schema/idempotency must be verified before slice 5 completion.
+- Pure source, prompt/attempt and import transformations remain separate from storage/HTTP/model effects and frontend hooks/components, making each responsibility inspectable.
+
+## Slice 1 — source reconstruction
+
+In progress. Code owns the pure source/outline module and focused synthetic tests. The initial question is whether ordered source units can preserve repeated headings, parent introductions, preamble, tables/captions/formulas and multipage/unlocated content. Native traversal was selected over chunk grouping because chunks drop occurrence identity. The cost is explicit serialization/accounting; the validation gate is complete extracted-source allocation without duplicate parent prompt units.
+
+## Remaining checkpoints
+
+2. Versioned map storage and outline API: explicit build/read/rebuild, isolation/staleness/corruption/idempotency.
+3. Interactive Map navigation: backend-validated schemas, independent file selection, page links and accessible honest outlines; no model calls during navigation.
+4. Full-source summary backend: fresh policy, fit preflight, request-bound streaming, lock cleanup, provenance, complete-versus-incomplete durability and recovery.
+5. Summary controls and main-chat import: Generate/Stop/Retry/Regenerate, saved reuse, race protection, idempotent imported snapshots, isolated real browser/model verification.
+
+Application completion and real usage remain unverified until these checkpoints finish. This record will be updated with observed test/review results, commit references, decisions and open limitations as work proceeds.
