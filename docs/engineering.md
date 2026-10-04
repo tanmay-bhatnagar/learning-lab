@@ -26,6 +26,7 @@ Domain code raises domain errors; only the HTTP layer knows status codes. `lab/e
 | `TooLarge` | The payload exceeds a configured limit | 413 |
 | `DoesNotFit` | The selected material cannot fit the context limit | 422 |
 | `CorruptData` | Saved data cannot be read; the user must restore it | 500 |
+| `RuntimePolicyUnavailable` | The configured runtime policy cannot be read or is blank | 500 |
 
 Degradation signals such as `EmbeddingUnavailable` are caught by the caller that owns the fallback, which reports the degradation as a warning. Parser and converter `ValueError`s become the file record's `error`. Programming errors (`TypeError`, `KeyError`, `AttributeError`) are never caught to produce a user-facing message.
 
@@ -69,7 +70,11 @@ Public functions and non-obvious helpers get useful docstrings covering contract
 
 ## Work ownership
 
-Define acceptance criteria before implementation. Use the smallest useful design and handoff; no mandatory six-agent ceremony. The coordinator integrates changes. Assign disjoint write paths or separate checkouts and settle shared interfaces first. Reviewers report issues; they do not silently implement changes. Model escalation and scope changes are explicit.
+All development roles follow the entire [Product development and exploration policy](../AGENTS.md#product-development-and-exploration), with evidence and unresolved research needs carried into assignments and results. Development policy is self-contained in Code; the parent learning-agent runtime policy is not a coding instruction dependency. Define acceptance criteria before implementation. Use the smallest useful design and handoff; no mandatory six-agent ceremony. The coordinator integrates changes. Assign disjoint write paths or separate checkouts and settle shared interfaces first. Reviewers report issues; they do not silently implement changes. Model escalation and scope changes are explicit.
+
+## Checkpoint commits
+
+Follow [mandatory checkpoint commits](../AGENTS.md#mandatory-checkpoint-commits). Commit each reproduction, implementation slice, tracked code/test-loop checkpoint, repair, and durable documentation decision locally on `dev`, including states with failing tests. Record exact checks and failures in the commit body. Shared-checkout workers report checkpoints to the coordinator for immediate commits; isolated writers commit only with assigned Git ownership. Checkpoint commits do not relax completion, merge, or release checks. Remote pushes remain separately authorized.
 
 ## Checks
 
@@ -77,7 +82,7 @@ Install engineering tools with `.venv/bin/python -m pip install -r requirements-
 
 - `.venv/bin/python scripts/check_engineering.py`: role/skill wiring, local documentation links, supported config shape, and structure: no `fastapi`/`starlette` import in `lab/` outside the HTTP layer, no environment read outside `lab/config.py`, no TypeScript `catch` that discards an error without a reason.
 - `.venv/bin/python -m ruff check .`: Python errors, bug patterns (`B`), shadowed builtins, blind excepts and, in `lab/`, parameter and return annotations. Unused exemptions fail (`RUF100`).
-- `.venv/bin/python -m ruff check --select E4,E7,E9,F,I scripts/check_engineering.py scripts/verify_workspace.py tests/test_verify_workspace.py`: stricter checks for the setup tooling.
+- `.venv/bin/python -m ruff check --select E4,E7,E9,F,I scripts/check_engineering.py scripts/verify_workspace.py services/api/tests/test_verify_workspace.py`: stricter checks for the setup tooling.
 - `.venv/bin/python -m ruff format --check .`: Python formatting.
 - `npm run --prefix apps/web format:check` and `npm run --prefix apps/web lint`: Prettier and ESLint for the web app.
 - `make test`: Python tests (pytest) and web tests (Vitest with Testing Library and jsdom).

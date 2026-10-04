@@ -100,3 +100,7 @@ When saving, report the actual file path. For long output, choose save mode when
 ## Why the wrapper
 
 `markitdown` is already a great CLI; this skill exists to (a) follow the repo's `-s/-S/-f` convention so other skills can chain on the output, (b) translate "extract this pdf" into the right invocation without forcing the user to remember `-x`, `-m`, `-d`, `-e`, and (c) emit a uniform one-line report so terminals don't render multi-MB Markdown by accident.
+
+## Learning Lab development checkpoints
+
+When used for development in this Code repository, follow [mandatory checkpoint commits](../../AGENTS.md#mandatory-checkpoint-commits). Small local commits on `dev` are mandatory at each meaningful checkpoint, including failing code/test-loop states; record passing, failing, and unrun checks. The coordinator owns shared-checkout commits; report checkpoints immediately. Remote pushes require explicit authorization. Keep personal learning material and generated verification outputs out of Git.

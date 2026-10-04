@@ -11,7 +11,8 @@ Doctor: request `/api/health` through the printed browser URL; confirm the initi
 | Invalid upload | Attempt a non-PDF through the attachment control | Visible rejection; no ready attachment is created |
 | Settings | Change a supported value, save, reload | Saved value returns; unavailable models are reported, not silently substituted |
 | Chat (requires installed model) | Select fixture and an installed model, ask its calibration value | Response uses selected model, answers 42, history survives reload |
-| Evidence (when implemented on this revision) | Ask two document questions, inspect first answer's sources, reload | First answer retains its own sources and valid file/page associations |
+| Indexed evidence (requires installed Docling assets) | Upload an isolated calibration PDF using Docling, confirm its index is ready, select it, ask two document questions, inspect sources, reload | Each answer retains its own sources and valid file/page associations. MarkItDown/AnyDoc attachments are unindexed and cannot establish this proof |
+| Conversations | Create a second conversation, switch between it and Default, reload | Each history and its evidence remain independent; PDFs and learning goal remain topic-scoped |
 | Isolation | Inspect generated topic/state paths | No personal topic was accessed or modified |
 
 Save actions, expected/actual outcomes, screenshots where useful, and artifact observations in the printed evidence directory. Do not erase evidence during teardown. Record untested flows, unavailable models, and missing revision-specific features explicitly. Neither the automated HTTP smoke nor a screenshot alone proves the whole browser journey.

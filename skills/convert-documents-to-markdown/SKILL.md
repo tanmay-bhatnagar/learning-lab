@@ -24,3 +24,7 @@ Rules:
 4. For a large document, write to a file with `-o` and read the parts you need instead of streaming everything into context.
 5. Scanned and image-only pages need OCR, which anydoc does not do, so the document exits 3. Rerun with `--ocr hosted` to send it to [Firecrawl Parse](https://firecrawl.dev/parse). No signup needed. Pass `--api-key` or set `FIRECRAWL_API_KEY` for higher limits.
 6. Inside a Node, Python, or Rust codebase, prefer the library over shelling out: `@firecrawl/anydoc` on npm, `firecrawl-anydoc` on PyPI, `anydoc` on crates.io. Each exposes the same `to_markdown` / `toMarkdown` API.
+
+## Learning Lab development checkpoints
+
+When used for development in this Code repository, follow [mandatory checkpoint commits](../../AGENTS.md#mandatory-checkpoint-commits). Small local commits on `dev` are mandatory at each meaningful checkpoint, including failing code/test-loop states; record passing, failing, and unrun checks. The coordinator owns shared-checkout commits; report checkpoints immediately. Remote pushes require explicit authorization. Keep personal learning material and generated verification outputs out of Git.

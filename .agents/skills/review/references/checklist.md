@@ -1,6 +1,8 @@
 # Review checklist
 
+- Were small checkpoint commits made throughout the code/test loop, with failures recorded and completion gates still satisfied?
 - Does the changed user flow meet the acceptance criteria, including failure paths?
+- Are consequential choices supported by evidence, alternatives/tradeoffs explained, uncertainty explicit, and exploration proportional under the entire Code-root policy?
 - Are dependencies explicit, caller inputs preserved, and business decisions separated from I/O?
 - Are module responsibilities clear without redundant abstractions or hidden state?
 - Do validation, errors, cancellation, concurrent access, and partial persistence preserve the relevant contracts?
