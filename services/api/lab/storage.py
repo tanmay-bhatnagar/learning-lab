@@ -6,6 +6,7 @@ import json
 import os
 import re
 import stat
+import threading
 import uuid
 from pathlib import Path
 from typing import Any
@@ -111,6 +112,7 @@ class Store:
     def __init__(self, root: Path | str, settings: Path | str) -> None:
         self.root = checked(root)
         self.settings = checked(settings)
+        self._conversation_lock = threading.Lock()
 
     def topic(self, topic: str) -> Path:
         path = checked(self.root / valid_id(topic))
@@ -159,8 +161,92 @@ class Store:
             raise Forbidden("Invalid stored filename.")
         return checked(self.topic(topic) / name)
 
-    def session(self, topic: str) -> Session:
-        return read_json(self.topic(topic) / "session.json", {"messages": []})
+    def _conversation_catalog(self, topic: str) -> list[dict[str, str]]:
+        path = self.topic(topic) / "conversations.json"
+        records = read_json(path)
+        if records is None and not path.exists():
+            records = [{"id": "default", "title": "Default"}]
+        if not isinstance(records, list) or not all(
+            isinstance(record, dict)
+            and isinstance(record.get("id"), str)
+            and ID.fullmatch(record["id"])
+            and isinstance(record.get("title"), str)
+            for record in records
+        ):
+            raise CorruptData("Invalid saved data in conversations.json; restore a backup before retrying.")
+        ids = [record["id"] for record in records]
+        if ids.count("default") != 1 or len(ids) != len(set(ids)):
+            raise CorruptData("Invalid saved data in conversations.json; restore a backup before retrying.")
+        for conversation_id in ids:
+            if conversation_id != "default" and not (path.parent / f"conversation_{conversation_id}.json").is_file():
+                raise CorruptData(
+                    f"Missing saved conversation conversation_{conversation_id}.json; restore a backup before retrying."
+                )
+        for session_path in sorted(path.parent.glob("conversation_*.json")):
+            conversation_id = session_path.stem.removeprefix("conversation_")
+            if not ID.fullmatch(conversation_id) or conversation_id == "default" or conversation_id in ids:
+                continue
+            session = read_json(session_path)
+            if not isinstance(session, dict) or not isinstance(session.get("messages"), list):
+                raise CorruptData(f"Invalid saved data in {session_path.name}; restore a backup before retrying.")
+            records.append({"id": conversation_id, "title": f"Recovered chat {conversation_id[:8]}"})
+        if not path.exists() or len(records) != len(ids):
+            write_json(path, records)
+        return records
 
-    def save_session(self, topic: str, session: Session) -> None:
-        write_json(self.topic(topic) / "session.json", session)
+    def conversations(self, topic: str) -> list[dict[str, str]]:
+        """List topic conversations, adding a catalog without changing legacy session bytes."""
+        with self._conversation_lock:
+            return [dict(record) for record in self._conversation_catalog(topic)]
+
+    def conversation(self, topic: str, conversation_id: str) -> dict[str, str]:
+        valid_id(conversation_id)
+        for record in self.conversations(topic):
+            if record["id"] == conversation_id:
+                return record
+        raise NotFound("Conversation not found in the selected topic.")
+
+    def create_conversation(self, topic: str, title: str) -> dict[str, str]:
+        title = self._conversation_title(title)
+        with self._conversation_lock:
+            records = self._conversation_catalog(topic)
+            record = {"id": uuid.uuid4().hex, "title": title}
+            path = self.topic(topic) / f"conversation_{record['id']}.json"
+            write_new_bytes(path, b'{"messages": []}')
+            write_json(self.topic(topic) / "conversations.json", [*records, record])
+            return record
+
+    def rename_conversation(self, topic: str, conversation_id: str, title: str) -> dict[str, str]:
+        valid_id(conversation_id)
+        title = self._conversation_title(title)
+        with self._conversation_lock:
+            records = self._conversation_catalog(topic)
+            if not any(record["id"] == conversation_id for record in records):
+                raise NotFound("Conversation not found in the selected topic.")
+            updated = [{**record, "title": title} if record["id"] == conversation_id else record for record in records]
+            write_json(self.topic(topic) / "conversations.json", updated)
+            return {"id": conversation_id, "title": title}
+
+    @staticmethod
+    def _conversation_title(title: str) -> str:
+        if (
+            not isinstance(title, str)
+            or not (title := title.strip())
+            or len(title) > 120
+            or any(ord(char) < 32 for char in title)
+        ):
+            raise InvalidInput("Conversation title must be 1–120 printable characters.")
+        return title
+
+    def session(self, topic: str, conversation_id: str = "default") -> Session:
+        self.conversation(topic, conversation_id)
+        name = "session.json" if conversation_id == "default" else f"conversation_{conversation_id}.json"
+        path = self.topic(topic) / name
+        if conversation_id != "default" and not path.exists():
+            raise CorruptData(f"Missing saved conversation {name}; restore a backup before retrying.")
+        return read_json(path, {"messages": []})
+
+    def save_session(self, topic: str, session: Session, conversation_id: str = "default") -> None:
+        self.conversation(topic, conversation_id)
+        name = "session.json" if conversation_id == "default" else f"conversation_{conversation_id}.json"
+        write_json(self.topic(topic) / name, session)
