@@ -5,7 +5,25 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Mapping
-from typing import Any
+
+from docling_core.types.doc import (
+    CodeItem,
+    DoclingDocument,
+    FieldHeadingItem,
+    FieldValueItem,
+    FormulaItem,
+    GroupItem,
+    ListItem,
+    PictureItem,
+    SectionHeaderItem,
+    TableItem,
+    TextItem,
+    TitleItem,
+)
+from docling_core.types.doc.common.content_layer import ContentLayer
+from docling_core.types.doc.items.node import NodeItem
+
+from .errors import CorruptData, InvalidInput
 
 
 BUILDER_VERSION = "document-map-v1"
@@ -30,53 +48,48 @@ def _section_id(revision: str, source_ref: str, ordinal: int) -> str:
     return f"section-{digest}"
 
 
-def _native_document(data: Mapping[str, object]) -> Any:
-    try:
-        from docling_core.types.doc import DoclingDocument
-    except ImportError as exc:
-        raise ValueError("Docling Core is required to build a document map.") from exc
-
+def _native_document(data: Mapping[str, object]) -> DoclingDocument:
     if not isinstance(data, Mapping):
-        raise ValueError("Saved Docling data must be an object.")
-    return DoclingDocument.model_validate(dict(data))
+        raise InvalidInput("Saved Docling data must be an object.")
+    try:
+        return DoclingDocument.model_validate(dict(data))
+    except ValueError as exc:
+        raise CorruptData("Saved Docling data has an unsupported or invalid schema.") from exc
 
 
-def _caption_refs(item: Any) -> set[str]:
+def _caption_refs(item: NodeItem) -> set[str]:
     return {ref.cref for ref in getattr(item, "captions", []) or []}
 
 
-def _caption_text(item: Any, document: Any) -> str:
-    try:
-        return item.caption_text(document).strip()
-    except (AttributeError, TypeError, ValueError, RuntimeError):
-        return ""
+def _caption_text(item: NodeItem, document: DoclingDocument) -> str:
+    return item.caption_text(document).strip() if isinstance(item, (TableItem, PictureItem)) else ""
 
 
-def _serialize(item: Any, document: Any) -> tuple[str, str, list[str]]:
-    name = type(item).__name__
+def _serialize(item: NodeItem, document: DoclingDocument) -> tuple[str, str, list[str]]:
     warnings: list[str] = []
-    if name == "TableItem":
+    if isinstance(item, TableItem):
         text = item.export_to_markdown(doc=document).strip()
         caption = _caption_text(item, document)
         if caption and caption not in text:
             text = f"{caption}\n\n{text}" if text else caption
         return text, "table", warnings
-    if name == "PictureItem":
+    if isinstance(item, PictureItem):
         caption = _caption_text(item, document)
         warnings.append("Figure image content is not included; only extracted caption text is available.")
         return caption, "picture", warnings
-    if name == "FormulaItem":
+    if isinstance(item, FormulaItem):
         return str(getattr(item, "text", "")).strip(), "formula", warnings
-    if name == "ListItem":
+    if isinstance(item, ListItem):
         marker = str(getattr(item, "marker", "") or "").strip()
         text = str(getattr(item, "text", "")).strip()
         return f"{marker} {text}".strip(), "list_item", warnings
-    if name in {"TextItem", "SectionHeaderItem", "TitleItem", "CodeItem", "FieldHeadingItem", "FieldValueItem"}:
+    if isinstance(item, (TextItem, SectionHeaderItem, TitleItem, CodeItem, FieldHeadingItem, FieldValueItem)):
         return str(getattr(item, "text", "")).strip(), "text", warnings
+    name = type(item).__name__
     return "", name, [f"Unsupported extracted item type: {name}."]
 
 
-def _pages(item: Any) -> tuple[list[int], list[str]]:
+def _pages(item: NodeItem) -> tuple[list[int], list[str]]:
     pages: list[int] = []
     warnings: list[str] = []
     for provenance in getattr(item, "prov", []) or []:
@@ -89,21 +102,28 @@ def _pages(item: Any) -> tuple[list[int], list[str]]:
     return sorted(pages), warnings
 
 
-def _walk_items(document: Any) -> list[Any]:
-    from docling_core.types.doc import GroupItem
-
-    items: list[Any] = []
+def _walk_items(document: DoclingDocument) -> list[tuple[NodeItem, bool]]:
+    items: list[tuple[NodeItem, bool]] = []
     for item, _depth in document.iterate_items(with_groups=True, traverse_pictures=True):
-        if item is document.body or item is document.furniture or isinstance(item, GroupItem):
+        if item is document.body or isinstance(item, GroupItem):
             continue
-        items.append(item)
+        items.append((item, False))
+    for item, _depth in document.iterate_items(
+        root=document.furniture,
+        with_groups=True,
+        traverse_pictures=True,
+        included_content_layers={ContentLayer.FURNITURE},
+    ):
+        if item is document.furniture or isinstance(item, GroupItem):
+            continue
+        items.append((item, True))
     return items
 
 
-def _source_units(document: Any, revision: str) -> tuple[list[dict[str, Any]], list[str]]:
+def _source_units(document: DoclingDocument, revision: str) -> tuple[list[dict[str, object]], list[str]]:
     items = _walk_items(document)
     refs: set[str] = set()
-    for item in items:
+    for item, _is_furniture in items:
         source_ref = getattr(item, "self_ref", None)
         if not isinstance(source_ref, str) or not source_ref:
             raise ValueError("A native Docling item is missing its source reference.")
@@ -111,16 +131,31 @@ def _source_units(document: Any, revision: str) -> tuple[list[dict[str, Any]], l
             raise ValueError(f"Duplicate native Docling source reference: {source_ref}")
         refs.add(source_ref)
 
-    owned_caption_refs = set().union(*(_caption_refs(item) for item in items)) if items else set()
-    units: list[dict[str, Any]] = []
+    owned_caption_refs = set().union(*(_caption_refs(item) for item, _ in items)) if items else set()
+    for item, _ in items:
+        for ref in _caption_refs(item):
+            try:
+                resolved = next(
+                    candidate
+                    for candidate, _ in items
+                    if getattr(candidate, "self_ref", None) == ref
+                )
+            except StopIteration:
+                raise CorruptData(f"A native caption reference cannot be resolved: {ref}") from None
+            if not isinstance(resolved, TextItem):
+                raise CorruptData(f"A native caption reference has an invalid target: {ref}")
+    units: list[dict[str, object]] = []
     warnings: list[str] = []
-    for item in items:
+    for item, is_furniture in items:
         source_ref = item.self_ref
         if source_ref in owned_caption_refs:
             continue
         content, kind, item_warnings = _serialize(item, document)
         pages, page_warnings = _pages(item)
         item_warnings.extend(page_warnings)
+        if is_furniture:
+            content = ""
+            item_warnings.append("Furniture content is excluded from section summaries.")
         included = bool(content.strip())
         if not included and not item_warnings:
             item_warnings.append("Extracted item has no serializable text.")
@@ -128,6 +163,7 @@ def _source_units(document: Any, revision: str) -> tuple[list[dict[str, Any]], l
         unit = {
             "id": _item_id(revision, source_ref),
             "source_ref": source_ref,
+            "source_refs": [source_ref, *_caption_refs(item)],
             "kind": kind,
             "text": content,
             "pages": pages,
@@ -139,8 +175,8 @@ def _source_units(document: Any, revision: str) -> tuple[list[dict[str, Any]], l
     return units, warnings
 
 
-def _heading(item: Any) -> tuple[str, int] | None:
-    if type(item).__name__ != "SectionHeaderItem":
+def _heading(item: NodeItem) -> tuple[str, int] | None:
+    if not isinstance(item, SectionHeaderItem):
         return None
     raw_level = getattr(item, "level", 1)
     level = raw_level if isinstance(raw_level, int) and raw_level > 0 else 1
@@ -148,7 +184,7 @@ def _heading(item: Any) -> tuple[str, int] | None:
     return title, level
 
 
-def _make_section(revision: str, source_ref: str, ordinal: int, title: str, level: int) -> dict[str, Any]:
+def _make_section(revision: str, source_ref: str, ordinal: int, title: str, level: int) -> dict[str, object]:
     return {
         "id": _section_id(revision, source_ref, ordinal),
         "source_ref": source_ref,
@@ -162,7 +198,7 @@ def _make_section(revision: str, source_ref: str, ordinal: int, title: str, leve
     }
 
 
-def _append_unit(section: dict[str, Any], unit: dict[str, Any]) -> None:
+def _append_unit(section: dict[str, object], unit: dict[str, object]) -> None:
     section["direct_unit_ids"].append(unit["id"])
     section["source_unit_ids"].append(unit["id"])
     if unit["included"]:
@@ -170,7 +206,7 @@ def _append_unit(section: dict[str, Any], unit: dict[str, Any]) -> None:
     section["pages"] = sorted(set(section["pages"]).union(unit["pages"]))
 
 
-def _aggregate(section: dict[str, Any]) -> list[str]:
+def _aggregate(section: dict[str, object]) -> list[str]:
     values = list(section["direct_unit_ids"])
     for child in section["children"]:
         values.extend(_aggregate(child))
@@ -183,11 +219,12 @@ def _aggregate(section: dict[str, Any]) -> list[str]:
 
 def _build_outline(
     document: Any,
-    units: list[dict[str, Any]],
+    units: list[dict[str, object]],
     revision: str,
-) -> tuple[str, list[dict[str, Any]]]:
+) -> tuple[str, list[dict[str, object]]]:
     source_to_unit = {unit["source_ref"]: unit for unit in units}
-    items = _walk_items(document)
+    items_with_layers = _walk_items(document)
+    items = [item for item, is_furniture in items_with_layers if not is_furniture]
     has_headings = any(_heading(item) is not None for item in items)
     if not has_headings:
         by_page: dict[int, dict[str, Any]] = {}
@@ -261,9 +298,9 @@ def build_document_map(
     remain in coverage with a warning instead of disappearing silently.
     """
     if not isinstance(file_id, str) or not file_id:
-        raise ValueError("A file ID is required to build a document map.")
+        raise InvalidInput("A file ID is required to build a document map.")
     if not source_revision or any(not isinstance(value, str) or not value for value in source_revision.values()):
-        raise ValueError("Source revision must identify the PDF and structured artifact.")
+        raise InvalidInput("Source revision must identify the PDF and structured artifact.")
     document = _native_document(native_data)
     revision = _revision(file_id, source_revision)
     units, warnings = _source_units(document, revision)
