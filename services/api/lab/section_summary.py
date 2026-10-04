@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from datetime import UTC, datetime
 from typing import Literal, TypedDict
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -15,7 +14,8 @@ from lab.errors import DoesNotFit, InvalidInput
 
 SUMMARY_PROMPT_VERSION = "section-summary-v1"
 MAX_CONTEXT_LIMIT = 32768
-SOURCE_MARKER = re.compile(r"\[S([1-9][0-9]*)\]")
+SOURCE_MARKER = re.compile(r"\[S[^\]\r\n]*(?:\]|$)")
+SOURCE_LABEL = re.compile(r"S[1-9][0-9]*")
 
 
 class SummarySource(BaseModel):
@@ -206,13 +206,18 @@ def validate_source_markers(content: str, source_labels: list[str]) -> list[str]
     if not isinstance(content, str) or not content.strip():
         raise InvalidInput("The model returned an empty section summary.")
     labels = set(source_labels)
-    found = SOURCE_MARKER.findall(content)
-    if not found:
+    candidates = SOURCE_MARKER.findall(content)
+    if not candidates:
         raise InvalidInput("The summary did not include source labels; retry to produce verifiable citations.")
-    unknown = [number for number in found if f"S{number}" not in labels]
-    if unknown:
-        raise InvalidInput(f"The summary cited unknown source label [S{unknown[0]}]; retry the summary.")
-    return list(dict.fromkeys(f"S{number}" for number in found))
+    found: list[str] = []
+    for candidate in candidates:
+        label = candidate[1:-1] if candidate.endswith("]") else candidate[1:]
+        if SOURCE_LABEL.fullmatch(label) is None:
+            raise InvalidInput("The summary contains a malformed source label; retry the summary.")
+        if label not in labels:
+            raise InvalidInput(f"The summary cited unknown source label [{label}]; retry the summary.")
+        found.append(label)
+    return list(dict.fromkeys(found))
 
 
 def _find_section(sections: list[object], section_id: str) -> dict[str, object] | None:
@@ -229,7 +234,3 @@ def _find_section(sections: list[object], section_id: str) -> dict[str, object] 
             return match
     return None
 
-
-def utc_now() -> str:
-    """Return an aware UTC timestamp at the orchestration boundary."""
-    return datetime.now(UTC).isoformat()
