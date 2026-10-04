@@ -1,0 +1,449 @@
+{
+  "schema_version": 1,
+  "source": {
+    "path": "data/external/benchmark_PDFs/deepseek_janus_pro_2501.17811.pdf",
+    "sha256": "2f5b4b26341f7be4a5c2851718f84af9c41b3084093ad71254e54ad68272a793",
+    "physical_pages": 13
+  },
+  "cases": [
+    {
+      "id": "janus-01-encoder-terminology",
+      "category": "terminology",
+      "question": "What do Und. Encoder and Gen. Encoder mean, and how do their image encodings differ?",
+      "kind": "answerable",
+      "evidence_groups": [
+        {
+          "id": "encoder_abbreviation_mapping",
+          "pages": [
+            3
+          ],
+          "anchor_alternatives": [
+            [
+              "“Und. Encoder” and “Gen. Encoder” are abbreviations for “Understanding Encoder” and “Generation Encoder”, respectively."
+            ],
+            [
+              "\"Und. Encoder\" and \"Gen. Encoder\" are abbreviations for \"Understanding Encoder\" and \"Generation Encoder\", respectively."
+            ],
+            [
+              "'Und. Encoder' and 'Gen. Encoder' are abbreviations for 'Understanding Encoder' and 'Generation Encoder', respectively."
+            ]
+          ]
+        },
+        {
+          "id": "understanding_siglip_semantics",
+          "pages": [
+            3
+          ],
+          "anchor_alternatives": [
+            [
+              "For multimodal understanding, we use the SigLIP",
+              "high-dimensional semantic features from images"
+            ]
+          ]
+        },
+        {
+          "id": "generation_vq_discrete_ids",
+          "pages": [
+            3
+          ],
+          "anchor_alternatives": [
+            [
+              "For visual generation tasks, we use the VQ tokenizer",
+              "convert images into discrete IDs"
+            ]
+          ]
+        }
+      ],
+      "expected_facts": [
+        "Und. Encoder means Understanding Encoder; Gen. Encoder means Generation Encoder.",
+        "The understanding branch uses SigLIP to extract high-dimensional semantic image features.",
+        "The generation branch uses a VQ tokenizer to convert images into discrete IDs."
+      ]
+    },
+    {
+      "id": "janus-02-implementation-constants",
+      "category": "exact",
+      "question": "What generation codebook size, image downsampling factor, adaptor architecture and maximum sequence length does the implementation use?",
+      "kind": "answerable",
+      "evidence_groups": [
+        {
+          "id": "generation_codebook_size",
+          "pages": [
+            5
+          ],
+          "anchor_alternatives": [
+            [
+              "generation encoder has a codebook of size 16, 384"
+            ],
+            [
+              "generation encoder has a codebook of size 16,384"
+            ],
+            [
+              "generation encoder has a codebook of size 16384"
+            ]
+          ]
+        },
+        {
+          "id": "generation_downsampling_factor",
+          "pages": [
+            5
+          ],
+          "anchor_alternatives": [
+            [
+              "downsamples images by a factor of 16"
+            ]
+          ]
+        },
+        {
+          "id": "adaptor_architecture",
+          "pages": [
+            5
+          ],
+          "anchor_alternatives": [
+            [
+              "understanding adaptor and the generation adaptor are two-layer MLPs"
+            ]
+          ]
+        },
+        {
+          "id": "maximum_sequence_length",
+          "pages": [
+            5
+          ],
+          "anchor_alternatives": [
+            [
+              "maximum supported sequence length of 4096"
+            ]
+          ]
+        }
+      ],
+      "expected_facts": [
+        "The generation encoder codebook contains 16,384 entries.",
+        "The generation encoder downsamples images by a factor of 16.",
+        "Both understanding and generation adaptors are two-layer MLPs.",
+        "The base language model supports a maximum sequence length of 4096."
+      ]
+    },
+    {
+      "id": "janus-03-training-strategy",
+      "category": "multi_evidence",
+      "question": "What inefficient Stage II allocation did the previous Janus use, and how does Janus-Pro change Stages I, II and the Stage III data mix?",
+      "kind": "answerable",
+      "evidence_groups": [
+        {
+          "id": "previous_stage_ii_imagenet_allocation",
+          "pages": [
+            3
+          ],
+          "anchor_alternatives": [
+            [
+              "66.67% of the text-to-image training steps in Stage II are allocated to the first part",
+              "first part trains on ImageNet"
+            ],
+            [
+              "66.67% of the textto-image training steps in Stage II are allocated to the first part",
+              "first part trains on ImageNet"
+            ]
+          ]
+        },
+        {
+          "id": "longer_stage_i_imagenet",
+          "pages": [
+            4
+          ],
+          "anchor_alternatives": [
+            [
+              "increase the training steps in Stage I",
+              "training on the ImageNet dataset"
+            ]
+          ]
+        },
+        {
+          "id": "stage_ii_drop_imagenet_dense_descriptions",
+          "pages": [
+            4
+          ],
+          "anchor_alternatives": [
+            [
+              "In Stage II, we drop ImageNet data",
+              "normal text-to-image data",
+              "dense descriptions"
+            ]
+          ]
+        },
+        {
+          "id": "stage_iii_ordered_data_ratio_change",
+          "pages": [
+            4
+          ],
+          "anchor_alternatives": [
+            [
+              "multimodal data, pure text data, and text-to-image data",
+              "from 7:3:10 to 5:1:4"
+            ]
+          ]
+        }
+      ],
+      "expected_facts": [
+        "Previously, 66.67% of Stage II text-to-image training steps went to its first, ImageNet/category-name part.",
+        "Janus-Pro lengthens Stage I to provide sufficient ImageNet training.",
+        "Stage II drops ImageNet and uses normal text-to-image data with dense descriptions.",
+        "Stage III changes the ordered ratio of multimodal understanding, pure text and text-to-image data from 7:3:10 to 5:1:4."
+      ]
+    },
+    {
+      "id": "janus-04-data-scaling",
+      "category": "exact",
+      "question": "What training-data additions does Janus-Pro report for multimodal understanding and visual generation, and what real-to-synthetic ratio is used?",
+      "kind": "answerable",
+      "evidence_groups": [
+        {
+          "id": "understanding_pretraining_added_samples",
+          "pages": [
+            4
+          ],
+          "anchor_alternatives": [
+            [
+              "Multimodal Understanding",
+              "Stage II pretraining data",
+              "add approximately 90 million samples"
+            ]
+          ]
+        },
+        {
+          "id": "synthetic_aesthetic_added_samples",
+          "pages": [
+            4
+          ],
+          "anchor_alternatives": [
+            [
+              "approximately 72 million samples of synthetic aesthetic data"
+            ]
+          ]
+        },
+        {
+          "id": "real_to_synthetic_unified_pretraining_ratio",
+          "pages": [
+            4
+          ],
+          "anchor_alternatives": [
+            [
+              "ratio of real to synthetic data to 1:1 during the unified pretraining stage"
+            ]
+          ]
+        }
+      ],
+      "expected_facts": [
+        "For multimodal-understanding Stage II pretraining, approximately 90 million samples are added.",
+        "For visual generation, approximately 72 million synthetic aesthetic samples are incorporated.",
+        "The real-to-synthetic ratio during unified pretraining is 1:1."
+      ]
+    },
+    {
+      "id": "janus-05-architecture-table",
+      "category": "table_numeric",
+      "question": "According to Table 1, how many attention heads and layers do Janus-Pro-1B and Janus-Pro-7B have?",
+      "kind": "answerable",
+      "evidence_groups": [
+        {
+          "id": "one_b_attention_heads",
+          "pages": [
+            5
+          ],
+          "anchor_alternatives": [
+            [
+              "Janus-Pro-1B Janus-Pro-7B Vocabulary size 100K 100K Embedding size 2048 4096 Context Window 4096 4096 #Attention heads 16 32"
+            ],
+            [
+              "Table 1",
+              "Architectural configuration for Janus-Pro",
+              "#Attention heads, Janus-Pro-1B = 16."
+            ]
+          ]
+        },
+        {
+          "id": "seven_b_attention_heads",
+          "pages": [
+            5
+          ],
+          "anchor_alternatives": [
+            [
+              "Janus-Pro-1B Janus-Pro-7B Vocabulary size 100K 100K Embedding size 2048 4096 Context Window 4096 4096 #Attention heads 16 32"
+            ],
+            [
+              "Table 1",
+              "Architectural configuration for Janus-Pro",
+              "#Attention heads, Janus-Pro-7B = 32."
+            ]
+          ]
+        },
+        {
+          "id": "one_b_layers",
+          "pages": [
+            5
+          ],
+          "anchor_alternatives": [
+            [
+              "Janus-Pro-1B Janus-Pro-7B Vocabulary size 100K 100K Embedding size 2048 4096 Context Window 4096 4096 #Attention heads 16 32 #Layers 24 30"
+            ],
+            [
+              "Table 1",
+              "Architectural configuration for Janus-Pro",
+              "#Layers, Janus-Pro-1B = 24."
+            ]
+          ]
+        },
+        {
+          "id": "seven_b_layers",
+          "pages": [
+            5
+          ],
+          "anchor_alternatives": [
+            [
+              "Janus-Pro-1B Janus-Pro-7B Vocabulary size 100K 100K Embedding size 2048 4096 Context Window 4096 4096 #Attention heads 16 32 #Layers 24 30"
+            ],
+            [
+              "Table 1",
+              "Architectural configuration for Janus-Pro",
+              "#Layers, Janus-Pro-7B = 30"
+            ]
+          ]
+        }
+      ],
+      "expected_facts": [
+        "Table 1 lists Janus-Pro-1B with 16 attention heads and 24 layers.",
+        "Table 1 lists Janus-Pro-7B with 32 attention heads and 30 layers."
+      ]
+    },
+    {
+      "id": "janus-06-generation-benchmark-tables",
+      "category": "table_numeric",
+      "question": "What overall GenEval and DPG-Bench results are reported for Janus-Pro-7B?",
+      "kind": "answerable",
+      "evidence_groups": [
+        {
+          "id": "seven_b_geneval_overall",
+          "pages": [
+            7
+          ],
+          "anchor_alternatives": [
+            [
+              "Table 4",
+              "GenEval benchmark",
+              "Janus-Pro-7B 0.99 0.89 0.59 0.90 0.79 0.66 0.80"
+            ],
+            [
+              "Table 4, our Janus-Pro-7B obtains 80% overall accuracy on GenEval"
+            ]
+          ]
+        },
+        {
+          "id": "seven_b_dpg_bench_overall",
+          "pages": [
+            7
+          ],
+          "anchor_alternatives": [
+            [
+              "Table 5",
+              "DPG-Bench",
+              "Janus-Pro-7B 86.90 88.90 89.40 89.32 89.48 84.19"
+            ],
+            [
+              "Janus-Pro-7B, Overall↑ = 84.19",
+              "Table 5, Janus-Pro achieves a score of 84.19 on DPG-Bench"
+            ]
+          ]
+        }
+      ],
+      "expected_facts": [
+        "Table 4 reports an overall GenEval score of 0.80 for Janus-Pro-7B, described in the text as 80% overall accuracy.",
+        "Table 5 reports an overall DPG-Bench score of 84.19 for Janus-Pro-7B.",
+        "The scores belong to different benchmarks and must not be conflated with individual subcategory scores."
+      ]
+    },
+    {
+      "id": "janus-07-resolution-limitations",
+      "category": "paraphrase",
+      "question": "Why can Janus-Pro struggle with OCR and small facial details, and what remedy does the paper suggest?",
+      "kind": "answerable",
+      "evidence_groups": [
+        {
+          "id": "understanding_resolution_limit",
+          "pages": [
+            9
+          ],
+          "anchor_alternatives": [
+            [
+              "input resolution is limited to 384 × 384"
+            ]
+          ]
+        },
+        {
+          "id": "resolution_affects_ocr",
+          "pages": [
+            9
+          ],
+          "anchor_alternatives": [
+            [
+              "affects its performance in fine-grained tasks such as OCR"
+            ]
+          ]
+        },
+        {
+          "id": "generation_tokenizer_reconstruction_losses",
+          "pages": [
+            9
+          ],
+          "anchor_alternatives": [
+            [
+              "reconstruction losses introduced by the vision tokenizer",
+              "still lack fine details"
+            ]
+          ]
+        },
+        {
+          "id": "small_facial_regions_under_detailed",
+          "pages": [
+            9
+          ],
+          "anchor_alternatives": [
+            [
+              "small facial regions occupying limited image space may appear under-detailed"
+            ]
+          ]
+        },
+        {
+          "id": "suggested_higher_resolution",
+          "pages": [
+            9
+          ],
+          "anchor_alternatives": [
+            [
+              "Increasing the image resolution could mitigate these issues"
+            ]
+          ]
+        }
+      ],
+      "expected_facts": [
+        "The multimodal-understanding input resolution is limited to 384 by 384.",
+        "This harms fine-grained understanding tasks such as OCR.",
+        "For generation, low resolution and vision-tokenizer reconstruction losses leave fine details missing.",
+        "Small facial regions may therefore appear under-detailed.",
+        "The paper suggests higher image resolution could mitigate these issues."
+      ]
+    },
+    {
+      "id": "janus-08-electricity-unsupported",
+      "category": "absent_answer",
+      "question": "How many kilowatt-hours of electricity did training Janus-Pro-7B consume?",
+      "kind": "unsupported",
+      "evidence_groups": [],
+      "expected_facts": [
+        "The paper does not report a total electricity consumption value in kilowatt-hours for Janus-Pro-7B.",
+        "Reported training time and cluster/GPU counts do not establish electricity use; a numeric total requires assumptions not supplied by the paper.",
+        "A correct response says the requested quantity is not reported and does not invent a value.",
+        "There is no positive relevance gold for this question: recall/MRR/all-required metrics are null, and abstention is not assessed by the simulated-generation retrieval suite."
+      ]
+    }
+  ]
+}

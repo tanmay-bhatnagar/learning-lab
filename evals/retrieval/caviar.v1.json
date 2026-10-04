@@ -1,0 +1,217 @@
+{
+  "schema_version": 1,
+  "source": {
+    "path": "data/external/benchmark_PDFs/deepmind_2025_caviar_video_reasoning_2509.07680.pdf",
+    "sha256": "c52f2ff80b02b05e17191526322e4b1e0c72b31da3eebe65f5048394a3c964c5",
+    "physical_pages": 65
+  },
+  "cases": [
+    {
+      "id": "caviar-01-name",
+      "category": "terminology",
+      "question": "What does CAViAR stand for?",
+      "kind": "answerable",
+      "evidence_groups": [
+        {
+          "id": "acronym_expansion",
+          "pages": [
+            1
+          ],
+          "anchor_alternatives": [
+            [
+              "CAViAR: Critic-Augmented Video Agentic Reasoning"
+            ]
+          ]
+        }
+      ],
+      "expected_facts": [
+        "CAViAR stands for Critic-Augmented Video Agentic Reasoning."
+      ]
+    },
+    {
+      "id": "caviar-02-sampling",
+      "category": "exact",
+      "question": "How many strategies are used for the evaluated tasks, and how many in-context examples does the critic receive per dataset?",
+      "kind": "answerable",
+      "evidence_groups": [
+        {
+          "id": "strategy_count",
+          "pages": [
+            6
+          ],
+          "anchor_alternatives": [
+            [
+              "Selecting subsets that result in different strategies leads to 3 strategies for the tasks we consider"
+            ]
+          ]
+        },
+        {
+          "id": "critic_example_count",
+          "pages": [
+            6
+          ],
+          "anchor_alternatives": [
+            [
+              "We use 4 in-context examples for the critic for each dataset."
+            ]
+          ]
+        }
+      ],
+      "expected_facts": [
+        "The evaluated tasks use 3 strategies selected through different module subsets.",
+        "The critic uses 4 in-context examples for each dataset."
+      ]
+    },
+    {
+      "id": "caviar-03-feedback-and-selection",
+      "category": "multi_evidence",
+      "question": "How does CAViAR use program execution feedback to adapt its reasoning, and how does the critic choose among candidate strategies?",
+      "kind": "answerable",
+      "evidence_groups": [
+        {
+          "id": "agent_feedback",
+          "pages": [
+            4
+          ],
+          "anchor_alternatives": [
+            [
+              "the reasoning agent is given both the generated program and its result and asked to produce another program as the next step"
+            ]
+          ]
+        },
+        {
+          "id": "critic_comparative_selection",
+          "pages": [
+            6
+          ],
+          "anchor_alternatives": [
+            [
+              "We therefore present all sampled strategies to the reasoning critic at once, prompting it to critique the given strategies and identify any that could be considered ‘winning strategies.’"
+            ],
+            [
+              "We therefore present all sampled strategies to the reasoning critic at once, prompting it to critique the given strategies and identify any that could be considered 'winning strategies.'"
+            ]
+          ]
+        }
+      ],
+      "expected_facts": [
+        "The reasoning agent observes each generated program and its execution result before generating the next program.",
+        "The critic receives all sampled strategies together, critiques them, and identifies winning strategies."
+      ]
+    },
+    {
+      "id": "caviar-04-activitynet-results",
+      "category": "table_numeric",
+      "question": "What metric is used for ActivityNet-RTL, and what Table 3 scores are reported for Direct Inference and CAViAR?",
+      "kind": "answerable",
+      "evidence_groups": [
+        {
+          "id": "rtl_metric",
+          "pages": [
+            8
+          ],
+          "anchor_alternatives": [
+            [
+              "mean intersection-over-union (mIOU)"
+            ]
+          ]
+        },
+        {
+          "id": "direct_inference_miou",
+          "pages": [
+            8
+          ],
+          "anchor_alternatives": [
+            [
+              "Table 3: ActivityNet-RTL Results.",
+              "mIOU",
+              "Direct Inference 23.0"
+            ],
+            [
+              "Table 3: ActivityNet-RTL Results.",
+              "Direct Inference, mIOU ↑ = 23.0"
+            ]
+          ]
+        },
+        {
+          "id": "caviar_miou",
+          "pages": [
+            8
+          ],
+          "anchor_alternatives": [
+            [
+              "Table 3: ActivityNet-RTL Results.",
+              "mIOU",
+              "CAViAR 32.3"
+            ],
+            [
+              "Table 3: ActivityNet-RTL Results.",
+              "CAViAR, mIOU ↑ = 32.3"
+            ]
+          ]
+        }
+      ],
+      "expected_facts": [
+        "The ActivityNet-RTL metric is mean intersection-over-union (mIOU).",
+        "Table 3 reports Direct Inference mIOU of 23.0.",
+        "Table 3 reports CAViAR mIOU of 32.3."
+      ]
+    },
+    {
+      "id": "caviar-05-limitations",
+      "category": "paraphrase",
+      "question": "What limitations does the paper identify for find_when on long videos and for applying CAViAR in constrained settings?",
+      "kind": "answerable",
+      "evidence_groups": [
+        {
+          "id": "long_video_module_reliability",
+          "pages": [
+            8
+          ],
+          "anchor_alternatives": [
+            [
+              "we find that the find_when module appears to be less reliable for very long videos"
+            ]
+          ]
+        },
+        {
+          "id": "additional_compute_limitation",
+          "pages": [
+            9
+          ],
+          "anchor_alternatives": [
+            [
+              "CAViAR thus uses additional compute with the same base model to improve performance. This could be a limitation in compute-limited settings"
+            ]
+          ]
+        },
+        {
+          "id": "strong_base_model_requirement",
+          "pages": [
+            9
+          ],
+          "anchor_alternatives": [
+            [
+              "This could be a limitation in compute-limited settings or when a strong instruction-following base MLLM is not available."
+            ]
+          ]
+        }
+      ],
+      "expected_facts": [
+        "The find_when module appears less reliable for very long videos.",
+        "CAViAR uses additional compute with the same base model, which can limit its use in compute-limited settings.",
+        "Lack of a strong instruction-following base MLLM is another stated limitation."
+      ]
+    },
+    {
+      "id": "caviar-06-electricity",
+      "category": "absent_answer",
+      "question": "What exact electricity consumption in kilowatt-hours is reported for the CAViAR LVBench evaluation?",
+      "kind": "unsupported",
+      "evidence_groups": [],
+      "expected_facts": [
+        "The paper does not report the electricity consumption in kilowatt-hours for the CAViAR LVBench evaluation."
+      ]
+    }
+  ]
+}

@@ -1,0 +1,649 @@
+{
+  "schema_version": 1,
+  "source": {
+    "path": "data/external/benchmark_PDFs/openai_2022_whisper_speech_recognition.pdf",
+    "sha256": "6337bde031b2f237547a977b022f831169a7e05b4d9047f29501166d83594566",
+    "physical_pages": 28
+  },
+  "cases": [
+    {
+      "id": "whisper-01-frontend",
+      "category": "exact",
+      "question": "What sample rate, Mel-channel count, analysis window and stride does Whisper use?",
+      "kind": "answerable",
+      "evidence_groups": [
+        {
+          "id": "sample_rate",
+          "pages": [
+            3
+          ],
+          "anchor_alternatives": [
+            [
+              "re-sampled to 16,000 Hz"
+            ],
+            [
+              "resampled to 16,000 Hz"
+            ],
+            [
+              "re-sampled to 16000 Hz"
+            ]
+          ]
+        },
+        {
+          "id": "mel_channels",
+          "pages": [
+            3
+          ],
+          "anchor_alternatives": [
+            [
+              "80-channel log-magnitude Mel"
+            ],
+            [
+              "80-channel logmagnitude Mel spectrogram"
+            ]
+          ]
+        },
+        {
+          "id": "analysis_window",
+          "pages": [
+            3
+          ],
+          "anchor_alternatives": [
+            [
+              "25-millisecond windows"
+            ]
+          ]
+        },
+        {
+          "id": "analysis_stride",
+          "pages": [
+            3
+          ],
+          "anchor_alternatives": [
+            [
+              "stride of 10 milliseconds"
+            ]
+          ]
+        }
+      ],
+      "expected_facts": [
+        "Audio is resampled to 16,000 Hz.",
+        "The input is an 80-channel log-magnitude Mel spectrogram.",
+        "Analysis windows are 25 milliseconds, with a 10-millisecond stride."
+      ]
+    },
+    {
+      "id": "whisper-02-model-table",
+      "category": "exact",
+      "question": "According to Table 1, how many parameters and Transformer layers do Tiny and Large have?",
+      "kind": "answerable",
+      "evidence_groups": [
+        {
+          "id": "tiny_layers",
+          "pages": [
+            5
+          ],
+          "anchor_alternatives": [
+            [
+              "Tiny 4 384 6 39M"
+            ],
+            [
+              "Tiny, Layers = 4."
+            ]
+          ]
+        },
+        {
+          "id": "tiny_parameters",
+          "pages": [
+            5
+          ],
+          "anchor_alternatives": [
+            [
+              "Tiny 4 384 6 39M"
+            ],
+            [
+              "Tiny, Parameters = 39M."
+            ]
+          ]
+        },
+        {
+          "id": "large_layers",
+          "pages": [
+            5
+          ],
+          "anchor_alternatives": [
+            [
+              "Large 32 1280 20 1550M"
+            ],
+            [
+              "Large, Layers = 32."
+            ]
+          ]
+        },
+        {
+          "id": "large_parameters",
+          "pages": [
+            5
+          ],
+          "anchor_alternatives": [
+            [
+              "Large 32 1280 20 1550M"
+            ],
+            [
+              "Large, Parameters = 1550M"
+            ]
+          ]
+        }
+      ],
+      "expected_facts": [
+        "Table 1 lists Tiny with 4 layers and 39M parameters.",
+        "Table 1 lists Large with 32 layers and 1550M parameters."
+      ]
+    },
+    {
+      "id": "whisper-03-robustness-table",
+      "category": "exact",
+      "question": "In Table 2, what are wav2vec 2.0 Large and Whisper Large V2 average WERs, and what relative error reduction is reported?",
+      "kind": "answerable",
+      "evidence_groups": [
+        {
+          "id": "average_wav2vec_wer",
+          "pages": [
+            6
+          ],
+          "anchor_alternatives": [
+            [
+              "Average 29.3 12.8 55.2"
+            ],
+            [
+              "Average, wav2vec2.0 Large(noLM) = 29.3."
+            ],
+            [
+              "Average, wav2vec 2.0 Large (no LM) = 29.3."
+            ]
+          ]
+        },
+        {
+          "id": "average_whisper_wer",
+          "pages": [
+            6
+          ],
+          "anchor_alternatives": [
+            [
+              "Average 29.3 12.8 55.2"
+            ],
+            [
+              "Average, Whisper LargeV2 = 12.8."
+            ],
+            [
+              "Average, Whisper Large V2 = 12.8."
+            ]
+          ]
+        },
+        {
+          "id": "average_relative_error_reduction",
+          "pages": [
+            6
+          ],
+          "anchor_alternatives": [
+            [
+              "Average 29.3 12.8 55.2"
+            ],
+            [
+              "Average, RER (%) = 55.2"
+            ]
+          ]
+        },
+        {
+          "id": "table2_models_and_metric",
+          "pages": [
+            6
+          ],
+          "anchor_alternatives": [
+            [
+              "wav2vec 2.0",
+              "Large V2",
+              "relative error reduction"
+            ],
+            [
+              "wav2vec 2.0",
+              "Large V2",
+              "RER"
+            ],
+            [
+              "wav2vec2.0 Large(noLM)",
+              "Whisper LargeV2",
+              "RER (%)"
+            ]
+          ]
+        }
+      ],
+      "expected_facts": [
+        "Table 2 reports average WER 29.3% for wav2vec 2.0 Large (no LM).",
+        "Table 2 reports average WER 12.8% for Whisper Large V2.",
+        "The reported average relative error reduction is 55.2%, not a recomputation from the two average WER values."
+      ]
+    },
+    {
+      "id": "whisper-04-language-mismatch",
+      "category": "paraphrase",
+      "question": "When the detected audio language and transcript language disagree, how is the pair handled?",
+      "kind": "answerable",
+      "evidence_groups": [
+        {
+          "id": "exclude_mismatched_asr_pair",
+          "pages": [
+            2
+          ],
+          "anchor_alternatives": [
+            [
+              "If the two do not match",
+              "speech recognition training example"
+            ]
+          ]
+        },
+        {
+          "id": "english_translation_exception",
+          "pages": [
+            2
+          ],
+          "anchor_alternatives": [
+            [
+              "transcript language is English",
+              "speech translation training examples"
+            ]
+          ]
+        }
+      ],
+      "expected_facts": [
+        "Mismatched pairs are not included as speech-recognition training examples.",
+        "If the transcript is English, an exception admits the pair as X-to-English speech-translation training data."
+      ]
+    },
+    {
+      "id": "whisper-05-timestamps",
+      "category": "paraphrase",
+      "question": "How precise are Whisper predicted timestamps, and where is each caption start and end time placed?",
+      "kind": "answerable",
+      "evidence_groups": [
+        {
+          "id": "timestamp_resolution",
+          "pages": [
+            3
+          ],
+          "anchor_alternatives": [
+            [
+              "nearest 20 milliseconds"
+            ]
+          ]
+        },
+        {
+          "id": "start_timestamp_placement",
+          "pages": [
+            3
+          ],
+          "anchor_alternatives": [
+            [
+              "start time token is predicted before each caption"
+            ]
+          ]
+        },
+        {
+          "id": "end_timestamp_placement",
+          "pages": [
+            3
+          ],
+          "anchor_alternatives": [
+            [
+              "end time token is predicted after"
+            ]
+          ]
+        }
+      ],
+      "expected_facts": [
+        "Times are quantized to the nearest 20 milliseconds.",
+        "A caption start-time token precedes its text, and its end-time token follows its text."
+      ]
+    },
+    {
+      "id": "whisper-06-failure-modes",
+      "category": "paraphrase",
+      "question": "Which stubborn long-form transcription failures remain despite improved decoding?",
+      "kind": "answerable",
+      "evidence_groups": [
+        {
+          "id": "repetition_loop",
+          "pages": [
+            14
+          ],
+          "anchor_alternatives": [
+            [
+              "repeat loops"
+            ]
+          ]
+        },
+        {
+          "id": "omitted_edge_words",
+          "pages": [
+            14
+          ],
+          "anchor_alternatives": [
+            [
+              "first or last few words of an audio segment"
+            ]
+          ]
+        },
+        {
+          "id": "unrelated_hallucination",
+          "pages": [
+            14
+          ],
+          "anchor_alternatives": [
+            [
+              "complete hallucination",
+              "entirely unrelated to the actual audio"
+            ]
+          ]
+        },
+        {
+          "id": "heuristics_help_but_errors_remain",
+          "pages": [
+            14
+          ],
+          "anchor_alternatives": [
+            [
+              "decoding details discussed in Section 4.5 help significantly"
+            ]
+          ]
+        }
+      ],
+      "expected_facts": [
+        "Remaining failures include repetition loops.",
+        "Remaining failures include omission of the first or last few words of an audio segment.",
+        "Remaining failures include hallucinated transcripts entirely unrelated to the audio.",
+        "The Section 4.5 decoding heuristics help significantly but do not eliminate these failures."
+      ]
+    },
+    {
+      "id": "whisper-07-normalization-purpose",
+      "category": "multi_evidence",
+      "question": "Why does the paper avoid substantial transcript standardization during training but standardize text before calculating WER?",
+      "kind": "answerable",
+      "evidence_groups": [
+        {
+          "id": "training_raw_text",
+          "pages": [
+            2
+          ],
+          "anchor_alternatives": [
+            [
+              "raw text of transcripts",
+              "without any significant standardization"
+            ]
+          ]
+        },
+        {
+          "id": "training_pipeline_purpose",
+          "pages": [
+            2
+          ],
+          "anchor_alternatives": [
+            [
+              "separate inverse text normalization step",
+              "naturalistic transcriptions"
+            ]
+          ]
+        },
+        {
+          "id": "evaluation_normalization_purpose",
+          "pages": [
+            5
+          ],
+          "anchor_alternatives": [
+            [
+              "standardization of text before the WER calculation",
+              "non-semantic differences"
+            ]
+          ]
+        }
+      ],
+      "expected_facts": [
+        "Training predicts raw transcript text with minimal standardization, relying on the sequence-to-sequence model to map audio to natural transcribed forms.",
+        "This avoids a separate inverse text-normalization stage.",
+        "Evaluation standardizes text to reduce WER penalties for innocuous formatting and transcript-style differences.",
+        "These choices address different stages and are not contradictory."
+      ]
+    },
+    {
+      "id": "whisper-08-large-v2-training",
+      "category": "multi_evidence",
+      "question": "How does Large V2 qualify the statement that Whisper used no augmentation or regularization, and what update and batch changes are listed?",
+      "kind": "answerable",
+      "evidence_groups": [
+        {
+          "id": "original_no_regularization",
+          "pages": [
+            4
+          ],
+          "anchor_alternatives": [
+            [
+              "do not use any data augmentation or regularization"
+            ]
+          ]
+        },
+        {
+          "id": "v2_more_epochs",
+          "pages": [
+            4
+          ],
+          "anchor_alternatives": [
+            [
+              "2.5X more epochs"
+            ],
+            [
+              "2.5 X more epochs"
+            ]
+          ]
+        },
+        {
+          "id": "v2_specaugment",
+          "pages": [
+            4
+          ],
+          "anchor_alternatives": [
+            [
+              "adding SpecAugment"
+            ]
+          ]
+        },
+        {
+          "id": "v2_stochastic_depth",
+          "pages": [
+            4
+          ],
+          "anchor_alternatives": [
+            [
+              "Stochastic Depth"
+            ]
+          ]
+        },
+        {
+          "id": "v2_bpe_dropout",
+          "pages": [
+            4
+          ],
+          "anchor_alternatives": [
+            [
+              "BPE Dropout"
+            ]
+          ]
+        },
+        {
+          "id": "original_updates_row",
+          "pages": [
+            28
+          ],
+          "anchor_alternatives": [
+            [
+              "Table 17. Whisper training hyperparameters. Updates, Value = 1048576."
+            ]
+          ]
+        },
+        {
+          "id": "original_batch_row",
+          "pages": [
+            28
+          ],
+          "anchor_alternatives": [
+            [
+              "Table 17. Whisper training hyperparameters. Updates, Value = 1048576. Batch Size, Value = 256."
+            ]
+          ]
+        },
+        {
+          "id": "v2_updates_row",
+          "pages": [
+            28
+          ],
+          "anchor_alternatives": [
+            [
+              "Table 18. Hyperparameters changed for Whisper Large V2. Updates, Value = 655360."
+            ]
+          ]
+        },
+        {
+          "id": "v2_batch_row",
+          "pages": [
+            28
+          ],
+          "anchor_alternatives": [
+            [
+              "Table 18. Hyperparameters changed for Whisper Large V2. Updates, Value = 655360. Batch Size, Value = 1024."
+            ]
+          ]
+        }
+      ],
+      "expected_facts": [
+        "Original training used no data augmentation or regularization.",
+        "Footnote 3 says Large V2 added SpecAugment, stochastic depth and BPE dropout and trained for 2.5 times more epochs.",
+        "Table 17 lists 1048576 updates and batch size 256 for the original setup.",
+        "Table 18 lists 655360 updates and batch size 1024 for Large V2.",
+        "More epochs must not be interpreted as more updates."
+      ]
+    },
+    {
+      "id": "whisper-09-longform-heuristics",
+      "category": "multi_evidence",
+      "question": "What triggers temperature fallback in long-form decoding, and how does the no-speech decision become more reliable?",
+      "kind": "answerable",
+      "evidence_groups": [
+        {
+          "id": "temperature_zero",
+          "pages": [
+            12
+          ],
+          "anchor_alternatives": [
+            [
+              "start with temperature 0"
+            ]
+          ]
+        },
+        {
+          "id": "temperature_increment_and_cap",
+          "pages": [
+            12
+          ],
+          "anchor_alternatives": [
+            [
+              "temperature by 0.2 up to 1.0"
+            ]
+          ]
+        },
+        {
+          "id": "log_probability_fallback_trigger",
+          "pages": [
+            12
+          ],
+          "anchor_alternatives": [
+            [
+              "average log probability",
+              "lower than −1"
+            ],
+            [
+              "average log probability",
+              "lower than -1"
+            ]
+          ]
+        },
+        {
+          "id": "compression_fallback_trigger",
+          "pages": [
+            12
+          ],
+          "anchor_alternatives": [
+            [
+              "gzip compression rate higher than 2.4"
+            ]
+          ]
+        },
+        {
+          "id": "no_speech_alone_insufficient",
+          "pages": [
+            12
+          ],
+          "anchor_alternatives": [
+            [
+              "nospeech",
+              "alone is not sufficient"
+            ]
+          ]
+        },
+        {
+          "id": "no_speech_probability_threshold",
+          "pages": [
+            13
+          ],
+          "anchor_alternatives": [
+            [
+              "no-speech probability threshold of 0.6"
+            ]
+          ]
+        },
+        {
+          "id": "combined_log_probability_threshold",
+          "pages": [
+            13
+          ],
+          "anchor_alternatives": [
+            [
+              "log-probability threshold of −1",
+              "voice activity detection"
+            ],
+            [
+              "log-probability threshold of -1",
+              "voice activity detection"
+            ]
+          ]
+        }
+      ],
+      "expected_facts": [
+        "Decoding starts at temperature 0, increasing by 0.2 up to 1.0 on fallback.",
+        "Fallback triggers when average generated-token log probability is below -1 or generated-text gzip compression ratio exceeds 2.4.",
+        "The no-speech probability alone is insufficient.",
+        "Combining a no-speech probability threshold of 0.6 with an average log-probability threshold of -1 improves voice-activity detection."
+      ]
+    },
+    {
+      "id": "whisper-10-electricity-unsupported",
+      "category": "absent_answer",
+      "question": "How many kilowatt-hours of electricity were consumed training the original Whisper Large model?",
+      "kind": "unsupported",
+      "evidence_groups": [],
+      "expected_facts": [
+        "The paper does not report an electricity consumption total in kilowatt-hours for the original Large model.",
+        "A correct response explicitly states that the requested value is not reported and does not invent or estimate a numeric total.",
+        "This case has no positive relevance gold; recall, MRR and all-evidence retrieval success are not applicable."
+      ]
+    }
+  ]
+}

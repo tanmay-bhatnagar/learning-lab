@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "selected_on": "2026-10-03",
+  "purpose": "Three existing public PDFs selected for the retrieval and trace evaluation suite. Tanmay reduced the original five-paper selection to its first three on 2026-10-03; the other two are outside the active suite.",
+  "corpus": "data/external/benchmark_PDFs",
+  "candidate_count": 107,
+  "selection_method": "Python random.Random(seed).sample(sorted top-level regular non-symlink PDF paths, 5), without replacement; retain the first three after scope reduction. No redraw. Temporary download directories excluded.",
+  "seed": 13517628162907562253,
+  "candidate_paths_sha256": "80e014a58ffade5d717517c8216700d15716134c5aa6a21873fc04a7e6695af7",
+  "files": [
+    {
+      "path": "data/external/benchmark_PDFs/openai_2022_whisper_speech_recognition.pdf",
+      "sha256": "6337bde031b2f237547a977b022f831169a7e05b4d9047f29501166d83594566",
+      "bytes": 1008644
+    },
+    {
+      "path": "data/external/benchmark_PDFs/deepseek_janus_pro_2501.17811.pdf",
+      "sha256": "2f5b4b26341f7be4a5c2851718f84af9c41b3084093ad71254e54ad68272a793",
+      "bytes": 2915603
+    },
+    {
+      "path": "data/external/benchmark_PDFs/deepmind_2025_caviar_video_reasoning_2509.07680.pdf",
+      "sha256": "c52f2ff80b02b05e17191526322e4b1e0c72b31da3eebe65f5048394a3c964c5",
+      "bytes": 1707865
+    }
+  ]
+}
