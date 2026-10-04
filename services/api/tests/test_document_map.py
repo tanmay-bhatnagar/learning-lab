@@ -188,7 +188,9 @@ def test_shared_caption_reference_is_rejected_instead_of_duplicated() -> None:
         num_rows=1,
         num_cols=1,
         table_cells=[
-            TableCell(text="Value", start_row_offset_idx=0, end_row_offset_idx=1, start_col_offset_idx=0, end_col_offset_idx=1)
+            TableCell(
+                text="Value", start_row_offset_idx=0, end_row_offset_idx=1, start_col_offset_idx=0, end_col_offset_idx=1
+            )
         ],
     )
     document.add_table(table_data, caption=caption)
@@ -233,7 +235,13 @@ def test_caption_page_provenance_is_included_in_table_span() -> None:
             num_rows=1,
             num_cols=1,
             table_cells=[
-                TableCell(text="Value", start_row_offset_idx=0, end_row_offset_idx=1, start_col_offset_idx=0, end_col_offset_idx=1)
+                TableCell(
+                    text="Value",
+                    start_row_offset_idx=0,
+                    end_row_offset_idx=1,
+                    start_col_offset_idx=0,
+                    end_col_offset_idx=1,
+                )
             ],
         ),
         caption=caption,

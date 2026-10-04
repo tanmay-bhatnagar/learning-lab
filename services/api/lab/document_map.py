@@ -105,10 +105,14 @@ def _pages(item: NodeItem) -> tuple[list[int], list[str]]:
 def _walk_items(document: DoclingDocument) -> list[tuple[NodeItem, bool]]:
     items: list[tuple[NodeItem, bool]] = []
     try:
-        for item, _depth in document.iterate_items(with_groups=True, traverse_pictures=True):
+        for item, _depth in document.iterate_items(
+            with_groups=True,
+            traverse_pictures=True,
+            included_content_layers=set(ContentLayer),
+        ):
             if item is document.body or isinstance(item, GroupItem):
                 continue
-            items.append((item, False))
+            items.append((item, item.content_layer == ContentLayer.FURNITURE))
         furniture = document.__dict__["furniture"]
         for item, _depth in document.iterate_items(
             root=furniture,
@@ -137,7 +141,14 @@ def _source_units(document: DoclingDocument, revision: str) -> tuple[list[dict[s
         refs.add(source_ref)
 
     items_by_ref = {item.self_ref: item for item, _ in items}
-    owned_caption_refs = set().union(*(_caption_refs(item) for item, _ in items)) if items else set()
+    caption_owners: dict[str, str] = {}
+    for item, _ in items:
+        for ref in _caption_refs(item):
+            prior_owner = caption_owners.get(ref)
+            if prior_owner is not None and prior_owner != item.self_ref:
+                raise CorruptData(f"A native caption reference has multiple owners: {ref}")
+            caption_owners[ref] = item.self_ref
+    owned_caption_refs = set(caption_owners)
     for item, _ in items:
         for ref in _caption_refs(item):
             resolved = items_by_ref.get(ref)
@@ -153,6 +164,10 @@ def _source_units(document: DoclingDocument, revision: str) -> tuple[list[dict[s
             continue
         content, kind, item_warnings = _serialize(item, document)
         pages, page_warnings = _pages(item)
+        for caption_ref in sorted(_caption_refs(item)):
+            caption_pages, caption_warnings = _pages(items_by_ref[caption_ref])
+            pages = sorted(set(pages).union(caption_pages))
+            page_warnings.extend(caption_warnings)
         if any(page not in valid_pages for page in pages):
             raise CorruptData(f"Native source item {source_ref} refers to a page absent from the saved document.")
         item_warnings.extend(page_warnings)
@@ -292,7 +307,16 @@ def _build_outline(
     sections = ([preamble] if preamble is not None else []) + roots
     for section in roots:
         _aggregate(section)
+    unit_order = {unit["id"]: index for index, unit in enumerate(units)}
+    for section in sections:
+        _sort_aggregate_source_ids(section, unit_order)
     return "headings", sections
+
+
+def _sort_aggregate_source_ids(section: dict[str, object], unit_order: Mapping[str, int]) -> None:
+    section["source_unit_ids"] = sorted(section["source_unit_ids"], key=unit_order.__getitem__)
+    for child in section["children"]:
+        _sort_aggregate_source_ids(child, unit_order)
 
 
 def _native_heading_owner(
