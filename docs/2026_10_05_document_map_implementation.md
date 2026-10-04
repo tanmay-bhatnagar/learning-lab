@@ -43,3 +43,7 @@ Conservative validation decisions: positive provenance referring to a missing na
 ## Slice 2 — outline persistence and API
 
 In progress. Code owns map storage/API boundaries and tests, plus router registration. Explicit POST builds; GET never creates an outline or invokes a model. Revision binds actual original PDF bytes, exact native artifact bytes and builder version, because a source hash alone misses changed extraction. Identical builds preserve saved work; changed extraction is reported stale before an explicit rebuild. The alternative of embedding maps in conversation records was rejected because map ownership is topic/file, not chat. Corrupt saved records must fail visibly rather than masquerade as not built.
+
+### Isolated real-artifact source compatibility
+
+Coordinator ran the pure builder read-only on the three existing isolated public-paper native artifacts (Whisper, Janus-Pro, CAVIAR) after slice 1 review. All built without new parsing or model calls. Root sections: 53, 21, 47 respectively (flat headings plus preamble). Source-item accounting was 1239/1239, 258/258 and 554/554. Canonical unit counts were 1210, 240 and 537; exclusions/warnings remain visible. This establishes compatibility with those saved artifact structures, not source-text fidelity, summary quality or full PDF coverage. No personal topic was accessed and no original artifact changed.
