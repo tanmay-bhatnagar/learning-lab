@@ -404,6 +404,11 @@ main {
 .map-coverage strong {
   color: var(--ink);
 }
+.map-outline-mode {
+  margin: 10px 0;
+  color: var(--muted);
+  font-size: 13px;
+}
 .map-warning-list {
   color: var(--muted);
   font-size: 13px;
@@ -441,6 +446,20 @@ main {
 }
 .map-pages a {
   color: var(--accent);
+}
+@media (max-width: 680px) {
+  .document-map-header {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .document-map-header label {
+    min-width: 0;
+  }
+  .map-coverage {
+    flex-direction: column;
+    gap: 6px;
+  }
 }
 .count {
   font-size: 10px;

@@ -23,7 +23,7 @@ export function useDocumentMap(
   const [state, setState] = useState<State>(emptyState);
   const revision = useRef(0);
   const controller = useRef<AbortController | null>(null);
-  const responseRef = useRef<DocumentMapResponse | null>(null);
+  const responseRef = useRef<{ topic: string; fileId: string; response: DocumentMapResponse } | null>(null);
   const currentTopic = useRef(topic);
   const selectedFile = files.find((file) => file.id === fileId);
 
@@ -34,14 +34,21 @@ export function useDocumentMap(
       const requestController = new AbortController();
       controller.current = requestController;
       const requestRevision = ++revision.current;
-      setState({ topic, fileId, response: force ? null : responseRef.current, loading: true, error: '' });
+      const cached = responseRef.current;
+      setState({
+        topic,
+        fileId,
+        response: !force && cached?.topic === topic && cached.fileId === fileId ? cached.response : null,
+        loading: true,
+        error: '',
+      });
       try {
         const response = await api(`${filePath(topic, fileId)}/map`, documentMapResponseSchema, {
           signal: requestController.signal,
         });
         if (requestController.signal.aborted || requestRevision !== revision.current || currentTopic.current !== topic)
           return;
-        responseRef.current = response;
+        responseRef.current = { topic, fileId, response };
         setState({ topic, fileId, response, loading: false, error: '' });
       } catch (error) {
         if (aborted(error) || requestRevision !== revision.current || currentTopic.current !== topic) return;
@@ -79,19 +86,21 @@ export function useDocumentMap(
     const requestController = new AbortController();
     controller.current = requestController;
     const requestRevision = ++revision.current;
-    setState({ topic, fileId, response: responseRef.current, loading: true, error: '' });
+    const cached = responseRef.current;
+    const currentResponse = cached?.topic === topic && cached.fileId === fileId ? cached.response : null;
+    setState({ topic, fileId, response: currentResponse, loading: true, error: '' });
     try {
       const response = await api(`${filePath(topic, fileId)}/map`, documentMapResponseSchema, {
         method: 'POST',
         signal: requestController.signal,
       });
       if (!requestController.signal.aborted && requestRevision === revision.current && currentTopic.current === topic) {
-        responseRef.current = response;
+        responseRef.current = { topic, fileId, response };
         setState({ topic, fileId, response, loading: false, error: '' });
       }
     } catch (error) {
       if (!aborted(error) && requestRevision === revision.current && currentTopic.current === topic) {
-        setState({ topic, fileId, response: responseRef.current, loading: false, error: errorText(error) });
+        setState({ topic, fileId, response: currentResponse, loading: false, error: errorText(error) });
       }
     } finally {
       activityApi.end();

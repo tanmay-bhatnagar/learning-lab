@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import mapFixture from './fixtures/documentMapApi.json';
@@ -17,15 +17,27 @@ const mapFile: LabFile = {
 
 const otherFiles: LabFile[] = [
   mapFile,
+  {
+    id: 'second-paper',
+    name: 'Second synthetic paper.pdf',
+    status: 'ready',
+    parser: 'docling',
+    docling_name: 'second-paper.docling.json',
+  },
   { id: 'markdown-file', name: 'Markdown.pdf', status: 'ready', parser: 'markitdown' },
   { id: 'processing-file', name: 'Processing.pdf', status: 'processing', parser: 'docling' },
 ];
 
-function installMapApi(options: { stale?: boolean; invalid?: boolean } = {}) {
+function installMapApi(
+  options: { stale?: boolean; invalid?: boolean; deferFirstGet?: boolean; deferBuild?: boolean } = {},
+) {
   const base = createFakeApi({ files: { 'topic-a': otherFiles } });
   vi.stubGlobal('fetch', base.fetch);
   const mapCalls: { method: string; path: string }[] = [];
   let built = false;
+  let firstGetStarted = false;
+  let releaseFirstGet: (() => void) | null = null;
+  let releaseBuild: (() => void) | null = null;
   const fakeFetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
     const parsed = new URL(url, 'http://test.local');
@@ -38,19 +50,39 @@ function installMapApi(options: { stale?: boolean; invalid?: boolean } = {}) {
     }
     if (method === 'POST') {
       built = true;
+      if (options.deferBuild) {
+        return new Promise<Response>((resolve) => {
+          releaseBuild = () => resolve(new Response(JSON.stringify(mapFixture.build_response), { status: 200 }));
+        });
+      }
       return new Response(JSON.stringify(mapFixture.build_response), { status: 200 });
+    }
+    if (options.deferFirstGet && match[2] === 'synthetic-paper' && !firstGetStarted) {
+      firstGetStarted = true;
+      return new Promise<Response>((resolve) => {
+        releaseFirstGet = () => resolve(new Response(JSON.stringify(mapFixture.build_response), { status: 200 }));
+      });
+    }
+    if (match[2] === 'second-paper') {
+      const alternate = JSON.parse(JSON.stringify(mapFixture.build_response));
+      alternate.map.sections[0].title = 'Alternate outline';
+      return new Response(JSON.stringify(alternate), { status: 200 });
     }
     const response = options.invalid
       ? { status: 'ready', map: { wrong: true } }
       : options.stale
-      ? { ...mapFixture.build_response, status: 'stale' }
-      : built
-        ? mapFixture.build_response
-        : { status: 'not_built', map: null };
+        ? { ...mapFixture.build_response, status: 'stale' }
+        : built
+          ? mapFixture.build_response
+          : { status: 'not_built', map: null };
     return new Response(JSON.stringify(response), { status: 200 });
   };
   vi.stubGlobal('fetch', fakeFetch);
-  return { mapCalls };
+  return {
+    mapCalls,
+    resolveFirstGet: () => releaseFirstGet?.(),
+    resolveBuild: () => releaseBuild?.(),
+  };
 }
 
 async function waitForReady() {
@@ -86,6 +118,41 @@ describe('document map navigation', () => {
 
     await user.click(screen.getByRole('button', { name: /Attached files/i }));
     expect(screen.getByRole('checkbox', { name: 'Include Synthetic paper.pdf in chat' })).not.toBeChecked();
+    await user.click(screen.getByRole('button', { name: 'Map' }));
+    expect(screen.getByRole('combobox', { name: /PDF for map/i })).toHaveValue('synthetic-paper');
+  });
+
+  test('file changes ignore an outstanding response from the previous file', async () => {
+    const { resolveFirstGet } = installMapApi({ deferFirstGet: true });
+    const user = userEvent.setup();
+    render(<App />);
+    await waitForReady();
+    await user.click(screen.getByRole('button', { name: 'Map' }));
+    const picker = screen.getByRole('combobox', { name: /PDF for map/i });
+    await user.selectOptions(picker, 'synthetic-paper');
+    await waitFor(() => expect(resolveFirstGet).toBeDefined());
+    await user.selectOptions(picker, 'second-paper');
+    expect(await screen.findByText('Alternate outline')).toBeInTheDocument();
+    resolveFirstGet();
+    await waitFor(() => expect(screen.getByText('Alternate outline')).toBeInTheDocument());
+    expect(screen.queryByText('Methods')).not.toBeInTheDocument();
+  });
+
+  test('a rapid second build click cannot overlap the first request', async () => {
+    const { mapCalls, resolveBuild } = installMapApi({ deferBuild: true });
+    const user = userEvent.setup();
+    render(<App />);
+    await waitForReady();
+    await user.click(screen.getByRole('button', { name: 'Map' }));
+    await user.selectOptions(screen.getByRole('combobox', { name: /PDF for map/i }), 'synthetic-paper');
+    await screen.findByRole('button', { name: /Build outline/i });
+    const buildButton = screen.getByRole('button', { name: /Build outline/i });
+    fireEvent.click(buildButton);
+    fireEvent.click(buildButton);
+    await waitFor(() => expect(mapCalls.filter((call) => call.method === 'POST')).toHaveLength(1));
+    expect(buildButton).toBeDisabled();
+    resolveBuild();
+    expect(await screen.findByText('Methods')).toBeInTheDocument();
   });
 
   test('stale outline offers explicit rebuild and displays original page links', async () => {
@@ -115,7 +182,7 @@ describe('document map navigation', () => {
     await user.click(screen.getByRole('button', { name: 'Map' }));
     await user.selectOptions(screen.getByRole('combobox', { name: /PDF for map/i }), 'synthetic-paper');
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(/Invalid response/i);
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Invalid .*map/i);
     expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
   });
 });

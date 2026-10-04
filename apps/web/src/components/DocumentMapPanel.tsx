@@ -129,14 +129,20 @@ export function DocumentMapPanel({
           {readyMap && (
             <>
               <div className="map-coverage" aria-label="Source coverage">
-                <strong>Source coverage</strong>
-                <span>{included} included source units</span>
-                <span>{excluded} excluded source units</span>
+                <strong>Extracted source accounting</strong>
+                <span>{included} included extracted units</span>
+                <span>{excluded} excluded extracted units</span>
                 <span>
                   {readyMap.coverage.accounted_source_items} of {readyMap.coverage.total_source_items} source items
                   accounted
                 </span>
+                <span>Accounting describes parser output; it does not measure document completeness.</span>
               </div>
+              <p className="map-outline-mode">
+                {readyMap.outline_mode === 'pages'
+                  ? 'Outline method: page groups from extracted items.'
+                  : 'Outline method: detected headings; hierarchy reflects the stored document structure.'}
+              </p>
               {readyMap.warnings.length > 0 && (
                 <ul className="map-warning-list">
                   {readyMap.warnings.map((warning, index) => (
