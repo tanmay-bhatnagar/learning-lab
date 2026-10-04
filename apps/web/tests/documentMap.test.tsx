@@ -1,10 +1,10 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import mapFixture from './fixtures/documentMapApi.json';
 import { App } from '../src/App';
 import type { LabFile } from '../src/api/types';
-import { createFakeApi, installFakeApi } from './fakeApi';
+import { createFakeApi } from './fakeApi';
 
 const mapFile: LabFile = {
   id: 'synthetic-paper',
@@ -12,6 +12,7 @@ const mapFile: LabFile = {
   status: 'ready',
   parser: 'docling',
   page_count: 2,
+  docling_name: 'synthetic-paper.docling.json',
 };
 
 const otherFiles: LabFile[] = [
@@ -20,7 +21,7 @@ const otherFiles: LabFile[] = [
   { id: 'processing-file', name: 'Processing.pdf', status: 'processing', parser: 'docling' },
 ];
 
-function installMapApi(options: { stale?: boolean } = {}) {
+function installMapApi(options: { stale?: boolean; invalid?: boolean } = {}) {
   const base = createFakeApi({ files: { 'topic-a': otherFiles } });
   vi.stubGlobal('fetch', base.fetch);
   const mapCalls: { method: string; path: string }[] = [];
@@ -39,10 +40,13 @@ function installMapApi(options: { stale?: boolean } = {}) {
       built = true;
       return new Response(JSON.stringify(mapFixture.build_response), { status: 200 });
     }
-    if (!built) return new Response(JSON.stringify({ status: 'not_built', map: null }), { status: 200 });
-    const response = options.stale
+    const response = options.invalid
+      ? { status: 'ready', map: { wrong: true } }
+      : options.stale
       ? { ...mapFixture.build_response, status: 'stale' }
-      : mapFixture.build_response;
+      : built
+        ? mapFixture.build_response
+        : { status: 'not_built', map: null };
     return new Response(JSON.stringify(response), { status: 200 });
   };
   vi.stubGlobal('fetch', fakeFetch);
@@ -81,8 +85,7 @@ describe('document map navigation', () => {
     expect(screen.queryByRole('button', { name: /Generate summary/i })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: /Attached files/i }));
-    const row = screen.getByText('Synthetic paper.pdf').closest('label');
-    expect(row && within(row).getByRole('checkbox')).not.toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Include Synthetic paper.pdf in chat' })).not.toBeChecked();
   });
 
   test('stale outline offers explicit rebuild and displays original page links', async () => {
@@ -96,11 +99,23 @@ describe('document map navigation', () => {
     expect(await screen.findByText(/This outline is out of date/i)).toBeInTheDocument();
     const rebuild = screen.getByRole('button', { name: /Rebuild outline/i });
     expect(rebuild).toBeEnabled();
-    expect(screen.getByRole('link', { name: 'Page 1' })).toHaveAttribute(
+    expect(screen.getAllByRole('link', { name: 'Page 1' })[0]).toHaveAttribute(
       'href',
       '/api/topics/topic-a/files/synthetic-paper/original#page=1',
     );
     await user.click(rebuild);
     await waitFor(() => expect(mapCalls.filter((call) => call.method === 'POST')).toHaveLength(1));
+  });
+
+  test('invalid saved map payload is shown as a retryable error', async () => {
+    installMapApi({ invalid: true });
+    const user = userEvent.setup();
+    render(<App />);
+    await waitForReady();
+    await user.click(screen.getByRole('button', { name: 'Map' }));
+    await user.selectOptions(screen.getByRole('combobox', { name: /PDF for map/i }), 'synthetic-paper');
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Invalid response/i);
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
   });
 });

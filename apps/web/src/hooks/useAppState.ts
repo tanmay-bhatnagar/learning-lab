@@ -13,11 +13,12 @@ import { useSettings } from './useSettings';
 import { useThinkingPrefs } from './useThinkingPrefs';
 import { useTopicSession } from './useTopicSession';
 import { useUploads } from './useUploads';
+import { useDocumentMap } from './useDocumentMap';
 import { useSidebarDefault, useTopicSidebarClose, useWindowDragGuards } from './useWindowEffects';
 
 export function useAppState() {
   const [page, setPage] = useState<'workspace' | 'settings'>('workspace');
-  const [tab, setTab] = useState<'chat' | 'files' | 'trace'>('chat');
+  const [tab, setTab] = useState<'chat' | 'files' | 'trace' | 'map'>('chat');
   const [newTopic, setNewTopic] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [preview, setPreview] = useState<LabFile | null>(null);
@@ -34,6 +35,13 @@ export function useAppState() {
   }, [bootstrap.topic]);
 
   const session = useTopicSession(bootstrap.topic, bootstrap.setError, activityApi.activity, activityApi);
+  const documentMap = useDocumentMap(
+    bootstrap.topic,
+    session.files,
+    tab === 'map' && page === 'workspace' && session.topicReady,
+    activityApi.activity,
+    activityApi,
+  );
   const { thinking, setThink, storageError } = useThinkingPrefs();
   const activeModel = bootstrap.models.find((m) => m.id === bootstrap.settings.model);
 
@@ -161,6 +169,7 @@ export function useAppState() {
     bottom,
     bootstrap,
     session,
+    documentMap,
     chat,
     uploads,
     settingsUi,

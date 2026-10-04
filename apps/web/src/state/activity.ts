@@ -1,6 +1,6 @@
-export type Activity = 'idle' | 'sending' | 'uploading' | 'savingSettings' | 'savingGoal';
+export type Activity = 'idle' | 'sending' | 'uploading' | 'savingSettings' | 'savingGoal' | 'buildingMap';
 
-export type ActivityOp = 'send' | 'upload' | 'saveSettings' | 'saveGoal' | 'selectModel';
+export type ActivityOp = 'send' | 'upload' | 'saveSettings' | 'saveGoal' | 'selectModel' | 'buildMap';
 
 export function activityForOp(op: ActivityOp): Activity {
   switch (op) {
@@ -13,6 +13,8 @@ export function activityForOp(op: ActivityOp): Activity {
       return 'savingSettings';
     case 'saveGoal':
       return 'savingGoal';
+    case 'buildMap':
+      return 'buildingMap';
   }
 }
 

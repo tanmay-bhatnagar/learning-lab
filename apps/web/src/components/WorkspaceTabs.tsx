@@ -1,6 +1,6 @@
-import { FileText, MessageSquare, ScanSearch } from 'lucide-react';
+import { FileText, Map, MessageSquare, ScanSearch } from 'lucide-react';
 
-type Tab = 'chat' | 'files' | 'trace';
+type Tab = 'chat' | 'files' | 'trace' | 'map';
 
 type Props = {
   tab: Tab;
@@ -19,6 +19,9 @@ export function WorkspaceTabs({ tab, fileCount, onTab }: Props) {
       </button>
       <button className={tab === 'trace' ? 'active' : ''} onClick={() => onTab('trace')}>
         <ScanSearch size={16} /> Retrieval trace
+      </button>
+      <button className={tab === 'map' ? 'active' : ''} onClick={() => onTab('map')}>
+        <Map size={16} /> Map
       </button>
     </div>
   );

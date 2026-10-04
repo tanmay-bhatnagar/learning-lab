@@ -326,6 +326,122 @@ main {
   left: 0;
   right: 0;
 }
+
+.document-map-panel {
+  padding: 24px clamp(16px, 3vw, 36px) 40px;
+  overflow: auto;
+}
+
+.document-map-header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 20px;
+}
+
+.document-map-header h2 {
+  margin: 0 0 6px;
+}
+.document-map-header p {
+  margin: 0;
+}
+.document-map-header label {
+  display: grid;
+  gap: 6px;
+  min-width: min(320px, 42vw);
+  font-size: 12px;
+}
+.document-map-header select {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: inherit;
+}
+.map-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 18px 0;
+}
+.map-actions .primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.map-empty {
+  padding: 28px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  color: var(--muted);
+  text-align: center;
+}
+.map-warning,
+.map-error {
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: var(--warning-soft, #fff6dc);
+  color: var(--warning-ink, #704c05);
+}
+.map-error {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--danger-soft, #fff0ed);
+  color: var(--danger-ink, #8a2d1d);
+}
+.map-coverage {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.map-coverage strong {
+  color: var(--ink);
+}
+.map-warning-list {
+  color: var(--muted);
+  font-size: 13px;
+}
+.document-map-tree {
+  padding-left: 22px;
+}
+.document-map-tree > li {
+  margin: 12px 0;
+}
+.document-map-tree summary {
+  cursor: pointer;
+  padding: 8px 0;
+  font-weight: 600;
+}
+.map-section-preview {
+  max-width: 78ch;
+  padding: 4px 14px 12px;
+  border-left: 2px solid var(--line);
+  color: var(--muted);
+}
+.map-section-preview p {
+  white-space: pre-wrap;
+  color: var(--ink);
+}
+.map-section-preview small {
+  font-size: 11px;
+}
+.map-pages {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 20px;
+}
+.map-pages a {
+  color: var(--accent);
+}
 .count {
   font-size: 10px;
   background: #eaf0e3;

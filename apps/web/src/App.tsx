@@ -12,6 +12,7 @@ import { SettingsPage } from './components/SettingsPage';
 import { Sidebar } from './components/Sidebar';
 import { TopBar } from './components/TopBar';
 import { WorkspaceTabs } from './components/WorkspaceTabs';
+import { DocumentMapPanel } from './components/DocumentMapPanel';
 
 export function App() {
   const state = useAppState();
@@ -108,6 +109,7 @@ export function App() {
     setGoalDraft,
     dispatch: sessionDispatch,
   } = session;
+  const documentMap = state.documentMap;
 
   const meter = contextMeter(context, settings);
   const bannerMessage = [error, migrationError, storageError].filter(Boolean).join(' ');
@@ -265,6 +267,20 @@ export function App() {
                 showDropFeedback={showDropFeedback}
                 onReturnToChat={() => setTab('chat')}
                 onRefreshFiles={() => void refreshFiles()}
+              />
+            ) : tab === 'map' ? (
+              <DocumentMapPanel
+                topic={topic}
+                files={files}
+                fileId={documentMap.fileId}
+                onFileChange={documentMap.setFileId}
+                map={documentMap.state.response?.map ?? null}
+                status={documentMap.state.response?.status ?? null}
+                loading={documentMap.state.loading}
+                busy={busy}
+                error={documentMap.state.error}
+                onBuild={() => void documentMap.build()}
+                onRetry={documentMap.reload}
               />
             ) : (
               <ChatPanel

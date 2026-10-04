@@ -11,6 +11,8 @@ export const fileOriginalPath = (topic: string, fileId: string) => `${filePath(t
 
 export const fileChunksPath = (topic: string, fileId: string) => `${filePath(topic, fileId)}/chunks`;
 
+export const fileMapPath = (topic: string, fileId: string) => `${filePath(topic, fileId)}/map`;
+
 export const assetApiUrl = (topic: string, fileId: string, assetId: string) =>
   `/api${filePath(topic, fileId)}/assets/${encodeURIComponent(assetId)}`;
 

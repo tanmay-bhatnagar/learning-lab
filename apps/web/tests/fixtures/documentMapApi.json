@@ -17,15 +17,9 @@
           "source_ref": "#/texts/0",
           "title": "Methods",
           "level": 1,
-          "pages": [
-            1,
-            2
-          ],
+          "pages": [1, 2],
           "text": "Methods\n\nSetup",
-          "direct_unit_ids": [
-            "unit-94d3ffa7453a74c91464",
-            "unit-eb1859012a7d630f3d44"
-          ],
+          "direct_unit_ids": ["unit-94d3ffa7453a74c91464", "unit-eb1859012a7d630f3d44"],
           "source_unit_ids": [
             "unit-94d3ffa7453a74c91464",
             "unit-eb1859012a7d630f3d44",
@@ -38,18 +32,10 @@
               "source_ref": "#/texts/2",
               "title": "Training",
               "level": 2,
-              "pages": [
-                2
-              ],
+              "pages": [2],
               "text": "Training\n\nSynthetic data only",
-              "direct_unit_ids": [
-                "unit-566a7fa285cb28c8c745",
-                "unit-2b02db5a7b68445b2992"
-              ],
-              "source_unit_ids": [
-                "unit-566a7fa285cb28c8c745",
-                "unit-2b02db5a7b68445b2992"
-              ],
+              "direct_unit_ids": ["unit-566a7fa285cb28c8c745", "unit-2b02db5a7b68445b2992"],
+              "source_unit_ids": ["unit-566a7fa285cb28c8c745", "unit-2b02db5a7b68445b2992"],
               "children": [],
               "latest_attempt": null,
               "last_summary": null
@@ -63,60 +49,44 @@
         {
           "id": "unit-94d3ffa7453a74c91464",
           "source_ref": "#/texts/0",
-          "source_refs": [
-            "#/texts/0"
-          ],
+          "source_refs": ["#/texts/0"],
           "kind": "text",
           "content_layer": "body",
           "text": "Methods",
-          "pages": [
-            1
-          ],
+          "pages": [1],
           "included": true,
           "warnings": []
         },
         {
           "id": "unit-eb1859012a7d630f3d44",
           "source_ref": "#/texts/1",
-          "source_refs": [
-            "#/texts/1"
-          ],
+          "source_refs": ["#/texts/1"],
           "kind": "text",
           "content_layer": "body",
           "text": "Setup",
-          "pages": [
-            1
-          ],
+          "pages": [1],
           "included": true,
           "warnings": []
         },
         {
           "id": "unit-566a7fa285cb28c8c745",
           "source_ref": "#/texts/2",
-          "source_refs": [
-            "#/texts/2"
-          ],
+          "source_refs": ["#/texts/2"],
           "kind": "text",
           "content_layer": "body",
           "text": "Training",
-          "pages": [
-            2
-          ],
+          "pages": [2],
           "included": true,
           "warnings": []
         },
         {
           "id": "unit-2b02db5a7b68445b2992",
           "source_ref": "#/texts/3",
-          "source_refs": [
-            "#/texts/3"
-          ],
+          "source_refs": ["#/texts/3"],
           "kind": "text",
           "content_layer": "body",
           "text": "Synthetic data only",
-          "pages": [
-            2
-          ],
+          "pages": [2],
           "included": true,
           "warnings": []
         }
@@ -140,15 +110,9 @@
       "source_ref": "#/texts/0",
       "title": "Methods",
       "level": 1,
-      "pages": [
-        1,
-        2
-      ],
+      "pages": [1, 2],
       "text": "Methods\n\nSetup",
-      "direct_unit_ids": [
-        "unit-94d3ffa7453a74c91464",
-        "unit-eb1859012a7d630f3d44"
-      ],
+      "direct_unit_ids": ["unit-94d3ffa7453a74c91464", "unit-eb1859012a7d630f3d44"],
       "source_unit_ids": [
         "unit-94d3ffa7453a74c91464",
         "unit-eb1859012a7d630f3d44",
@@ -161,18 +125,10 @@
           "source_ref": "#/texts/2",
           "title": "Training",
           "level": 2,
-          "pages": [
-            2
-          ],
+          "pages": [2],
           "text": "Training\n\nSynthetic data only",
-          "direct_unit_ids": [
-            "unit-566a7fa285cb28c8c745",
-            "unit-2b02db5a7b68445b2992"
-          ],
-          "source_unit_ids": [
-            "unit-566a7fa285cb28c8c745",
-            "unit-2b02db5a7b68445b2992"
-          ],
+          "direct_unit_ids": ["unit-566a7fa285cb28c8c745", "unit-2b02db5a7b68445b2992"],
+          "source_unit_ids": ["unit-566a7fa285cb28c8c745", "unit-2b02db5a7b68445b2992"],
           "children": [],
           "latest_attempt": null,
           "last_summary": null
@@ -185,60 +141,44 @@
       {
         "id": "unit-94d3ffa7453a74c91464",
         "source_ref": "#/texts/0",
-        "source_refs": [
-          "#/texts/0"
-        ],
+        "source_refs": ["#/texts/0"],
         "kind": "text",
         "content_layer": "body",
         "text": "Methods",
-        "pages": [
-          1
-        ],
+        "pages": [1],
         "included": true,
         "warnings": []
       },
       {
         "id": "unit-eb1859012a7d630f3d44",
         "source_ref": "#/texts/1",
-        "source_refs": [
-          "#/texts/1"
-        ],
+        "source_refs": ["#/texts/1"],
         "kind": "text",
         "content_layer": "body",
         "text": "Setup",
-        "pages": [
-          1
-        ],
+        "pages": [1],
         "included": true,
         "warnings": []
       },
       {
         "id": "unit-566a7fa285cb28c8c745",
         "source_ref": "#/texts/2",
-        "source_refs": [
-          "#/texts/2"
-        ],
+        "source_refs": ["#/texts/2"],
         "kind": "text",
         "content_layer": "body",
         "text": "Training",
-        "pages": [
-          2
-        ],
+        "pages": [2],
         "included": true,
         "warnings": []
       },
       {
         "id": "unit-2b02db5a7b68445b2992",
         "source_ref": "#/texts/3",
-        "source_refs": [
-          "#/texts/3"
-        ],
+        "source_refs": ["#/texts/3"],
         "kind": "text",
         "content_layer": "body",
         "text": "Synthetic data only",
-        "pages": [
-          2
-        ],
+        "pages": [2],
         "included": true,
         "warnings": []
       }
