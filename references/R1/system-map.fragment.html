@@ -38,35 +38,36 @@
 (() => {
   const root = document.getElementById('learning-lab-map');
   const blocks = [
-    {id:'ui', title:'Workspace & UI', status:'partial', x:16, y:45, parts:[
+    {id:'ui', title:'Workspace & UI', status:'built', x:16, y:45, parts:[
       ['Topic, PDF upload, settings','built','Browser flow, attached files, model choice, context meter'],
       ['Citations & source panel','built','Per-answer evidence survives reload'],
-      ['Open cited PDF page','planned','Jump from a citation to the source page'],
-      ['Topic goal editor','planned','State what you want to learn'],
-      ['Several conversations','planned','Choose and resume a saved session']]},
+      ['Open cited PDF page','built','Jump from a citation to the source page'],
+      ['Topic goal editor','built','Persist the topic learning goal and supply it to chat'],
+      ['Several conversations','built','Choose and resume independent saved conversations']]},
     {id:'api', title:'Topic API & storage', status:'partial', x:236, y:45, parts:[
       ['Topic-scoped API','built','Upload, messages, settings, retrieval, chat'],
       ['Original PDF preservation','built','Keep immutable originals beside derived files'],
-      ['One saved session per topic','built','Messages and sources persist'],
-      ['Session IDs & migration','planned','Multiple chats without losing old history'],
+      ['Independent saved conversations','built','Messages and sources persist per conversation'],
+      ['Session IDs & migration','built','Default legacy history plus named conversations'],
       ['Approval records','planned','Scope future agent actions by target and operation']]},
     {id:'ingest', title:'PDF ingestion', status:'partial', x:456, y:45, parts:[
       ['MarkItDown & AnyDoc','built','Direct backend conversion; unindexed fallback'],
       ['Docling structured parse','built','Text, headings, pages, figures, Markdown'],
       ['Bounded chunks','built','Tokenizer-aware chunks with intact source text'],
-      ['Extraction-gap flags','planned','Show undecoded formulas and unsupported visuals'],
+      ['Extraction diagnostics','built','Reported failures, suspected limitations; fidelity unassessed'],
       ['Document outline & sections','planned','Build the material map from parsed structure']]},
     {id:'retrieval', title:'Index & evidence', status:'partial', x:676, y:45, parts:[
       ['Topic SQLite index','built','Keyword search and local embeddings'],
       ['Ranked evidence & citations','built','Prompt keeps whole, cited passages'],
       ['Retrieval trace view','built','Inspect ranks, scores, chunks, pages'],
       ['Neighbouring-chunk tool','planned','Let a future agent read adjacent context'],
-      ['Retrieval evaluation','planned','Gold questions, recall@k, MRR']]},
+      ['Retrieval evaluation','built','Three-paper anchor recall and reciprocal rank; generation simulated']]},
     {id:'models', title:'Local inference', status:'partial', x:676, y:245, parts:[
       ['Ollama model gateway','built','Installed-model selection and streaming'],
       ['Model-specific thinking','built','Toggle or effort levels when supported'],
       ['Context budgeting','built','Trim oldest prompt input; save full history'],
       ['Vision input path','partial','Retrieved figure images for vision-capable models'],
+      ['Shared learning policy loading','built','Read full configured AGENTS.md before every chat; fail visibly'],
       ['Mac + Jetson split','planned','Decide placement after model/latency tests']]},
     {id:'agent', title:'Agent workflow', status:'planned', x:456, y:245, parts:[
       ['LangGraph state machine','planned','Route, retrieve, reason, respond'],
@@ -81,9 +82,10 @@
       ['Coding experiments','planned','Later release: controlled code tools'],
       ['Web research','planned','Later release: external sources with provenance']]},
     {id:'memory', title:'Progress & quality', status:'partial', x:16, y:245, parts:[
-      ['Saved conversation','built','One durable history per topic'],
-      ['Goal & progress notes','planned','Concepts covered and open questions'],
-      ['Per-turn timing & errors','planned','Inspect how each answer was produced'],
+      ['Saved conversations','built','Independent durable histories within each topic'],
+      ['Topic learning goal','built','User-authored goal persists and informs chat'],
+      ['Progress notes','planned','Concepts covered, learner attempts and open questions'],
+      ['Per-turn timing & errors','built','Topic-local metadata traces and developer inspection API'],
       ['R1 acceptance demo','planned','Map, explain, check, restart, boundary tests'],
       ['Context compaction','planned','Last: preserve facts and citation references']]}
   ];

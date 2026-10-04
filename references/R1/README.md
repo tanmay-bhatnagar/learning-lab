@@ -1,6 +1,6 @@
 # R1 current state
 
-Snapshot as of 30 September 2026. The [interactive system map](system-map.html) has two layers; select a block to see its components. [Editable diagram source](system-map.fragment.html). The full ordered plan remains in [R1.md](../../../R1.md).
+Completion status reconciled with the ordered roadmap on 5 October 2026; historical validation is labeled below. The [interactive system map](system-map.html) has two layers; select a block to see its components. [Editable diagram source](system-map.fragment.html). The full ordered plan remains in [R1.md](../../../R1.md).
 
 ## Built
 
@@ -8,22 +8,23 @@ Snapshot as of 30 September 2026. The [interactive system map](system-map.html) 
 - Docling ingestion: structured text, Markdown, provenance, page and figure images, bounded chunks. MarkItDown and AnyDoc remain Markdown alternatives.
 - Topic SQLite keyword and embedding index, ranked retrieval, trace view, and per-answer citations that survive reload. Chat uses one retrieval pass before streaming a local Ollama response.
 - Request-local context trimming preserves durable history. The five reviewed ingestion and retrieval bugs were fixed; missing indexed evidence and unfit prompts now fail visibly.
-- Project engineering rules, six role configurations and skills, CI, synthetic tests, and an isolated HTTP verification helper.
+- Project engineering rules, six role configurations and skills, CI, isolated tests and HTTP verification. Development policy is self-contained in Code-root AGENTS.md.
+- Citation page links, persistent topic learning goals, and extraction diagnostics.
+- Multiple saved conversations per topic, developer query traces, and a three-public-paper retrieval/trace baseline with simulated generation.
+- Shared runtime learning policy loaded before every chat request, independent of selected model; visible policy-read and context-fit failures.
 
 ## R1 still to build
 
 | Order | Work |
 | --- | --- |
-| 1 | Implemented: citation links open cited PDF pages; topic learning goals persist and inform chat; extraction diagnostics show reported failures, suspected limitations, and unassessed fidelity. |
-| 2 | Multiple saved conversations per topic; per-turn trace and retrieval evaluation baseline. |
-| 3 | Document outline, section summaries and material map. |
-| 4 | LangGraph workflow, retrieval tools, tool-call validation and scoped approvals. |
-| 5 | Understanding checks, topic progress memory and restart recovery. |
-| 6 | Full R1 acceptance demonstration, then context compaction. |
+| 6 | Document outline, section summaries and material map. |
+| 7–8 | LangGraph workflow, retrieval tools, tool-call validation and scoped approvals. |
+| 9–10 | Understanding checks, topic progress memory and restart recovery. |
+| 11–12 | Full R1 acceptance demonstration, then context compaction. |
 
-The [ingestion and retrieval refactor](refactor-handoff.md) is implemented. The 1 October [architecture review](architecture-review.md) fixed five defects. It also set out the functional-design refactor, now staged as [task briefs](refactor-tasks.md) that wait for Tanmay's start before building items 2-6. Coding experiments, web research, full multimodal support and Jetson hosting belong to later releases. The 107-PDF parser comparison remains deferred until Tanmay explicitly requests it.
+The ingestion and retrieval refactor and the subsequent functional-design refactor are implemented. The 1 October [architecture review](architecture-review.md) records their findings and design; current ownership and conventions are in [architecture](../../docs/architecture.md) and [engineering](../../docs/engineering.md). Completed handoff and task-brief files were removed on 3 October at Tanmay's request. Coding experiments, web research, full multimodal support and Jetson hosting belong to later releases. The 107-PDF parser comparison remains deferred until Tanmay explicitly requests it.
 
-## Validation at this snapshot
+## Historical refactor validation — 30 September 2026
 
 - 128 Python tests and 17 frontend tests passed after the refactor, along with the production web build. Earlier Ruff, engineering configuration, and GitHub CI checks passed on `b2a6b71`.
 - Isolated real HTTP upload/conversion/persistence passed with MarkItDown and a synthetic PDF; original bytes were preserved.
@@ -31,3 +32,19 @@ The [ingestion and retrieval refactor](refactor-handoff.md) is implemented. The 
 - The current Docling path has targeted unit and synthetic integration tests. This snapshot does not certify real-model answer quality, the full browser chat journey after the latest changes, difficult PDF extraction quality, or the full parser corpus.
 
 Sources: [architecture](../../docs/architecture.md), [API contract](../../docs/API.md), [validation history](../../docs/validation.md), and the committed tests. Local bug-fix evidence is retained under ignored `.local/reviews/` and `.local/verification/`; it contains no personal topic data.
+
+3 October follow-up: the multi-conversation increment is implemented and validated locally on `dev`, with changes uncommitted at that time. Those changes were committed locally on `dev` on 5 October in scoped checkpoints. See [resume validation](../../docs/2026_10_03_resume_validation.md) for the skills inventory, two repaired frontend races, full passing gates, real Docling/local-model citation run, persistence choices, and coverage limits.
+
+Per-query trace logging is also implemented: topic-local metadata storage, developer inspection API, and lifecycle/failure diagnostics for Default and named conversations. See [query traces](../../docs/query_traces.md) for the contract and verification. The separate [retrieval evaluation baseline](../../evals/retrieval/README.md) is implemented using three registered public PDFs, with simulated generation and descriptive retrieval scores. See [eval validation](../../docs/retrieval_eval_validation.md) for results and limits. Document outline, section summaries and material map are the next staged R1 increment.
+
+## Current validation and policy separation — 4 October 2026
+
+The latest application baseline passed 262 backend tests plus 21 subtests, 90 web tests, and engineering/lint/build checks on 3 October; see [retrieval eval validation](../../docs/retrieval_eval_validation.md). The 4 October instruction cleanup does not rerun or relabel that application baseline. It preserves all six exploration principles, updates all six roles and skills, and separates the parent learning policy from coding instructions. The subsequent runtime-loading increment reads the parent policy before every chat request and supplies the complete text to prompt assembly. No additional learning skills or model tools were enabled. See [runtime policy loading](../../docs/runtime_policy.md) for current verification and limits.
+
+Runtime-policy follow-up validation: 282 backend tests plus 21 subtests and 90 web tests passed on 4 October, together with engineering/lint/format/build gates and isolated browser requests on two installed models. See [runtime policy loading](../../docs/runtime_policy.md) for per-request loading, topic binding, failure/recovery checks, evaluation snapshot provenance, and coverage limits.
+
+## Local checkpoint commits — 5 October 2026
+
+The previously uncommitted conversation, query-trace, retrieval-evaluation, runtime-policy, and engineering-policy changes are now recorded as scoped local commits on `dev`. No remote push, merge, or release was performed. Mandatory checkpoint commits now apply to all development roles, including failing intermediate code/test-loop states; see [checkpoint policy](../../AGENTS.md#mandatory-checkpoint-commits).
+
+Fresh complete-working-tree checks passed: 282 backend tests plus 21 subtests, 90 web tests, production web build, engineering checker, Ruff, Python formatting, ESLint, Prettier, and six development-skill validations. Individual intermediate commits were not tested independently. Browser, real-model/parser evaluation, and isolated HTTP verification were not rerun during this commit session. Existing dependency deprecation and bundle-size warnings remain.

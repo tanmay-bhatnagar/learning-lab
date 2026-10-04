@@ -1577,35 +1577,36 @@ html&gt;body{padding:0}&lt;/style&gt;
 (() =&gt; {
   const root = document.getElementById(&#x27;learning-lab-map&#x27;);
   const blocks = [
-    {id:&#x27;ui&#x27;, title:&#x27;Workspace &amp; UI&#x27;, status:&#x27;partial&#x27;, x:16, y:45, parts:[
+    {id:&#x27;ui&#x27;, title:&#x27;Workspace &amp; UI&#x27;, status:&#x27;built&#x27;, x:16, y:45, parts:[
       [&#x27;Topic, PDF upload, settings&#x27;,&#x27;built&#x27;,&#x27;Browser flow, attached files, model choice, context meter&#x27;],
       [&#x27;Citations &amp; source panel&#x27;,&#x27;built&#x27;,&#x27;Per-answer evidence survives reload&#x27;],
-      [&#x27;Open cited PDF page&#x27;,&#x27;planned&#x27;,&#x27;Jump from a citation to the source page&#x27;],
-      [&#x27;Topic goal editor&#x27;,&#x27;planned&#x27;,&#x27;State what you want to learn&#x27;],
-      [&#x27;Several conversations&#x27;,&#x27;planned&#x27;,&#x27;Choose and resume a saved session&#x27;]]},
+      [&#x27;Open cited PDF page&#x27;,&#x27;built&#x27;,&#x27;Jump from a citation to the source page&#x27;],
+      [&#x27;Topic goal editor&#x27;,&#x27;built&#x27;,&#x27;Persist the topic learning goal and supply it to chat&#x27;],
+      [&#x27;Several conversations&#x27;,&#x27;built&#x27;,&#x27;Choose and resume independent saved conversations&#x27;]]},
     {id:&#x27;api&#x27;, title:&#x27;Topic API &amp; storage&#x27;, status:&#x27;partial&#x27;, x:236, y:45, parts:[
       [&#x27;Topic-scoped API&#x27;,&#x27;built&#x27;,&#x27;Upload, messages, settings, retrieval, chat&#x27;],
       [&#x27;Original PDF preservation&#x27;,&#x27;built&#x27;,&#x27;Keep immutable originals beside derived files&#x27;],
-      [&#x27;One saved session per topic&#x27;,&#x27;built&#x27;,&#x27;Messages and sources persist&#x27;],
-      [&#x27;Session IDs &amp; migration&#x27;,&#x27;planned&#x27;,&#x27;Multiple chats without losing old history&#x27;],
+      [&#x27;Independent saved conversations&#x27;,&#x27;built&#x27;,&#x27;Messages and sources persist per conversation&#x27;],
+      [&#x27;Session IDs &amp; migration&#x27;,&#x27;built&#x27;,&#x27;Default legacy history plus named conversations&#x27;],
       [&#x27;Approval records&#x27;,&#x27;planned&#x27;,&#x27;Scope future agent actions by target and operation&#x27;]]},
     {id:&#x27;ingest&#x27;, title:&#x27;PDF ingestion&#x27;, status:&#x27;partial&#x27;, x:456, y:45, parts:[
       [&#x27;MarkItDown &amp; AnyDoc&#x27;,&#x27;built&#x27;,&#x27;Direct backend conversion; unindexed fallback&#x27;],
       [&#x27;Docling structured parse&#x27;,&#x27;built&#x27;,&#x27;Text, headings, pages, figures, Markdown&#x27;],
       [&#x27;Bounded chunks&#x27;,&#x27;built&#x27;,&#x27;Tokenizer-aware chunks with intact source text&#x27;],
-      [&#x27;Extraction-gap flags&#x27;,&#x27;planned&#x27;,&#x27;Show undecoded formulas and unsupported visuals&#x27;],
+      [&#x27;Extraction diagnostics&#x27;,&#x27;built&#x27;,&#x27;Reported failures, suspected limitations; fidelity unassessed&#x27;],
       [&#x27;Document outline &amp; sections&#x27;,&#x27;planned&#x27;,&#x27;Build the material map from parsed structure&#x27;]]},
     {id:&#x27;retrieval&#x27;, title:&#x27;Index &amp; evidence&#x27;, status:&#x27;partial&#x27;, x:676, y:45, parts:[
       [&#x27;Topic SQLite index&#x27;,&#x27;built&#x27;,&#x27;Keyword search and local embeddings&#x27;],
       [&#x27;Ranked evidence &amp; citations&#x27;,&#x27;built&#x27;,&#x27;Prompt keeps whole, cited passages&#x27;],
       [&#x27;Retrieval trace view&#x27;,&#x27;built&#x27;,&#x27;Inspect ranks, scores, chunks, pages&#x27;],
       [&#x27;Neighbouring-chunk tool&#x27;,&#x27;planned&#x27;,&#x27;Let a future agent read adjacent context&#x27;],
-      [&#x27;Retrieval evaluation&#x27;,&#x27;planned&#x27;,&#x27;Gold questions, recall@k, MRR&#x27;]]},
+      [&#x27;Retrieval evaluation&#x27;,&#x27;built&#x27;,&#x27;Three-paper anchor recall and reciprocal rank; generation simulated&#x27;]]},
     {id:&#x27;models&#x27;, title:&#x27;Local inference&#x27;, status:&#x27;partial&#x27;, x:676, y:245, parts:[
       [&#x27;Ollama model gateway&#x27;,&#x27;built&#x27;,&#x27;Installed-model selection and streaming&#x27;],
       [&#x27;Model-specific thinking&#x27;,&#x27;built&#x27;,&#x27;Toggle or effort levels when supported&#x27;],
       [&#x27;Context budgeting&#x27;,&#x27;built&#x27;,&#x27;Trim oldest prompt input; save full history&#x27;],
       [&#x27;Vision input path&#x27;,&#x27;partial&#x27;,&#x27;Retrieved figure images for vision-capable models&#x27;],
+      [&#x27;Shared learning policy loading&#x27;,&#x27;built&#x27;,&#x27;Read full configured AGENTS.md before every chat; fail visibly&#x27;],
       [&#x27;Mac + Jetson split&#x27;,&#x27;planned&#x27;,&#x27;Decide placement after model/latency tests&#x27;]]},
     {id:&#x27;agent&#x27;, title:&#x27;Agent workflow&#x27;, status:&#x27;planned&#x27;, x:456, y:245, parts:[
       [&#x27;LangGraph state machine&#x27;,&#x27;planned&#x27;,&#x27;Route, retrieve, reason, respond&#x27;],
@@ -1620,9 +1621,10 @@ html&gt;body{padding:0}&lt;/style&gt;
       [&#x27;Coding experiments&#x27;,&#x27;planned&#x27;,&#x27;Later release: controlled code tools&#x27;],
       [&#x27;Web research&#x27;,&#x27;planned&#x27;,&#x27;Later release: external sources with provenance&#x27;]]},
     {id:&#x27;memory&#x27;, title:&#x27;Progress &amp; quality&#x27;, status:&#x27;partial&#x27;, x:16, y:245, parts:[
-      [&#x27;Saved conversation&#x27;,&#x27;built&#x27;,&#x27;One durable history per topic&#x27;],
-      [&#x27;Goal &amp; progress notes&#x27;,&#x27;planned&#x27;,&#x27;Concepts covered and open questions&#x27;],
-      [&#x27;Per-turn timing &amp; errors&#x27;,&#x27;planned&#x27;,&#x27;Inspect how each answer was produced&#x27;],
+      [&#x27;Saved conversations&#x27;,&#x27;built&#x27;,&#x27;Independent durable histories within each topic&#x27;],
+      [&#x27;Topic learning goal&#x27;,&#x27;built&#x27;,&#x27;User-authored goal persists and informs chat&#x27;],
+      [&#x27;Progress notes&#x27;,&#x27;planned&#x27;,&#x27;Concepts covered, learner attempts and open questions&#x27;],
+      [&#x27;Per-turn timing &amp; errors&#x27;,&#x27;built&#x27;,&#x27;Topic-local metadata traces and developer inspection API&#x27;],
       [&#x27;R1 acceptance demo&#x27;,&#x27;planned&#x27;,&#x27;Map, explain, check, restart, boundary tests&#x27;],
       [&#x27;Context compaction&#x27;,&#x27;planned&#x27;,&#x27;Last: preserve facts and citation references&#x27;]]}
   ];

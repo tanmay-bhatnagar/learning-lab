@@ -198,7 +198,7 @@ Measured with Ruff probes beyond the current configuration (non-mutating):
 | `retrieval.py` | Medium | D1. The query is embedded (72-81) before the index-existence check (82-84), wasting a serialized model call. Fallback mode is encoded as the sentinel `fusion.score == 0.0` (92-103). `evidence_messages` (115-167) mixes image file reads with pure formatting. |
 | `models.py` | Medium | The local-model resolution sequence (tags, find, remote check, show, remote check) is duplicated in `embed_texts` (168-176) and `stream_chat` (209-220). Payload and think validation (223-234) should be pure functions. `context_capacity` (122) is a constant with an unused parameter. The local import at 183 is unnecessary. `except (..., TypeError, KeyError)` (271) turns programming errors into user-facing stream errors. |
 
-### 5.3 Status of the 30 September refactor ([handoff](refactor-handoff.md))
+### 5.3 Status of the 30 September refactor (historical handoff removed on 3 October)
 
 | Work item | Status | Evidence |
 | --- | --- | --- |
