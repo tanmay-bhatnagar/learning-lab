@@ -53,8 +53,8 @@ def _native_document(data: Mapping[str, object]) -> DoclingDocument:
         raise InvalidInput("Saved Docling data must be an object.")
     try:
         return DoclingDocument.model_validate(dict(data))
-    except ValueError as exc:
-        raise CorruptData("Saved Docling data has an unsupported or invalid schema.") from exc
+    except (IndexError, KeyError, RuntimeError, ValueError) as exc:
+        raise CorruptData("Saved Docling data has an unsupported schema or unresolved reference.") from exc
 
 
 def _caption_refs(item: NodeItem) -> set[str]:
@@ -104,43 +104,44 @@ def _pages(item: NodeItem) -> tuple[list[int], list[str]]:
 
 def _walk_items(document: DoclingDocument) -> list[tuple[NodeItem, bool]]:
     items: list[tuple[NodeItem, bool]] = []
-    for item, _depth in document.iterate_items(with_groups=True, traverse_pictures=True):
-        if item is document.body or isinstance(item, GroupItem):
-            continue
-        items.append((item, False))
-    for item, _depth in document.iterate_items(
-        root=document.furniture,
-        with_groups=True,
-        traverse_pictures=True,
-        included_content_layers={ContentLayer.FURNITURE},
-    ):
-        if item is document.furniture or isinstance(item, GroupItem):
-            continue
-        items.append((item, True))
+    try:
+        for item, _depth in document.iterate_items(with_groups=True, traverse_pictures=True):
+            if item is document.body or isinstance(item, GroupItem):
+                continue
+            items.append((item, False))
+        furniture = document.__dict__["furniture"]
+        for item, _depth in document.iterate_items(
+            root=furniture,
+            with_groups=True,
+            traverse_pictures=True,
+            included_content_layers={ContentLayer.FURNITURE},
+        ):
+            if item is furniture or isinstance(item, GroupItem):
+                continue
+            items.append((item, True))
+    except (IndexError, KeyError, RuntimeError, ValueError) as exc:
+        raise CorruptData("Saved Docling data contains an unresolved native reference.") from exc
     return items
 
 
 def _source_units(document: DoclingDocument, revision: str) -> tuple[list[dict[str, object]], list[str]]:
     items = _walk_items(document)
+    valid_pages = set(document.pages)
     refs: set[str] = set()
     for item, _is_furniture in items:
         source_ref = getattr(item, "self_ref", None)
         if not isinstance(source_ref, str) or not source_ref:
-            raise ValueError("A native Docling item is missing its source reference.")
+            raise CorruptData("A native Docling item is missing its source reference.")
         if source_ref in refs:
-            raise ValueError(f"Duplicate native Docling source reference: {source_ref}")
+            raise CorruptData(f"Duplicate native Docling source reference: {source_ref}")
         refs.add(source_ref)
 
+    items_by_ref = {item.self_ref: item for item, _ in items}
     owned_caption_refs = set().union(*(_caption_refs(item) for item, _ in items)) if items else set()
     for item, _ in items:
         for ref in _caption_refs(item):
-            try:
-                resolved = next(
-                    candidate
-                    for candidate, _ in items
-                    if getattr(candidate, "self_ref", None) == ref
-                )
-            except StopIteration:
+            resolved = items_by_ref.get(ref)
+            if resolved is None:
                 raise CorruptData(f"A native caption reference cannot be resolved: {ref}") from None
             if not isinstance(resolved, TextItem):
                 raise CorruptData(f"A native caption reference has an invalid target: {ref}")
@@ -152,6 +153,8 @@ def _source_units(document: DoclingDocument, revision: str) -> tuple[list[dict[s
             continue
         content, kind, item_warnings = _serialize(item, document)
         pages, page_warnings = _pages(item)
+        if any(page not in valid_pages for page in pages):
+            raise CorruptData(f"Native source item {source_ref} refers to a page absent from the saved document.")
         item_warnings.extend(page_warnings)
         if is_furniture:
             content = ""
@@ -160,11 +163,13 @@ def _source_units(document: DoclingDocument, revision: str) -> tuple[list[dict[s
         if not included and not item_warnings:
             item_warnings.append("Extracted item has no serializable text.")
         unit_warnings = list(dict.fromkeys(item_warnings))
+        caption_refs = sorted(_caption_refs(item))
         unit = {
             "id": _item_id(revision, source_ref),
             "source_ref": source_ref,
-            "source_refs": [source_ref, *_caption_refs(item)],
+            "source_refs": [source_ref, *caption_refs],
             "kind": kind,
+            "content_layer": "furniture" if is_furniture else "body",
             "text": content,
             "pages": pages,
             "included": included,
@@ -211,14 +216,12 @@ def _aggregate(section: dict[str, object]) -> list[str]:
     for child in section["children"]:
         values.extend(_aggregate(child))
     section["source_unit_ids"] = values
-    section["pages"] = sorted(
-        set(section["pages"]).union(*(set(child["pages"]) for child in section["children"]))
-    )
+    section["pages"] = sorted(set(section["pages"]).union(*(set(child["pages"]) for child in section["children"])))
     return values
 
 
 def _build_outline(
-    document: Any,
+    document: DoclingDocument,
     units: list[dict[str, object]],
     revision: str,
 ) -> tuple[str, list[dict[str, object]]]:
@@ -227,9 +230,11 @@ def _build_outline(
     items = [item for item, is_furniture in items_with_layers if not is_furniture]
     has_headings = any(_heading(item) is not None for item in items)
     if not has_headings:
-        by_page: dict[int, dict[str, Any]] = {}
-        unlocated: dict[str, Any] | None = None
+        by_page: dict[int, dict[str, object]] = {}
+        unlocated: dict[str, object] | None = None
         for ordinal, unit in enumerate(units):
+            if unit["content_layer"] == "furniture":
+                continue
             if not unit["pages"]:
                 if unlocated is None:
                     unlocated = _make_section(revision, "unlocated", ordinal, "Unlocated content", 1)
@@ -246,10 +251,11 @@ def _build_outline(
             sections.append(unlocated)
         return "pages", sections
 
-    roots: list[dict[str, Any]] = []
-    stack: list[dict[str, Any]] = []
-    preamble: dict[str, Any] | None = None
-    active: dict[str, Any] | None = None
+    roots: list[dict[str, object]] = []
+    stack: list[dict[str, object]] = []
+    preamble: dict[str, object] | None = None
+    active: dict[str, object] | None = None
+    sections_by_ref: dict[str, dict[str, object]] = {}
     ordinal = 0
     for item in items:
         heading = _heading(item)
@@ -266,13 +272,17 @@ def _build_outline(
                 roots.append(section)
             stack.append(section)
             active = section
+            sections_by_ref[ref] = section
             if ref in source_to_unit:
                 _append_unit(section, source_to_unit[ref])
             continue
         unit = source_to_unit.get(getattr(item, "self_ref", ""))
         if unit is None:
             continue
-        if active is None:
+        owner = _native_heading_owner(item, document, sections_by_ref)
+        if owner is not None:
+            _append_unit(owner, unit)
+        elif active is None:
             if preamble is None:
                 preamble = _make_section(revision, "preamble", ordinal, "Preamble", 1)
                 ordinal += 1
@@ -285,12 +295,35 @@ def _build_outline(
     return "headings", sections
 
 
+def _native_heading_owner(
+    item: NodeItem,
+    document: DoclingDocument,
+    sections_by_ref: Mapping[str, dict[str, object]],
+) -> dict[str, object] | None:
+    parent_ref = getattr(item, "parent", None)
+    visited: set[str] = set()
+    while parent_ref is not None:
+        ref = parent_ref.cref
+        if ref in visited:
+            raise CorruptData(f"Native parent references contain a cycle at {ref}.")
+        visited.add(ref)
+        section = sections_by_ref.get(ref)
+        if section is not None:
+            return section
+        try:
+            parent = parent_ref.resolve(document)
+        except (IndexError, KeyError, RuntimeError, ValueError) as exc:
+            raise CorruptData(f"A native parent reference cannot be resolved: {ref}") from exc
+        parent_ref = getattr(parent, "parent", None)
+    return None
+
+
 def build_document_map(
     native_data: Mapping[str, object],
     *,
     file_id: str,
     source_revision: Mapping[str, str],
-) -> dict[str, Any]:
+) -> dict[str, object]:
     """Build a stable outline and explicit accounting from saved native Docling JSON.
 
     This function performs no filesystem or model I/O and does not mutate either input.
@@ -320,6 +353,8 @@ def build_document_map(
             "included_units": included,
             "excluded_units": excluded,
             "accounted_units": included + excluded,
+            "total_source_items": sum(len(unit["source_refs"]) for unit in units),
+            "accounted_source_items": sum(len(unit["source_refs"]) for unit in units),
         },
         "warnings": warnings,
     }

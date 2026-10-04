@@ -7,13 +7,13 @@ from docling_core.types.doc import (
     BoundingBox,
     DocItemLabel,
     DoclingDocument,
-    FormulaItem,
-    ListItem,
     ProvenanceItem,
-    SectionHeaderItem,
+    PageItem,
+    Size,
     TableCell,
     TableData,
 )
+from docling_core.types.doc.common.content_layer import ContentLayer
 
 from lab.document_map import build_document_map
 
@@ -22,9 +22,10 @@ def _document() -> dict[str, object]:
     document = DoclingDocument(name="synthetic")
     document.add_text(label="text", text="Preamble", prov=None)
     first = document.add_heading("Repeated", level=1)
-    document.add_text(label="text", text="Parent introduction")
+    document.add_text(label="text", text="Parent introduction", parent=first)
     child = document.add_heading("Child", level=2, parent=first)
     document.add_text(label="text", text="Child text", parent=child)
+    document.add_text(label="text", text="Parent conclusion", parent=first)
     document.add_heading("Repeated", level=1)
     document.add_heading("", level=1)
     document.add_text(label="text", text="Trailing text")
@@ -50,6 +51,7 @@ def test_native_outline_preserves_occurrences_preamble_and_parent_intro() -> Non
     assert repeated[0]["children"][0]["title"] == "Child"
     assert "Parent introduction" in repeated[0]["text"]
     assert "Child text" not in repeated[0]["text"]
+    assert "Parent conclusion" in repeated[0]["text"]
     assert "Child text" in repeated[0]["children"][0]["text"]
     assert "Trailing text" in sections[-1]["text"]
 
@@ -57,6 +59,10 @@ def test_native_outline_preserves_occurrences_preamble_and_parent_intro() -> Non
 def test_page_fallback_allocates_multipage_items_once_and_keeps_full_span() -> None:
     document = DoclingDocument(name="pages")
     box = BoundingBox(l=0, t=0, r=10, b=10)
+    document.pages = {
+        1: PageItem(page_no=1, size=Size(width=100, height=100)),
+        2: PageItem(page_no=2, size=Size(width=100, height=100)),
+    }
     document.add_text(
         label=DocItemLabel.TEXT,
         text="Across pages",
@@ -81,10 +87,34 @@ def test_native_serializer_includes_table_formula_and_list_content() -> None:
             num_rows=2,
             num_cols=2,
             table_cells=[
-                TableCell(text="Measure", start_row_offset_idx=0, end_row_offset_idx=1, start_col_offset_idx=0, end_col_offset_idx=1),
-                TableCell(text="Value", start_row_offset_idx=0, end_row_offset_idx=1, start_col_offset_idx=1, end_col_offset_idx=2),
-                TableCell(text="Accuracy", start_row_offset_idx=1, end_row_offset_idx=2, start_col_offset_idx=0, end_col_offset_idx=1),
-                TableCell(text="0.9", start_row_offset_idx=1, end_row_offset_idx=2, start_col_offset_idx=1, end_col_offset_idx=2),
+                TableCell(
+                    text="Measure",
+                    start_row_offset_idx=0,
+                    end_row_offset_idx=1,
+                    start_col_offset_idx=0,
+                    end_col_offset_idx=1,
+                ),
+                TableCell(
+                    text="Value",
+                    start_row_offset_idx=0,
+                    end_row_offset_idx=1,
+                    start_col_offset_idx=1,
+                    end_col_offset_idx=2,
+                ),
+                TableCell(
+                    text="Accuracy",
+                    start_row_offset_idx=1,
+                    end_row_offset_idx=2,
+                    start_col_offset_idx=0,
+                    end_col_offset_idx=1,
+                ),
+                TableCell(
+                    text="0.9",
+                    start_row_offset_idx=1,
+                    end_row_offset_idx=2,
+                    start_col_offset_idx=1,
+                    end_col_offset_idx=2,
+                ),
             ],
         )
     )
@@ -100,9 +130,80 @@ def test_native_serializer_includes_table_formula_and_list_content() -> None:
     assert result["coverage"]["accounted_units"] == len(result["units"])
 
 
+def test_caption_is_owned_by_table_once_and_furniture_is_accounted_as_excluded() -> None:
+    document = DoclingDocument(name="caption-and-furniture")
+    caption = document.add_text(label=DocItemLabel.CAPTION, text="Table caption")
+    document.add_table(
+        TableData(
+            num_rows=1,
+            num_cols=1,
+            table_cells=[
+                TableCell(
+                    text="Value",
+                    start_row_offset_idx=0,
+                    end_row_offset_idx=1,
+                    start_col_offset_idx=0,
+                    end_col_offset_idx=1,
+                )
+            ],
+        ),
+        caption=caption,
+    )
+    document.add_text(
+        label=DocItemLabel.TEXT,
+        text="Repeated page header",
+        content_layer=ContentLayer.FURNITURE,
+        parent=document.__dict__["furniture"],
+    )
+
+    result = _build(document.export_to_dict())
+    assert result["coverage"]["total_source_items"] == 3
+    assert result["coverage"]["accounted_source_items"] == 3
+    assert result["coverage"]["total_units"] == 2
+    table = next(unit for unit in result["units"] if unit["kind"] == "table")
+    assert "Table caption" in table["text"]
+    assert table["source_refs"] == [table["source_ref"], caption.self_ref]
+    furniture = next(
+        unit for unit in result["units"] if any("Furniture content" in warning for warning in unit["warnings"])
+    )
+    assert furniture["included"] is False
+    assert all(furniture["id"] not in section["direct_unit_ids"] for section in result["sections"])
+
+
 def test_invalid_native_schema_fails_instead_of_returning_empty_map() -> None:
-    with pytest.raises((ValueError, TypeError)):
+    from lab.errors import CorruptData
+
+    with pytest.raises(CorruptData):
         _build({"schema_name": "not-docling", "texts": []})
+
+
+def test_dangling_native_body_reference_fails_as_corrupt_data() -> None:
+    from lab.errors import CorruptData
+
+    data = _document()
+    data["body"]["children"].append({"$ref": "#/texts/9999"})
+
+    with pytest.raises(CorruptData, match="reference"):
+        _build(data)
+
+
+def test_page_provenance_outside_saved_page_set_fails_visibly() -> None:
+    from lab.errors import CorruptData
+
+    document = DoclingDocument(name="bad-page")
+    document.pages = {1: PageItem(page_no=1, size=Size(width=100, height=100))}
+    document.add_text(
+        label=DocItemLabel.TEXT,
+        text="Unknown page text",
+        prov=ProvenanceItem(
+            page_no=999,
+            bbox=BoundingBox(l=0, t=0, r=10, b=10),
+            charspan=(0, 18),
+        ),
+    )
+
+    with pytest.raises(CorruptData, match="page"):
+        _build(document.export_to_dict())
 
 
 def test_source_units_and_revision_are_deterministic_and_inputs_are_immutable() -> None:

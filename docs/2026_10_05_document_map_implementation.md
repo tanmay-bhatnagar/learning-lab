@@ -24,3 +24,12 @@ In progress. Code owns the pure source/outline module and focused synthetic test
 5. Summary controls and main-chat import: Generate/Stop/Retry/Regenerate, saved reuse, race protection, idempotent imported snapshots, isolated real browser/model verification.
 
 Application completion and real usage remain unverified until these checkpoints finish. This record will be updated with observed test/review results, commit references, decisions and open limitations as work proceeds.
+
+### Slice 1 observed loops and independent review
+
+- `68413a3`: initial synthetic regression checkpoint failed at collection because the module did not exist. API inspection supported native per-item traversal/serialization.
+- `5a19cc8`: implementation checkpoint passed two tests and failed an incorrect scaffold expectation for a trailing Unsectioned section. Native trailing material belongs to the current heading.
+- `972f700`: serializer/source-validation checkpoint passed three focused tests and failed two fixture/exception-contract expectations. Actual multipage, table, formula and list cases were added.
+- Independent Sol High review reproduced parent concluding text wrongly assigned to a nested child, dangling native references escaping as IndexError, nonexistent provenance pages accepted, and furniture absent from accounting. These are repair gates before slice 2, not accepted limitations.
+
+The decision question is whether default native traversal/schema validation alone establishes correct section ownership and source accounting. The experiments showed it does not. Explicit map-level structural/reference/page validation was selected over trusting defaults, with bounded extra validation complexity. Native parent ownership takes precedence where expressed, while ordinary flat body siblings still use semantic heading boundaries. Coverage must distinguish included text, caption aliases, unlocated items and excluded furniture. Source-reconstruction correctness remains unverified until repaired tests and independent recheck pass; code owns repairs, reviewer owns independent recheck.
