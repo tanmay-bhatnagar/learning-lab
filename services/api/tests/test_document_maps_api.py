@@ -6,7 +6,7 @@ import pytest
 from docling_core.types.doc import DoclingDocument
 from fastapi.testclient import TestClient
 
-from lab.storage import Store, write_json, write_text
+from lab.storage import Store, write_json
 from lab.web.app import create_app
 from tests.fakes import FakeModel
 
@@ -16,8 +16,8 @@ def _client(tmp_path):
     app = create_app(root, tmp_path / "state" / "settings.json", model_backend=FakeModel())
     client = TestClient(app)
     store: Store = app.state.deps.store
-    topic = store.create("Map")['id']
-    other_topic = store.create("Other")['id']
+    topic = store.create("Map")["id"]
+    other_topic = store.create("Other")["id"]
     file_id = "paper-1"
     original_name = "paper.pdf"
     docling_name = "paper.docling.json"
@@ -50,6 +50,8 @@ def test_map_get_is_on_demand_and_build_returns_section_source_metadata(tmp_path
     assert before.status_code == 200
     assert before.json() == {"status": "not_built", "map": None}
     assert not store.file_path(topic, f"{file_id}.map.json").exists()
+    assert not (store.topic(topic) / "retrieval.sqlite").exists()
+    assert client.app.state.deps.model_backend.calls == []
 
     built = client.post(base)
     assert built.status_code == 200
@@ -62,6 +64,27 @@ def test_map_get_is_on_demand_and_build_returns_section_source_metadata(tmp_path
     assert section.json()["section"]["text"] == "Methods\n\nA synthetic method."
     assert section.json()["section"]["source_unit_ids"] == outline["sections"][0]["source_unit_ids"]
     assert section.json()["section"]["last_summary"] is None
+    assert client.app.state.deps.model_backend.calls == []
+
+
+def test_nested_map_persists_source_ordered_parent_scope(tmp_path):
+    client, store, topic, _, file_id = _client(tmp_path)
+    document = DoclingDocument(name="nested synthetic paper")
+    parent = document.add_heading("Methods", level=1)
+    document.add_text(label="text", text="Parent introduction", parent=parent)
+    child = document.add_heading("Training", level=2, parent=parent)
+    document.add_text(label="text", text="Child procedure", parent=child)
+    document.add_text(label="text", text="Parent conclusion", parent=parent)
+    write_json(store.file_path(topic, "paper.docling.json"), document.export_to_dict())
+
+    response = client.post(f"/api/topics/{topic}/files/{file_id}/map")
+    assert response.status_code == 200
+    outline = response.json()["map"]
+    section = outline["sections"][0]
+    source_order = [unit["id"] for unit in outline["units"]]
+    expected = [unit_id for unit_id in source_order if unit_id in section["source_unit_ids"]]
+    assert section["source_unit_ids"] == expected
+    assert section["children"][0]["title"] == "Training"
 
 
 def test_map_is_idempotent_preserves_saved_summary_and_stale_rebuild_keeps_history(tmp_path):
@@ -100,6 +123,29 @@ def test_map_storage_rejects_corrupt_nested_data_and_unknown_versions(tmp_path):
     write_json(path, unknown)
     assert client.get(base).status_code == 500
 
+    wrong_file = json.loads(json.dumps(record))
+    wrong_file["file_id"] = "another-paper"
+    write_json(path, wrong_file)
+    assert client.get(base).status_code == 500
+
+    overlapping = json.loads(json.dumps(record))
+    unit_id = overlapping["sections"][0]["direct_unit_ids"][0]
+    overlapping["sections"][0]["direct_unit_ids"].append(unit_id)
+    write_json(path, overlapping)
+    assert client.get(base).status_code == 500
+
+    orphaned = json.loads(json.dumps(record))
+    orphaned["sections"][0]["direct_unit_ids"] = []
+    orphaned["sections"][0]["source_unit_ids"] = []
+    write_json(path, orphaned)
+    assert client.get(base).status_code == 500
+
+    false_counts = json.loads(json.dumps(record))
+    false_counts["coverage"]["included_units"] += 1
+    false_counts["coverage"]["excluded_units"] -= 1
+    write_json(path, false_counts)
+    assert client.get(base).status_code == 500
+
 
 @pytest.mark.parametrize("parser,status", [("markitdown", "ready"), ("docling", "processing")])
 def test_map_requires_a_ready_docling_file(tmp_path, parser, status):
@@ -133,7 +179,8 @@ def test_failed_atomic_map_write_does_not_replace_existing_record(tmp_path, monk
         raise OSError("synthetic disk failure")
 
     monkeypatch.setattr(map_store, "write_json", fail_write)
-    response = client.post(base)
+    isolated_client = TestClient(client.app, raise_server_exceptions=False)
+    response = isolated_client.post(base)
 
     assert response.status_code == 500
     assert path.read_bytes() == before

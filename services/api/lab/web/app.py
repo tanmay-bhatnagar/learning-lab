@@ -14,7 +14,7 @@ from lab.contracts import ModelGateway
 from lab.errors import DomainError
 from lab.models import OllamaGateway
 from lab.storage import Store
-from lab.web import chat, conversations, files, settings, topics
+from lab.web import chat, conversations, document_maps, files, settings, topics
 from lab.web.deps import AppDeps, ParserFn, RetrieverFn, StructuredParserFn
 from lab.web.middleware import UploadBodyLimit, browser_boundary_middleware
 
@@ -71,6 +71,7 @@ def create_app(
     app.include_router(settings.router(deps))
     app.include_router(topics.router(deps))
     app.include_router(files.router(deps))
+    app.include_router(document_maps.router(deps))
     app.include_router(chat.router(deps))
     app.include_router(conversations.router(deps))
 

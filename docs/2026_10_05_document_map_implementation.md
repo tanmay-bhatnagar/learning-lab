@@ -47,3 +47,9 @@ In progress. Code owns map storage/API boundaries and tests, plus router registr
 ### Isolated real-artifact source compatibility
 
 Coordinator ran the pure builder read-only on the three existing isolated public-paper native artifacts (Whisper, Janus-Pro, CAVIAR) after slice 1 review. All built without new parsing or model calls. Root sections: 53, 21, 47 respectively (flat headings plus preamble). Source-item accounting was 1239/1239, 258/258 and 554/554. Canonical unit counts were 1210, 240 and 537; exclusions/warnings remain visible. This establishes compatibility with those saved artifact structures, not source-text fidelity, summary quality or full PDF coverage. No personal topic was accessed and no original artifact changed.
+
+### Slice 2 validation discoveries
+
+`667be36` captured six expected failing API/storage cases and one passing topic-scope case before endpoints existed. Independent review later ran 20 focused source/API tests successfully but reproduced accepted corrupt snapshots: wrong file identity returned ready, overlapping section direct ownership abandoned other units, and included/excluded counts contradicted actual units while arithmetic sums matched. It also caught an aggregate-order validator contradicting slice 1, which the writer repaired during review.
+
+The decision is relational validation rather than shape-only deserialization: requested file identity, revision/source self-consistency, unique direct ownership and derived coverage must agree. Extra boundary checks are justified by isolated reproductions; malformed snapshots fail CorruptData, while a valid older snapshot whose actual source changed is stale. Code owns targeted corrupt-record regressions; reviewer must recheck before slice 3.
