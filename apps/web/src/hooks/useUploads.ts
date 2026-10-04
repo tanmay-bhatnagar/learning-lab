@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, type RefObject } from 'react';
+import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 import { api } from '../api/client';
 import { topicFilesPath } from '../api/urls';
 import { labFileSchema, type LabFile } from '../api/types';
@@ -22,6 +22,18 @@ export function useUploads(
   const dragDepth = useRef(0);
   const dropFeedbackTimer = useRef<number | null>(null);
   const uploadInput = useRef<HTMLInputElement>(null);
+  const activeBatch = useRef<AbortController | null>(null);
+  const { begin, end } = activityApi;
+
+  const cancelBatch = useCallback(() => {
+    const controller = activeBatch.current;
+    if (!controller) return;
+    activeBatch.current = null;
+    controller.abort();
+    end();
+  }, [end]);
+
+  useEffect(() => cancelBatch, [topic, cancelBatch]);
 
   const uploadBlocked = uploadBlockedReason(activity, { topicReady, hasTopic: !!topic });
 
@@ -47,7 +59,9 @@ export function useUploads(
         showDropFeedback(uploadBlocked);
         return;
       }
-      if (!activityApi.begin('upload')) return;
+      if (!begin('upload')) return;
+      const controller = new AbortController();
+      activeBatch.current = controller;
       const target = topic;
       const batch = Array.from(list);
       setDragging(false);
@@ -58,29 +72,39 @@ export function useUploads(
       try {
         await validatePdfs(batch);
         for (const file of batch) {
+          if (controller.signal.aborted || topicRef.current !== target) break;
           const body = new FormData();
           body.append('file', file);
           body.append('parser', parser);
-          const result = await api(topicFilesPath(target), labFileSchema, { method: 'POST', body });
-          if (topicRef.current === target) appendFile(result);
+          const result = await api(topicFilesPath(target), labFileSchema, {
+            method: 'POST',
+            body,
+            signal: controller.signal,
+          });
+          if (controller.signal.aborted || topicRef.current !== target) break;
+          appendFile(result);
         }
       } catch (e) {
-        if (topicRef.current !== target) return;
+        if (controller.signal.aborted || topicRef.current !== target) return;
         const message = errorText(e);
         setError(message);
         showDropFeedback(message);
         setDropBlocked(true);
       } finally {
-        activityApi.end();
-        if (uploadInput.current) uploadInput.current.value = '';
+        if (activeBatch.current === controller) {
+          activeBatch.current = null;
+          end();
+          if (uploadInput.current) uploadInput.current.value = '';
+        }
       }
     },
-    [topic, topicRef, uploadBlocked, showDropFeedback, activityApi],
+    [topic, topicRef, uploadBlocked, showDropFeedback, begin, end],
   );
 
   const dispose = useCallback(() => {
     if (dropFeedbackTimer.current !== null) window.clearTimeout(dropFeedbackTimer.current);
-  }, []);
+    cancelBatch();
+  }, [cancelBatch]);
 
   return {
     dragging,

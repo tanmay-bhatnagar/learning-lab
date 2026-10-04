@@ -1,7 +1,6 @@
 import type { Model, Settings } from './api/types';
 
 export const APP_CONTEXT_MAX = 32768;
-export const LEGACY_CONTEXT_LIMIT = 8192;
 export const DEFAULT_SETTINGS: Settings = {
   model: '',
   context_limit: APP_CONTEXT_MAX,
@@ -34,10 +33,6 @@ export function quantizationLabel(quantization?: string | null): string | undefi
 export function normalizeSettings(raw: Partial<Settings>): { settings: Settings; migrated: boolean } {
   const settings: Settings = { ...DEFAULT_SETTINGS, ...raw, context_limit: raw.context_limit ?? APP_CONTEXT_MAX };
   let migrated = false;
-  if (settings.context_limit === LEGACY_CONTEXT_LIMIT) {
-    settings.context_limit = APP_CONTEXT_MAX;
-    migrated = true;
-  }
   if (
     !Number.isInteger(settings.context_limit) ||
     settings.context_limit < 1024 ||

@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import {
   filesRefreshed,
+  conversationRequested,
   goalSaved,
   inputChanged,
   topicLoaded,
@@ -27,6 +28,20 @@ describe('topicSession', () => {
     });
     expect(next.input).toBe('typed during load');
     expect(next.goalDraft).toBe('Learn');
+    expect(next.topicReady).toBe(true);
+  });
+
+  test('conversation load preserves an unsaved topic goal draft', () => {
+    const current = { ...empty(), learningGoal: 'Saved goal', goalDraft: 'Unsaved goal', topicReady: true };
+    const loading = conversationRequested(current);
+    const next = topicLoaded(loading, {
+      messages: [],
+      context: {},
+      files: [],
+      topic: { id: 't', name: 'T', learning_goal: 'Saved goal' },
+    });
+    expect(next.goalDraft).toBe('Unsaved goal');
+    expect(next.learningGoal).toBe('Saved goal');
     expect(next.topicReady).toBe(true);
   });
 

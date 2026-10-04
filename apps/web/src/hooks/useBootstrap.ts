@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { api, json } from '../api/client';
+import { api } from '../api/client';
 import { modelsResponseSchema, settingsSchema, topicsResponseSchema } from '../api/types';
 import type { Model, Settings, Topic } from '../api/types';
 import { DEFAULT_SETTINGS, normalizeSettings } from '../modelControls';
@@ -10,12 +10,12 @@ export function useBootstrap() {
   const [topic, setTopic] = useState('');
   const [models, setModels] = useState<Model[]>([]);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
+  const [settingsReady, setSettingsReady] = useState(false);
   const [parser, setParser] = useState(DEFAULT_SETTINGS.parser);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [modelError, setModelError] = useState('');
-  const [migrationError, setMigrationError] = useState('');
-  const migrationLock = useRef(false);
+  const [settingsError, setSettingsError] = useState('');
   const modelRequest = useRef(0);
   const mounted = useRef(true);
 
@@ -44,6 +44,7 @@ export function useBootstrap() {
   const initialize = useCallback(async () => {
     const modelRequestId = ++modelRequest.current;
     setLoading(true);
+    setSettingsReady(false);
     setError('');
     const results = await Promise.allSettled([
       api('/topics', topicsResponseSchema),
@@ -62,22 +63,12 @@ export function useBootstrap() {
       setModelError(errorText(m.reason));
     }
     if (s.status === 'fulfilled') {
-      const { settings: value, migrated } = normalizeSettings(s.value);
+      const { settings: value } = normalizeSettings(s.value);
       setSettings(value);
       setParser(value.parser);
-      if (migrated && !migrationLock.current) {
-        migrationLock.current = true;
-        api('/settings', settingsSchema, json(value, 'PUT'))
-          .then((saved) => {
-            setSettings(saved);
-            setParser(saved.parser);
-          })
-          .catch((e) => setMigrationError(errorText(e)))
-          .finally(() => {
-            migrationLock.current = false;
-          });
-      }
-    } else setError(errorText(s.reason));
+      setSettingsError('');
+      setSettingsReady(true);
+    } else setSettingsError(`Could not load settings: ${errorText(s.reason)}`);
     setLoading(false);
   }, []);
 
@@ -93,6 +84,7 @@ export function useBootstrap() {
     setTopic,
     models,
     settings,
+    settingsReady,
     setSettings,
     parser,
     setParser,
@@ -100,7 +92,8 @@ export function useBootstrap() {
     error,
     setError,
     modelError,
-    migrationError,
+    settingsError,
+    migrationError: settingsError,
     refreshModels,
     initialize,
   };

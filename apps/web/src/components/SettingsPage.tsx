@@ -10,6 +10,7 @@ type Props = {
   models: Model[];
   draftModel?: Model;
   busy: boolean;
+  settingsReady: boolean;
   saving: boolean;
   switching: string;
   selectionStatus: string;
@@ -31,6 +32,7 @@ export function SettingsPage({
   models,
   draftModel,
   busy,
+  settingsReady,
   saving,
   switching,
   selectionStatus,
@@ -72,7 +74,7 @@ export function SettingsPage({
                       ? modelLabel(models.find((m) => m.id === settings.model) || settings.model)
                       : 'Select a model'
                 }
-                disabled={busy}
+                disabled={busy || !settingsReady}
                 value={switching || settings.model}
                 onChange={(e) => onSelectModel(e.target.value)}
               >
@@ -162,7 +164,7 @@ export function SettingsPage({
                 type="number"
                 min="1024"
                 max={APP_CONTEXT_MAX}
-                disabled={busy}
+                disabled={busy || !settingsReady}
                 step="1"
                 required
                 value={draft.context_limit || ''}
@@ -180,7 +182,7 @@ export function SettingsPage({
             <label className="field">
               PDF parser
               <select
-                disabled={busy}
+                disabled={busy || !settingsReady}
                 value={draft.parser}
                 onChange={(e) => onDraftChange({ ...draft, parser: e.target.value })}
               >
@@ -193,7 +195,7 @@ export function SettingsPage({
               <input
                 type="text"
                 maxLength={200}
-                disabled={busy}
+                disabled={busy || !settingsReady}
                 required
                 value={draft.embedding_model}
                 onChange={(e) => onDraftChange({ ...draft, embedding_model: e.target.value })}
@@ -205,7 +207,7 @@ export function SettingsPage({
                 type="number"
                 min="1"
                 max="20"
-                disabled={busy}
+                disabled={busy || !settingsReady}
                 step="1"
                 required
                 value={draft.retrieval_top_k || ''}
@@ -222,7 +224,7 @@ export function SettingsPage({
             <button type="button" className="secondary" onClick={onBack}>
               Back to workspace
             </button>
-            <button className="primary" disabled={saving || busy || !draft.model}>
+            <button className="primary" disabled={saving || busy || !settingsReady || !draft.model}>
               {saving ? <LoaderCircle className="spin" size={16} /> : <Check size={16} />} Save settings
             </button>
           </div>

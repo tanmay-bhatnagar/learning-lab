@@ -17,6 +17,7 @@ export function useSettings(
   setError: (message: string) => void,
   activity: Activity,
   activityApi: ActivityApi,
+  settingsReady: boolean,
 ) {
   const [draft, setDraft] = useState(settings);
   const [trackedSettings, setTrackedSettings] = useState(settings);
@@ -36,7 +37,7 @@ export function useSettings(
   const persistSettings = useCallback(
     async (next: Settings, selectedModel?: Model) => {
       const op = selectedModel ? 'selectModel' : 'saveSettings';
-      if (isBusy(activity)) return;
+      if (!settingsReady || isBusy(activity)) return;
       const validation = validateContext(next.context_limit);
       if (validation) {
         setError(validation);
@@ -68,7 +69,7 @@ export function useSettings(
         activityApi.end();
       }
     },
-    [activity, activityApi, setContext, setError, setParser, setSettings],
+    [activity, activityApi, setContext, setError, setParser, setSettings, settingsReady],
   );
 
   const selectModel = useCallback(

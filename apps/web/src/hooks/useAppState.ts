@@ -39,6 +39,7 @@ export function useAppState() {
 
   const chat = useChat(
     bootstrap.topic,
+    session.conversation,
     bootstrap.settings,
     bootstrap.models,
     thinking,
@@ -61,6 +62,7 @@ export function useAppState() {
     bootstrap.setError,
     activityApi.activity,
     activityApi,
+    bootstrap.settingsReady,
   );
 
   const previewState = useFilePreview(bootstrap.topic, preview, previewTab);
@@ -118,9 +120,20 @@ export function useAppState() {
   const upload = (list: FileList | File[] | null) =>
     void uploads.upload(list, bootstrap.parser, bootstrap.setError, session.appendFile);
 
-  const selectTopic = (id: string) => {
+  const selectTopic = async (id: string) => {
+    await chat.stop();
     setPreview(null);
     bootstrap.setTopic(id);
+  };
+
+  const selectConversation = async (id: string) => {
+    await chat.stop();
+    session.selectConversation(id);
+  };
+
+  const createConversation = async (title: string) => {
+    await chat.stop();
+    await session.createConversation(title);
   };
 
   const reloadTopic = () => {
@@ -170,6 +183,8 @@ export function useAppState() {
     upload,
     refreshFiles: session.refreshFiles,
     selectTopic,
+    selectConversation,
+    createConversation,
     reloadTopic,
   };
 }

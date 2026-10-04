@@ -11,7 +11,7 @@ export function ErrorBanner({
   busy: boolean;
   loading: boolean;
   onReload: () => void;
-  onDismiss: () => void;
+  onDismiss?: () => void;
 }) {
   if (!message) return null;
   return (
@@ -20,9 +20,11 @@ export function ErrorBanner({
       <button disabled={busy || loading} onClick={onReload}>
         Reload
       </button>
-      <button className="icon-button" aria-label="Dismiss error" onClick={onDismiss}>
-        <X size={15} />
-      </button>
+      {onDismiss && (
+        <button className="icon-button" aria-label="Dismiss error" onClick={onDismiss}>
+          <X size={15} />
+        </button>
+      )}
     </div>
   );
 }

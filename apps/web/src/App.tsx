@@ -3,6 +3,7 @@ import { contextMeter } from './domain/contextMeter';
 import { RetrievalTracePanel } from './retrievalTrace';
 import { useAppState } from './hooks/useAppState';
 import { ChatPanel } from './components/ChatPanel';
+import { ConversationBar } from './components/ConversationBar';
 import { ErrorBanner } from './components/ErrorBanner';
 import { FilesPanel } from './components/FilesPanel';
 import { NewTopicModal } from './components/NewTopicModal';
@@ -33,12 +34,15 @@ export function App() {
     setFollow,
     bottom,
     selectTopic,
+    selectConversation,
+    createConversation,
     reloadTopic,
     bootstrap: {
       topics,
       topic,
       models,
       settings,
+      settingsReady,
       parser,
       setParser,
       loading,
@@ -144,10 +148,10 @@ export function App() {
           busy={busy}
           loading={loading}
           onReload={() => {
+            if (migrationError || storageError || !topic) void initialize();
             if (topic) reloadTopic();
-            else void initialize();
           }}
-          onDismiss={() => setError('')}
+          onDismiss={error ? () => setError('') : undefined}
         />
         {loading ? (
           <div className="center-state">
@@ -161,6 +165,7 @@ export function App() {
             models={models}
             draftModel={draftModel}
             busy={busy}
+            settingsReady={settingsReady}
             saving={saving}
             switching={switching}
             selectionStatus={selectionStatus}
@@ -197,6 +202,17 @@ export function App() {
               </button>
             </div>
             <WorkspaceTabs tab={tab} fileCount={files.length} onTab={setTab} />
+            {topic && (
+              <ConversationBar
+                key={`${topic}:${session.conversation}`}
+                conversations={session.conversations}
+                activeId={session.conversation}
+                disabled={session.conversationPending || !topicReady}
+                onSelect={selectConversation}
+                onCreate={(title) => void createConversation(title)}
+                onRename={(id, title) => void session.renameConversation(id, title)}
+              />
+            )}
             {!topic ? (
               <div className="center-state welcome">
                 <span className="hero-icon">

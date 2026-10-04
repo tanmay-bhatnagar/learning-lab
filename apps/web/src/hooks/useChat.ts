@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { stream } from '../api/client';
-import { topicChatPath } from '../api/urls';
+import { conversationChatPath } from '../api/urls';
 import type { Model, Settings } from '../api/types';
 import { chatRequest } from '../modelControls';
 import { aborted, errorText } from '../lib/errors';
@@ -12,6 +12,7 @@ type ActivityApi = Pick<ReturnType<typeof useActivity>, 'begin' | 'end'>;
 
 export function useChat(
   topic: string,
+  conversation: string,
   settings: Settings,
   models: Model[],
   thinking: Record<string, boolean | string>,
@@ -23,14 +24,20 @@ export function useChat(
   onTurnStart: () => void,
 ) {
   const streamController = useRef<AbortController | null>(null);
+  const streamSettled = useRef<Promise<void> | null>(null);
+  const resolveStream = useRef<(() => void) | null>(null);
   const topicRef = useRef(topic);
+  const conversationRef = useRef(conversation);
 
   useEffect(() => {
     topicRef.current = topic;
-  }, [topic]);
+    conversationRef.current = conversation;
+    streamController.current?.abort();
+  }, [topic, conversation]);
 
   const stop = useCallback(() => {
     streamController.current?.abort();
+    return streamSettled.current ?? Promise.resolve();
   }, []);
 
   const send = useCallback(
@@ -45,7 +52,11 @@ export function useChat(
       let accepted = false;
       const controller = new AbortController();
       streamController.current = controller;
+      streamSettled.current = new Promise<void>((resolve) => {
+        resolveStream.current = resolve;
+      });
       const target = topic;
+      const targetConversation = conversation;
       setError('');
       session.dispatch({ type: 'inputChanged', value: '' });
       onTurnStart();
@@ -53,11 +64,11 @@ export function useChat(
 
       try {
         await stream(
-          topicChatPath(target),
+          conversationChatPath(target, targetConversation),
           chatRequest(settings, activeModel, thinking, message, selected),
           controller.signal,
           (event) => {
-            if (topicRef.current !== target) return;
+            if (topicRef.current !== target || conversationRef.current !== targetConversation) return;
             if (event.type === 'done') session.dispatch({ type: 'contextChanged', context: event.context || {} });
             session.dispatch({
               type: 'messagesChanged',
@@ -69,7 +80,7 @@ export function useChat(
           },
         );
       } catch (e) {
-        if (topicRef.current !== target) return;
+        if (topicRef.current !== target || conversationRef.current !== targetConversation) return;
         const stopRequested = aborted(e);
         if (!accepted) {
           session.dispatch({ type: 'inputChanged', value: originalDraft });
@@ -87,11 +98,28 @@ export function useChat(
           value: (previous) => failTurn(previous, stopRequested).messages,
         });
       } finally {
-        streamController.current = null;
+        if (streamController.current === controller) {
+          streamController.current = null;
+          resolveStream.current?.();
+          resolveStream.current = null;
+          streamSettled.current = null;
+        }
         activityApi.end();
       }
     },
-    [topic, settings, models, thinking, selected, topicReady, session, setError, activityApi, onTurnStart],
+    [
+      topic,
+      conversation,
+      settings,
+      models,
+      thinking,
+      selected,
+      topicReady,
+      session,
+      setError,
+      activityApi,
+      onTurnStart,
+    ],
   );
 
   return { send, stop };

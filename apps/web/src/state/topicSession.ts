@@ -30,12 +30,17 @@ export function topicRequested(): TopicSessionState {
   return { ...emptyTopicSession(), topicLoading: true };
 }
 
+export function conversationRequested(previous: TopicSessionState): TopicSessionState {
+  return { ...previous, messages: [], context: {}, input: '', topicReady: false, topicLoading: true };
+}
+
 export function topicLoaded(
   previous: TopicSessionState,
   payload: {
     messages: Message[];
     context: Context;
     files: LabFile[];
+    selected?: string[];
     topic: Topic;
   },
 ): TopicSessionState {
@@ -46,11 +51,11 @@ export function topicLoaded(
     context: payload.context,
     files: payload.files,
     learningGoal: goal,
-    goalDraft: goal,
+    goalDraft: previous.goalDraft === previous.learningGoal ? goal : previous.goalDraft,
     goalNotice: '',
     topicReady: true,
     topicLoading: false,
-    selected: [],
+    selected: payload.selected || [],
   };
 }
 
@@ -114,9 +119,10 @@ export function contextChanged(previous: TopicSessionState, context: Context): T
 
 export type TopicSessionAction =
   | { type: 'topicRequested' }
+  | { type: 'conversationRequested' }
   | {
       type: 'topicLoaded';
-      payload: { messages: Message[]; context: Context; files: LabFile[]; topic: Topic };
+      payload: { messages: Message[]; context: Context; files: LabFile[]; selected?: string[]; topic: Topic };
     }
   | { type: 'topicFailed' }
   | { type: 'inputChanged'; value: string }
@@ -133,6 +139,8 @@ export function topicSessionReducer(state: TopicSessionState, action: TopicSessi
   switch (action.type) {
     case 'topicRequested':
       return topicRequested();
+    case 'conversationRequested':
+      return conversationRequested(state);
     case 'topicLoaded':
       return topicLoaded(state, action.payload);
     case 'topicFailed':

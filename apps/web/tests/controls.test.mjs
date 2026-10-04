@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import { File } from 'node:buffer';
 import {
   APP_CONTEXT_MAX,
-  LEGACY_CONTEXT_LIMIT,
   modelLabel,
   modelSelection,
   normalizeSettings,
@@ -14,6 +13,7 @@ import {
 } from '../src/modelControls';
 import { pdfDropBlocked, validatePdfs, MAX_PDF_BYTES } from '../src/uploads';
 import { canSaveLearningGoal, MAX_LEARNING_GOAL_CHARS } from '../src/learningGoal';
+const SAVED_CONTEXT_LIMIT = 8192;
 const qwen = { id: 'qwen3.5:9b-q4_K_M', name: 'qwen3.5:9b-q4_K_M', thinking: { type: 'toggle' } };
 test('model labels prefer server display name and format known IDs without technical quantization suffixes', () => {
   assert.equal(modelLabel(qwen), 'Qwen 3.5 · 9B · 4-bit');
@@ -25,25 +25,25 @@ test('model labels prefer server display name and format known IDs without techn
   assert.equal(quantizationLabel('fp16'), undefined);
 });
 test('app context default and maximum stay at 32768 regardless of model metadata', () => {
-  const saved = { model: 'previous', context_limit: LEGACY_CONTEXT_LIMIT, parser: 'anydoc' };
+  const saved = { model: 'previous', context_limit: SAVED_CONTEXT_LIMIT, parser: 'anydoc' };
   const selected = modelSelection(saved, qwen);
-  assert.deepEqual(saved, { model: 'previous', context_limit: LEGACY_CONTEXT_LIMIT, parser: 'anydoc' });
+  assert.deepEqual(saved, { model: 'previous', context_limit: SAVED_CONTEXT_LIMIT, parser: 'anydoc' });
   assert.deepEqual(selected, { model: qwen.id, context_limit: APP_CONTEXT_MAX, parser: 'anydoc' });
   assert.equal(validateContext(APP_CONTEXT_MAX), undefined);
   for (const value of [1023, 32769, NaN, 2048.5]) assert.ok(validateContext(value));
 });
-test('legacy saved 8192 context migrates to 32768 during initialization normalization', () => {
+test('saved 8192 context remains an explicit setting during initialization', () => {
   assert.deepEqual(
-    normalizeSettings({ model: 'qwen3.5:9b-q4_K_M', context_limit: LEGACY_CONTEXT_LIMIT, parser: 'anydoc' }),
+    normalizeSettings({ model: 'qwen3.5:9b-q4_K_M', context_limit: SAVED_CONTEXT_LIMIT, parser: 'anydoc' }),
     {
       settings: {
         model: 'qwen3.5:9b-q4_K_M',
-        context_limit: APP_CONTEXT_MAX,
+        context_limit: SAVED_CONTEXT_LIMIT,
         parser: 'anydoc',
         embedding_model: 'nomic-embed-text',
         retrieval_top_k: 6,
       },
-      migrated: true,
+      migrated: false,
     },
   );
   assert.deepEqual(
@@ -65,7 +65,7 @@ test('legacy saved 8192 context migrates to 32768 during initialization normaliz
   );
 });
 test('next chat request uses saved selected model/context and actual thinking capabilities', () => {
-  const settings = modelSelection({ model: 'previous', context_limit: LEGACY_CONTEXT_LIMIT, parser: 'anydoc' }, qwen);
+  const settings = modelSelection({ model: 'previous', context_limit: SAVED_CONTEXT_LIMIT, parser: 'anydoc' }, qwen);
   assert.deepEqual(chatRequest(settings, qwen, { [qwen.id]: true }, 'Hello', ['pdf1']), {
     message: 'Hello',
     file_ids: ['pdf1'],

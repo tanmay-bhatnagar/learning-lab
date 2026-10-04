@@ -23,3 +23,8 @@ export const topicMessagesPath = (topic: string) => `${topicPath(topic)}/message
 export const topicFilesPath = (topic: string) => `${topicPath(topic)}/files`;
 
 export const topicChatPath = (topic: string) => `${topicPath(topic)}/chat`;
+
+export const conversationsPath = (topic: string) => `${topicPath(topic)}/conversations`;
+export const conversationPath = (topic: string, id: string) => `${conversationsPath(topic)}/${encodeURIComponent(id)}`;
+export const conversationMessagesPath = (topic: string, id: string) => `${conversationPath(topic, id)}/messages`;
+export const conversationChatPath = (topic: string, id: string) => `${conversationPath(topic, id)}/chat`;

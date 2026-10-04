@@ -1,6 +1,7 @@
 import { vi } from 'vitest';
 import type {
   Context,
+  Conversation,
   LabFile,
   Message,
   MessageRetrieval,
@@ -98,6 +99,8 @@ function parsePath(url: string): { pathname: string; search: string } {
 export function createFakeApi(options: FakeApiOptions = {}) {
   const topics = [...(options.topics ?? defaultTopics)];
   const messages: Record<string, Message[]> = { ...(options.messages ?? {}) };
+  const conversations: Record<string, Conversation[]> = {};
+  const conversationMessages: Record<string, Message[]> = {};
   const files: Record<string, LabFile[]> = {
     'topic-a': [readyFile('file-1', 'paper-a.pdf')],
     'topic-b': [readyFile('file-2', 'paper-b.pdf')],
@@ -134,6 +137,7 @@ export function createFakeApi(options: FakeApiOptions = {}) {
 
   for (const topic of topics) {
     messages[topic.id] ??= [{ role: 'user', content: `Hello from ${topic.name}` }];
+    conversations[topic.id] = [{ id: 'default', title: 'Main chat' }];
   }
 
   const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
@@ -153,6 +157,7 @@ export function createFakeApi(options: FakeApiOptions = {}) {
       messages[created.id] = [];
       files[created.id] = [];
       topicGoals[created.id] = '';
+      conversations[created.id] = [{ id: 'default', title: 'Main chat' }];
       return jsonResponse(created);
     }
     if (apiPath === '/models' && method === 'GET') {
@@ -179,6 +184,34 @@ export function createFakeApi(options: FakeApiOptions = {}) {
     if (!topicMatch) return jsonResponse({ detail: 'Not found' }, 404);
     const topicId = decodeURIComponent(topicMatch[1]);
     const rest = topicMatch[2] ?? '';
+    const conversationMatch = rest.match(/^\/conversations\/([^/]+)(\/.*)?$/);
+    if (rest === '/conversations' && method === 'GET') {
+      return jsonResponse({ conversations: conversations[topicId] ?? [] });
+    }
+    if (rest === '/conversations' && method === 'POST') {
+      const body = JSON.parse(String(init?.body ?? '{}')) as { title: string };
+      const record = { id: `chat-${(conversations[topicId] ?? []).length}`, title: body.title };
+      conversations[topicId] = [...(conversations[topicId] ?? []), record];
+      conversationMessages[`${topicId}:${record.id}`] = [];
+      return jsonResponse(record);
+    }
+    if (conversationMatch) {
+      const id = decodeURIComponent(conversationMatch[1]);
+      const tail = conversationMatch[2] ?? '';
+      if (tail === '' && method === 'PATCH') {
+        const body = JSON.parse(String(init?.body ?? '{}')) as { title: string };
+        const updated = { id, title: body.title };
+        conversations[topicId] = (conversations[topicId] ?? []).map((entry) => (entry.id === id ? updated : entry));
+        return jsonResponse(updated);
+      }
+      if (tail === '/messages' && method === 'GET') {
+        await delayTopicLoad();
+        return jsonResponse({
+          messages: id === 'default' ? (messages[topicId] ?? []) : (conversationMessages[`${topicId}:${id}`] ?? []),
+          context: { used: 50, limit: settings.context_limit },
+        });
+      }
+    }
 
     if (rest === '' && method === 'GET') {
       await delayTopicLoad();
@@ -223,7 +256,7 @@ export function createFakeApi(options: FakeApiOptions = {}) {
       onLearningGoalPut?.(topicId, body.learning_goal);
       return jsonResponse({ learning_goal: body.learning_goal });
     }
-    if (rest === '/chat' && method === 'POST') {
+    if ((rest === '/chat' || (conversationMatch && conversationMatch[2] === '/chat')) && method === 'POST') {
       if (chatStatus !== 200) return jsonResponse({ detail: 'Prompt does not fit.' }, chatStatus);
       const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
       const signal = init?.signal ?? new AbortController().signal;

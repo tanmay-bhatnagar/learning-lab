@@ -170,6 +170,11 @@ export const messagesResponseSchema = z.looseObject({
   context: contextSchema.nullish(),
 });
 
+export const conversationSchema = z.looseObject({ id: z.string(), title: z.string() });
+export type Conversation = z.infer<typeof conversationSchema>;
+export const conversationsResponseSchema = z.looseObject({ conversations: z.array(conversationSchema) });
+export const selectedFilesSchema = z.array(z.string());
+
 export const modelSchema = z.looseObject({
   id: z.string(),
   name: z.string(),

@@ -1766,3 +1766,23 @@ main {
   margin: 4px 0;
   padding-left: 19px;
 }
+.conversation-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  padding: 0.7rem 1.5rem;
+  border-bottom: 1px solid var(--border, #303030);
+}
+
+.conversation-bar select,
+.conversation-bar input {
+  min-width: 10rem;
+  max-width: 20rem;
+}
+
+.conversation-bar form {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
