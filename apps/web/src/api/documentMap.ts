@@ -72,7 +72,7 @@ export const documentMapResponseSchema = z.discriminatedUnion('status', [
 export type DocumentMapResponse = z.infer<typeof documentMapResponseSchema>;
 
 export const mapSectionResponseSchema = z.object({
-  status: z.literal('ready'),
+  status: z.enum(['ready', 'stale']),
   section: mapSectionSchema,
   source_units: z.array(mapSourceUnitSchema),
 });
