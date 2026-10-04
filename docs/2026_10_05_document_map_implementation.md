@@ -87,3 +87,7 @@ Slice 4 begins under the accepted design contract above. Writer owns pure summar
 ### Slice 4 test-first checkpoint `30ca771`
 
 Three pure summary regressions initially fail collection because the module is absent. They require full parent/descendant text and fresh policy, conservative whole-prompt refusal, and known source labels. Writer inspected context estimates and metadata override: reusing chat planning would introduce trimming/history/goal, so a dedicated two-message plan was selected. Tradeoff: conservative estimates can reject otherwise feasible source; exact counting is not promised. Backend behavior/cancellation remains unverified until implementation/tests/review. Coordinator prepared a wholly synthetic two-page table PDF under ignored verification storage for the later actual-parser/model usage gate.
+
+### Slice 4 pure-plan checkpoint `fae76cd`
+
+Two tests passed and one scaffold expected two units where the native scope correctly includes four (headings plus text). The writer will assert complete included membership rather than exclude headings to satisfy the test. This strengthens provenance completeness at the cost of extra prompt metadata/tokens. Coordinator also required moving a clock helper from the pure planner into orchestration; timestamps must remain explicit inputs. Marker failures use domain errors. Persistence/provider/cancellation remain unimplemented and unverified at this checkpoint.
