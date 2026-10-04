@@ -1,0 +1,247 @@
+{
+  "build_response": {
+    "status": "ready",
+    "map": {
+      "schema_version": 1,
+      "builder_version": "document-map-v1",
+      "file_id": "synthetic-paper",
+      "revision": "318cbfebb703e8e4e380266f26e64f0e6d8173827a1f2f45c1ea99a0f87ee93f",
+      "source_revision": {
+        "pdf_sha256": "31feee50bf55d3caff443b5f380006c4520184781d2a46055669065d845a4a2d",
+        "docling_sha256": "9daea4540d750e40af85873e2a15b9b4d29b27bcc8c347b9d69b47dec2042879"
+      },
+      "outline_mode": "headings",
+      "sections": [
+        {
+          "id": "section-56e3918c8d64641a9928",
+          "source_ref": "#/texts/0",
+          "title": "Methods",
+          "level": 1,
+          "pages": [
+            1,
+            2
+          ],
+          "text": "Methods\n\nSetup",
+          "direct_unit_ids": [
+            "unit-94d3ffa7453a74c91464",
+            "unit-eb1859012a7d630f3d44"
+          ],
+          "source_unit_ids": [
+            "unit-94d3ffa7453a74c91464",
+            "unit-eb1859012a7d630f3d44",
+            "unit-566a7fa285cb28c8c745",
+            "unit-2b02db5a7b68445b2992"
+          ],
+          "children": [
+            {
+              "id": "section-4eca40ccbdd3afa2372d",
+              "source_ref": "#/texts/2",
+              "title": "Training",
+              "level": 2,
+              "pages": [
+                2
+              ],
+              "text": "Training\n\nSynthetic data only",
+              "direct_unit_ids": [
+                "unit-566a7fa285cb28c8c745",
+                "unit-2b02db5a7b68445b2992"
+              ],
+              "source_unit_ids": [
+                "unit-566a7fa285cb28c8c745",
+                "unit-2b02db5a7b68445b2992"
+              ],
+              "children": [],
+              "latest_attempt": null,
+              "last_summary": null
+            }
+          ],
+          "latest_attempt": null,
+          "last_summary": null
+        }
+      ],
+      "units": [
+        {
+          "id": "unit-94d3ffa7453a74c91464",
+          "source_ref": "#/texts/0",
+          "source_refs": [
+            "#/texts/0"
+          ],
+          "kind": "text",
+          "content_layer": "body",
+          "text": "Methods",
+          "pages": [
+            1
+          ],
+          "included": true,
+          "warnings": []
+        },
+        {
+          "id": "unit-eb1859012a7d630f3d44",
+          "source_ref": "#/texts/1",
+          "source_refs": [
+            "#/texts/1"
+          ],
+          "kind": "text",
+          "content_layer": "body",
+          "text": "Setup",
+          "pages": [
+            1
+          ],
+          "included": true,
+          "warnings": []
+        },
+        {
+          "id": "unit-566a7fa285cb28c8c745",
+          "source_ref": "#/texts/2",
+          "source_refs": [
+            "#/texts/2"
+          ],
+          "kind": "text",
+          "content_layer": "body",
+          "text": "Training",
+          "pages": [
+            2
+          ],
+          "included": true,
+          "warnings": []
+        },
+        {
+          "id": "unit-2b02db5a7b68445b2992",
+          "source_ref": "#/texts/3",
+          "source_refs": [
+            "#/texts/3"
+          ],
+          "kind": "text",
+          "content_layer": "body",
+          "text": "Synthetic data only",
+          "pages": [
+            2
+          ],
+          "included": true,
+          "warnings": []
+        }
+      ],
+      "coverage": {
+        "total_units": 4,
+        "included_units": 4,
+        "excluded_units": 0,
+        "accounted_units": 4,
+        "total_source_items": 4,
+        "accounted_source_items": 4
+      },
+      "warnings": [],
+      "history": []
+    }
+  },
+  "section_response": {
+    "status": "ready",
+    "section": {
+      "id": "section-56e3918c8d64641a9928",
+      "source_ref": "#/texts/0",
+      "title": "Methods",
+      "level": 1,
+      "pages": [
+        1,
+        2
+      ],
+      "text": "Methods\n\nSetup",
+      "direct_unit_ids": [
+        "unit-94d3ffa7453a74c91464",
+        "unit-eb1859012a7d630f3d44"
+      ],
+      "source_unit_ids": [
+        "unit-94d3ffa7453a74c91464",
+        "unit-eb1859012a7d630f3d44",
+        "unit-566a7fa285cb28c8c745",
+        "unit-2b02db5a7b68445b2992"
+      ],
+      "children": [
+        {
+          "id": "section-4eca40ccbdd3afa2372d",
+          "source_ref": "#/texts/2",
+          "title": "Training",
+          "level": 2,
+          "pages": [
+            2
+          ],
+          "text": "Training\n\nSynthetic data only",
+          "direct_unit_ids": [
+            "unit-566a7fa285cb28c8c745",
+            "unit-2b02db5a7b68445b2992"
+          ],
+          "source_unit_ids": [
+            "unit-566a7fa285cb28c8c745",
+            "unit-2b02db5a7b68445b2992"
+          ],
+          "children": [],
+          "latest_attempt": null,
+          "last_summary": null
+        }
+      ],
+      "latest_attempt": null,
+      "last_summary": null
+    },
+    "source_units": [
+      {
+        "id": "unit-94d3ffa7453a74c91464",
+        "source_ref": "#/texts/0",
+        "source_refs": [
+          "#/texts/0"
+        ],
+        "kind": "text",
+        "content_layer": "body",
+        "text": "Methods",
+        "pages": [
+          1
+        ],
+        "included": true,
+        "warnings": []
+      },
+      {
+        "id": "unit-eb1859012a7d630f3d44",
+        "source_ref": "#/texts/1",
+        "source_refs": [
+          "#/texts/1"
+        ],
+        "kind": "text",
+        "content_layer": "body",
+        "text": "Setup",
+        "pages": [
+          1
+        ],
+        "included": true,
+        "warnings": []
+      },
+      {
+        "id": "unit-566a7fa285cb28c8c745",
+        "source_ref": "#/texts/2",
+        "source_refs": [
+          "#/texts/2"
+        ],
+        "kind": "text",
+        "content_layer": "body",
+        "text": "Training",
+        "pages": [
+          2
+        ],
+        "included": true,
+        "warnings": []
+      },
+      {
+        "id": "unit-2b02db5a7b68445b2992",
+        "source_ref": "#/texts/3",
+        "source_refs": [
+          "#/texts/3"
+        ],
+        "kind": "text",
+        "content_layer": "body",
+        "text": "Synthetic data only",
+        "pages": [
+          2
+        ],
+        "included": true,
+        "warnings": []
+      }
+    ]
+  }
+}
