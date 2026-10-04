@@ -2,6 +2,8 @@
 
 Date: 5 October 2026. Baseline: `2176de4` on `dev`. Status: research/design complete; proposed implementation plan for discussion, not implementation approval. Research and design roles used their configured Sol High and Sol Medium models. Both read Code-root AGENTS.md, their role skills, architecture and engineering, acknowledged the entire exploration policy, and reported evidence and uncertainty. No application changes, personal topics, installations, model calls, or PDF conversions were made during planning.
 
+Current decisions include the [follow-up decision record](#follow-up-decision-record--5-october-2026) below; it supersedes the initial section-chat deferral while preserving the original research/design history.
+
 ## Agreed product intent
 
 Map is a dedicated interactive workspace view, not a summary added to chat. Choose a PDF explicitly, build its outline on demand, select a section, and request a summary only when wanted. Saved outlines and completed summaries reopen without model calls. Nothing runs on upload, on opening Map, or for other attached PDFs. Maps belong to topic/file, independently of conversations and chat attachment selection. No new designation of a primary PDF is needed.
@@ -90,3 +92,35 @@ Run relevant tests per slice. Completion gates include engineering checker, appr
 Recommend the first release above: honest outline plus summaries that fit one explicit request. Defer hierarchy enrichment until measured accuracy, long-section synthesis until bounded coverage/cancel design, and Ask about section until a validated section-scope chat contract.
 
 Unresolved: native serialization/source allocation fidelity (slice 1), heading enrichment accuracy (deferred), actual summary support/accuracy and generation cost (slice 5), conservative fit refusals, model-tag replacement identity and real cancellation/restart behavior. Planning experiments do not establish production correctness. User discussion/implementation approval remains next; no application implementation has started.
+
+## Follow-up decision record — 5 October 2026
+
+### Report inventory and ownership
+
+There were **two role reports**, research (`document_map_research`, Sol High) and design (`document_map_design`, Sol Medium), returned as agent messages in the planning chat. They were not saved as separate raw report files. This file is the **one consolidated durable report and plan**, committed initially as `726bf4e`; the research evidence and design recommendations above preserve their attribution. Code-root learning-delivery requirements were strengthened in `985edd9`. The coordinator owns this synthesis and future walkthroughs; read-only workers continue reporting without writing.
+
+### Main-chat action — user decision supersedes initial design
+
+Question: how should a learner continue discussing a mapped section?
+
+The initial design deferred Ask about this section because existing chat accepts file selection and top-k retrieval, not a guaranteed section scope. Tanmay explicitly selected **Add to main chat** instead. This transfers the completed saved summary, section title and source references into the existing main conversation. It creates no side conversation and promises no section-only retrieval. It needs no inference. The original section-chat deferral is preserved above as history and is superseded for this action; section-specific chat remains outside scope.
+
+This simpler route reuses saved conversation behavior and gives the learner control over when generated material enters their chat. The tradeoff is that an imported summary is compressed, generated content; it must not masquerade as verbatim PDF evidence or a newly generated chat answer. Adding it to history can consume later chat context. Summary provenance and original source links must remain visible.
+
+Implementation slice 5 now includes Add to main chat. Before implementing that action, the design/code owner must settle which existing conversation is the target when Default and named conversations coexist, imported-entry representation, duplicate-click handling and citation persistence. The UI must name the destination. Acceptance: one explicit action durably adds the selected completed summary and source references to the intended existing conversation; no model call, new conversation or unrequested section-retrieval restriction. Failed, partial or stale results cannot be imported as current complete summaries. A request for actual section-only chat would reopen that separate contract decision.
+
+### Same model, fresh request — verified adapter behavior
+
+Question: does a section summary require another model or retaining the main chat context in model memory?
+
+The existing gateway takes an explicit message list on each call (`services/api/lab/models.py:134`); chat history is projected from saved messages (`chat_session.py`, `chat_prompt.py`). For summaries, reuse that gateway and the selected local model with a fresh prompt containing policy, complete section source and summary instructions, excluding chat history. The next main-chat request rebuilds its prompt from saved conversation data. Request contexts have independent budgets; summary generation does not erase saved chat or consume its request budget. An imported summary can enter subsequent chat requests through saved history.
+
+Same model means the same model weights/model selection, not guaranteed uninterrupted residency. The current gateway sends `keep_alive: 0`, asking Ollama to unload after each request (`models.py:191–197`). The previous claim that no extra model runs alongside chat remains the design intent through the shared inference lock; any suggestion that weights necessarily stay loaded between requests is corrected here. Keeping weights resident briefly would be a separate measured memory/latency choice, not a prerequisite for fresh prompts. [Ollama chat API](https://docs.ollama.com/api/chat) documents messages and keep_alive.
+
+Alternatives actually discussed: a separate model was rejected by Tanmay as too expensive; the existing model with a fresh message list meets the task without parallel inference. A short keep-alive could avoid reload costs, but current unload behavior is retained until memory and latency are measured. Neither cached weights nor prompt caching is the authoritative store of chat history. Implementation/usage owners must verify serialization, no chat-history leakage into summary prompts, unchanged saved history, queue/cancellation behavior and actual load latency.
+
+### Learning delivery — user requirement
+
+Tanmay requires the decision path to be explained at every consequential checkpoint in the walkthrough and durable notes, not only raw agent messages. Record what was learned, actual alternatives, evidence-backed rationale, tradeoffs, assumptions/uncertainty, next validation owner and conditions for changing the choice. A diagram is optional. This responds to an observed delivery gap: the agent reports included comparisons, but the coordinator's condensed walkthrough did not make them sufficiently visible.
+
+The full rule is in [Code-root AGENTS.md](../AGENTS.md#mandatory-learning-delivery-and-decision-records), with [engineering conventions](engineering.md#learning-delivery-and-decision-records). It applies to all roles and is part of checkpoint acceptance. Routine choices can cite established decisions; no invented alternatives or exhaustive internal deliberation transcript is required.
