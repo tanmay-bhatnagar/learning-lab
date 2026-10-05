@@ -133,3 +133,7 @@ The final slice now owns typed streaming controls and immutable main-conversatio
 ### Slice 5 import scaffold `4f5ae02`
 
 Three synthetic import API tests initially fail on the absent route. They require an existing destination, server-owned summary text, no inference and exact idempotent retry after rebuild. Repository session persistence/history projection supplies the needed evidence; additive metadata is displayed while actual role/content labels enter ordinary future chat context. A second import index was rejected because it would introduce consistency drift beside the conversation's authoritative atomic write. Writer implements backend/import metadata compatibility first, then the final UI controls under the same slice.
+
+### Slice 5 backend import checkpoint `0d4ed0f`
+
+Twenty-two focused import/summary tests pass. Pure snapshot/identity/metadata functions and a thin HTTP route append a server-owned labeled user-context message to an existing conversation, without inference. Topic-locked atomic conversation persistence is the duplicate authority. Message reads and chat validate stored import metadata; history projection excludes display metadata while retaining the generated-content label. Exact prior imports are checked before current-map eligibility so legitimate retry survives rebuild. Named/concurrent/regenerated/stale/incomplete/malformed cases and frontend controls remain gates. Independent review now inspects backend authority/provenance/compatibility; writer retains sole application ownership.
