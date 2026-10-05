@@ -28,7 +28,7 @@ export function useDocumentMap(
   const selectedFile = files.find((file) => file.id === fileId);
 
   const load = useCallback(
-    async (force = false) => {
+    async () => {
       if (!enabled || !topic || !fileId) return;
       controller.current?.abort();
       const requestController = new AbortController();
@@ -38,7 +38,7 @@ export function useDocumentMap(
       setState({
         topic,
         fileId,
-        response: !force && cached?.topic === topic && cached.fileId === fileId ? cached.response : null,
+        response: cached?.topic === topic && cached.fileId === fileId ? cached.response : null,
         loading: true,
         error: '',
       });
@@ -71,7 +71,7 @@ export function useDocumentMap(
 
   useEffect(() => {
     if (!enabled || !fileId || !selectedFile) return;
-    void load(true);
+    void load();
     return () => {
       revision.current += 1;
       controller.current?.abort();
@@ -121,6 +121,6 @@ export function useDocumentMap(
     setFileId: (id: string) => setSelection({ topic, fileId: id }),
     state: visibleState,
     build,
-    reload: () => void load(true),
+    reload: () => void load(),
   };
 }

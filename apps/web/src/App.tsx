@@ -110,6 +110,7 @@ export function App() {
     dispatch: sessionDispatch,
   } = session;
   const documentMap = state.documentMap;
+  const sectionSummary = state.sectionSummary;
 
   const meter = contextMeter(context, settings);
   const bannerMessage = [error, migrationError, storageError].filter(Boolean).join(' ');
@@ -279,6 +280,16 @@ export function App() {
                 loading={documentMap.state.loading}
                 busy={busy}
                 error={documentMap.state.error}
+                conversationTitle={session.conversations.find((item) => item.id === session.conversation)?.title ?? 'Default'}
+                selectedSectionId={sectionSummary.sectionId}
+                summaryView={sectionSummary.view}
+                summaryRunning={sectionSummary.running}
+                summaryImporting={sectionSummary.importing}
+                summaryNotice={sectionSummary.notice}
+                onSelectSection={sectionSummary.selectSection}
+                onGenerateSummary={() => void sectionSummary.generate()}
+                onStopSummary={() => void sectionSummary.stop()}
+                onAddSummary={() => void sectionSummary.addToConversation()}
                 onBuild={() => void documentMap.build()}
                 onRetry={documentMap.reload}
               />

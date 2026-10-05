@@ -1,8 +1,10 @@
-import { LoaderCircle, RefreshCw } from 'lucide-react';
+import { LoaderCircle, RefreshCw, Sparkles, Square } from 'lucide-react';
 import type { LabFile } from '../api/types';
-import type { DocumentMap, MapSection } from '../api/documentMap';
+import type { DocumentMap, MapSection, SavedSummary } from '../api/documentMap';
 import { originalPdfUrl } from '../api/urls';
+import type { SectionSummaryState } from '../state/documentMap';
 import { mapUnavailableReason } from '../state/documentMap';
+import { RichText } from './RichText';
 
 type Props = {
   topic: string;
@@ -14,11 +16,33 @@ type Props = {
   loading: boolean;
   busy: boolean;
   error: string;
+  conversationTitle: string;
+  selectedSectionId: string;
+  summaryView: SectionSummaryState | null;
+  summaryRunning: boolean;
+  summaryImporting: boolean;
+  summaryNotice: string;
+  onSelectSection: (id: string) => void;
+  onGenerateSummary: () => void;
+  onStopSummary: () => void;
+  onAddSummary: () => void;
   onBuild: () => void;
   onRetry: () => void;
 };
 
-function SectionTree({ sections, topic, fileId }: { sections: MapSection[]; topic: string; fileId: string }) {
+function SectionTree({
+  sections,
+  topic,
+  fileId,
+  selectedSectionId,
+  onSelectSection,
+}: {
+  sections: MapSection[];
+  topic: string;
+  fileId: string;
+  selectedSectionId: string;
+  onSelectSection: (id: string) => void;
+}) {
   return (
     <ul className="document-map-tree">
       {sections.map((section) => (
@@ -32,7 +56,10 @@ function SectionTree({ sections, topic, fileId }: { sections: MapSection[]; topi
             </summary>
             <div className="map-section-preview">
               <p>{section.text || 'No direct preview text was extracted.'}</p>
-              <small>Direct extracted text. Future summaries will include this section and its nested sections.</small>
+              <small>Direct extracted text. A generated summary covers this section and its nested sections.</small>
+              <button className="text-button" onClick={() => onSelectSection(section.id)}>
+                {selectedSectionId === section.id ? 'Selected for summary' : 'Select for summary'}
+              </button>
               {section.pages.length > 0 && (
                 <div className="map-pages">
                   {section.pages.map((page) => (
@@ -43,7 +70,15 @@ function SectionTree({ sections, topic, fileId }: { sections: MapSection[]; topi
                 </div>
               )}
             </div>
-            {section.children.length > 0 && <SectionTree sections={section.children} topic={topic} fileId={fileId} />}
+            {section.children.length > 0 && (
+              <SectionTree
+                sections={section.children}
+                topic={topic}
+                fileId={fileId}
+                selectedSectionId={selectedSectionId}
+                onSelectSection={onSelectSection}
+              />
+            )}
           </details>
         </li>
       ))}
@@ -61,6 +96,16 @@ export function DocumentMapPanel({
   loading,
   busy,
   error,
+  conversationTitle,
+  selectedSectionId,
+  summaryView,
+  summaryRunning,
+  summaryImporting,
+  summaryNotice,
+  onSelectSection,
+  onGenerateSummary,
+  onStopSummary,
+  onAddSummary,
   onBuild,
   onRetry,
 }: Props) {
@@ -114,6 +159,11 @@ export function DocumentMapPanel({
               {loading ? 'Working…' : buildLabel}
             </button>
             {status === 'not_built' && <span className="muted">No outline saved yet.</span>}
+            {summaryRunning && (
+              <button className="text-button" onClick={onStopSummary}>
+                <Square size={14} /> Stop summary
+              </button>
+            )}
           </div>
           {error && (
             <div className="map-error" role="alert">
@@ -151,10 +201,33 @@ export function DocumentMapPanel({
                 </ul>
               )}
               {readyMap.sections.length ? (
-                <SectionTree sections={readyMap.sections} topic={topic} fileId={fileId} />
+                <SectionTree
+                  sections={readyMap.sections}
+                  topic={topic}
+                  fileId={fileId}
+                  selectedSectionId={selectedSectionId}
+                  onSelectSection={onSelectSection}
+                />
               ) : (
                 <p className="map-empty">No outline sections were found in this document.</p>
               )}
+              <SectionSummaryCard
+                sectionTitle={selectedSectionId ? findSectionTitle(readyMap.sections, selectedSectionId) : ''}
+                summary={summaryView?.sectionId === selectedSectionId ? summaryView.summary : null}
+                attempt={summaryView?.sectionId === selectedSectionId ? summaryView.attempt : null}
+                draft={summaryView?.sectionId === selectedSectionId ? summaryView.content : ''}
+                error={summaryView?.sectionId === selectedSectionId ? summaryView.error : ''}
+                running={summaryRunning}
+                importing={summaryImporting}
+                notice={summaryNotice}
+                busy={busy || status !== 'ready'}
+                conversationTitle={conversationTitle}
+                topic={topic}
+                fileId={fileId}
+                onGenerate={onGenerateSummary}
+                onStop={onStopSummary}
+                onAdd={onAddSummary}
+              />
               {readyMap.units.some((unit) => unit.pages.length > 0) && (
                 <div className="map-pages">
                   <strong>Original PDF pages</strong>
@@ -171,6 +244,111 @@ export function DocumentMapPanel({
           )}
         </>
       )}
+    </section>
+  );
+}
+
+function findSectionTitle(sections: MapSection[], id: string): string {
+  for (const section of sections) {
+    if (section.id === id) return section.title;
+    const child = findSectionTitle(section.children, id);
+    if (child) return child;
+  }
+  return '';
+}
+
+function SectionSummaryCard({
+  sectionTitle,
+  summary,
+  attempt,
+  draft,
+  error,
+  running,
+  importing,
+  notice,
+  busy,
+  conversationTitle,
+  topic,
+  fileId,
+  onGenerate,
+  onStop,
+  onAdd,
+}: {
+  sectionTitle: string;
+  summary: SavedSummary | null;
+  attempt: SectionSummaryState['attempt'];
+  draft: string;
+  error: string;
+  running: boolean;
+  importing: boolean;
+  notice: string;
+  busy: boolean;
+  conversationTitle: string;
+  topic: string;
+  fileId: string;
+  onGenerate: () => void;
+  onStop: () => void;
+  onAdd: () => void;
+}) {
+  if (!sectionTitle) return null;
+  const pages = summary ? [...new Set(summary.sources.flatMap((source) => source.pages))].sort((a, b) => a - b) : [];
+  return (
+    <section className="section-summary-card" aria-labelledby="section-summary-title">
+      <div className="section-summary-header">
+        <div>
+          <span className="eyebrow">ON-DEMAND SUMMARY</span>
+          <h3 id="section-summary-title">{sectionTitle}</h3>
+          <p className="muted">The selected section and all nested sections are sent in full to the current local model.</p>
+        </div>
+        {running ? (
+          <button className="text-button" onClick={onStop}>
+            <Square size={14} /> Stop
+          </button>
+        ) : (
+          <button className="primary" disabled={busy} onClick={onGenerate}>
+            <Sparkles size={15} /> {summary ? 'Regenerate summary' : attempt?.status === 'error' ? 'Retry summary' : 'Generate summary'}
+          </button>
+        )}
+      </div>
+      {running && <p className="map-summary-progress" role="status">Generating. Any partial text below is not saved as a completed summary.</p>}
+      {summary && (
+        <article className="map-summary-result">
+          <div className="map-summary-meta">
+            <strong>Saved summary</strong>
+            <span>{summary.model}</span>
+            <time dateTime={summary.created_at}>{new Date(summary.created_at).toLocaleString()}</time>
+          </div>
+          <p className="muted">Generated summary, not verbatim PDF text. Source labels show where it came from; they do not verify each claim.</p>
+          <RichText text={summary.content} />
+          {pages.length > 0 && (
+            <div className="map-pages" aria-label="Summary source pages">
+              <strong>Source pages</strong>
+              {pages.map((page) => (
+                <a key={page} href={originalPdfUrl(topic, fileId, page)} target="_blank" rel="noreferrer">
+                  Page {page}
+                </a>
+              ))}
+            </div>
+          )}
+          <button className="secondary" disabled={busy || importing || !conversationTitle} onClick={onAdd}>
+            {importing ? 'Adding…' : `Add to “${conversationTitle}”`}
+          </button>
+        </article>
+      )}
+      {!summary && !running && attempt?.status === 'generating' && (
+        <p className="map-summary-progress" role="status">A previous generation stopped before it could be verified. Retry to continue.</p>
+      )}
+      {!summary && !running && attempt && ['error', 'cancelled', 'interrupted'].includes(attempt.status) && (
+        <p className="map-warning">Previous attempt: {attempt.status}. Its text is not a saved summary.</p>
+      )}
+      {(running || (attempt && attempt.status !== 'completed' && draft)) && (
+        <div className="map-summary-draft">
+          <strong>Incomplete attempt</strong>
+          <p>{draft || 'Waiting for text…'}</p>
+        </div>
+      )}
+      {error && <p className="map-error" role="alert">{error}</p>}
+      {notice && <p className="map-summary-notice" role="status">{notice}</p>}
     </section>
   );
 }

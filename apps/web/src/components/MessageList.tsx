@@ -2,6 +2,7 @@ import { BookOpen, ChevronRight, FlaskConical, LoaderCircle, Sparkles } from 'lu
 import type { LabFile, Message, Model } from '../api/types';
 import { modelLabel } from '../modelControls';
 import { MessageSources } from '../citations';
+import { originalPdfUrl } from '../api/urls';
 import { RichText } from './RichText';
 
 type Props = {
@@ -71,6 +72,34 @@ export function MessageList({ messages, models, topic, files, sending, bottomRef
               </details>
             )}
             {message.content && <RichText text={message.content} />}{' '}
+            {message.summary_import && (
+              <div className="summary-import-meta">
+                <strong>Generated section summary</strong>
+                <span>{message.summary_import.section_title}</span>
+                <span>{message.summary_import.model}</span>
+                <time dateTime={message.summary_import.summary_created_at}>
+                  {new Date(message.summary_import.summary_created_at).toLocaleString()}
+                </time>
+                <span>Snapshot added to this conversation; it is not verbatim document text.</span>
+                <div className="map-pages" aria-label="Imported summary sources">
+                  {message.summary_import.sources.flatMap((source) => {
+                    const sourceFile = files.find((file) => file.id === message.summary_import?.file_id);
+                    return source.pages
+                      .filter((page) => page > 0 && (!sourceFile?.page_count || page <= sourceFile.page_count))
+                      .map((page) => (
+                        <a
+                          key={`${source.label}:${page}`}
+                          href={originalPdfUrl(topic, message.summary_import!.file_id, page)}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          {source.label} · page {page}
+                        </a>
+                      ));
+                  })}
+                </div>
+              </div>
+            )}
             {!message.content && sending && i === messages.length - 1 && (
               <div className="generating">
                 <LoaderCircle className="spin" size={14} /> {message.thinking ? 'Reasoning…' : 'Waiting for model…'}

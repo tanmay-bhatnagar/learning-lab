@@ -191,8 +191,8 @@ export async function streamDocumentSummary(
     let parsed: unknown;
     try {
       parsed = JSON.parse(line);
-    } catch {
-      throw new Error('Invalid summary event: line is not JSON.');
+    } catch (error) {
+      throw new Error('Invalid summary event: line is not JSON.', { cause: error });
     }
     const result = summaryStreamEventSchema.safeParse(parsed);
     if (!result.success) throw new Error(formatParseError('summary event', result.error));

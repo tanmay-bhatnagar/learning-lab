@@ -14,6 +14,7 @@ import { useThinkingPrefs } from './useThinkingPrefs';
 import { useTopicSession } from './useTopicSession';
 import { useUploads } from './useUploads';
 import { useDocumentMap } from './useDocumentMap';
+import { useSectionSummary } from './useSectionSummary';
 import { useSidebarDefault, useTopicSidebarClose, useWindowDragGuards } from './useWindowEffects';
 
 export function useAppState() {
@@ -105,6 +106,22 @@ export function useAppState() {
   });
 
   const thinkValue = (model: Model | undefined = activeModel) => thinkingValue(model, thinking);
+  const sectionSummary = useSectionSummary({
+    topic: bootstrap.topic,
+    fileId: documentMap.fileId,
+    map: documentMap.state.response?.map ?? null,
+    conversationId: session.conversation,
+    conversationTitle: session.conversations.find((item) => item.id === session.conversation)?.title ?? 'Default',
+    model: activeModel,
+    contextLimit: bootstrap.settings.context_limit,
+    think: thinkValue(activeModel),
+    activity: activityApi.activity,
+    activityApi,
+    reloadMap: documentMap.reload,
+    onImported: (destination) => {
+      if (session.conversation === destination) session.reload();
+    },
+  });
 
   const createTopic = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -130,6 +147,7 @@ export function useAppState() {
 
   const selectTopic = async (id: string) => {
     await chat.stop();
+    await sectionSummary.stop();
     setPreview(null);
     bootstrap.setTopic(id);
   };
@@ -170,6 +188,7 @@ export function useAppState() {
     bootstrap,
     session,
     documentMap,
+    sectionSummary,
     chat,
     uploads,
     settingsUi,

@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import mapFixture from './fixtures/documentMapApi.json';
+import summaryContract from './fixtures/document-summary-import-contract.json';
 import { mapSectionResponseSchema } from '../src/api/documentMap';
 import { App } from '../src/App';
 import type { LabFile } from '../src/api/types';
@@ -30,18 +31,97 @@ const otherFiles: LabFile[] = [
 ];
 
 function installMapApi(
-  options: { stale?: boolean; invalid?: boolean; deferFirstGet?: boolean; deferBuild?: boolean } = {},
+  options: { stale?: boolean; invalid?: boolean; deferFirstGet?: boolean; deferBuild?: boolean; deferSummary?: boolean } = {},
 ) {
   const base = createFakeApi({ files: { 'topic-a': otherFiles } });
   vi.stubGlobal('fetch', base.fetch);
   const mapCalls: { method: string; path: string }[] = [];
+  const summaryCalls: { body: Record<string, unknown>; signal?: AbortSignal }[] = [];
+  const importCalls: { path: string; body: Record<string, unknown> }[] = [];
   let built = false;
+  let latestSummary: Record<string, unknown> | null = null;
+  let latestAttempt: Record<string, unknown> | null = null;
   let firstGetStarted = false;
   let releaseFirstGet: (() => void) | null = null;
   let releaseBuild: (() => void) | null = null;
+  let releaseSummary: (() => void) | null = null;
   const fakeFetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
     const parsed = new URL(url, 'http://test.local');
+    const summaryMatch = parsed.pathname.match(
+      /^\/api\/topics\/([^/]+)\/files\/([^/]+)\/map\/sections\/([^/]+)\/summary$/,
+    );
+    if (summaryMatch) {
+      const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
+      summaryCalls.push({ body, signal: init?.signal as AbortSignal | undefined });
+      const startEvent = summaryContract.summary_events[0];
+      const doneEvent = summaryContract.summary_events[3];
+      const attemptId = `summary-attempt-${summaryCalls.length}`;
+      const summary = {
+        ...summaryContract.summary,
+        id: attemptId,
+        revision: body.revision,
+        section_id: decodeURIComponent(summaryMatch[3]),
+      };
+      const attempt = {
+        ...startEvent.attempt,
+        id: attemptId,
+        revision: body.revision,
+        section_id: decodeURIComponent(summaryMatch[3]),
+      };
+      const events = [
+        { ...startEvent, attempt_id: attemptId, revision: body.revision, section_id: decodeURIComponent(summaryMatch[3]), attempt },
+        { ...summaryContract.summary_events[2], attempt_id: attemptId },
+        {
+          ...doneEvent,
+          attempt_id: attemptId,
+          summary,
+          attempt: { ...attempt, status: 'completed', actual_model: 'fake-local-model', finished_at: summary.created_at, content: summary.content },
+        },
+      ];
+      latestSummary = summary;
+      latestAttempt = events[2].attempt;
+      if (options.deferSummary) {
+        let finish: (() => void) | null = null;
+        const done = new Promise<void>((resolve) => {
+          finish = resolve;
+        });
+        releaseSummary = () => finish?.();
+        const stream = new ReadableStream<Uint8Array>({
+          async start(controller) {
+            controller.enqueue(new TextEncoder().encode(`${JSON.stringify(events[0])}\n${JSON.stringify(events[1])}\n`));
+            await done;
+            controller.enqueue(new TextEncoder().encode(`${JSON.stringify(events[2])}\n`));
+            controller.close();
+          },
+        });
+        return new Response(stream, { status: 200, headers: { 'Content-Type': 'application/x-ndjson' } });
+      }
+      return new Response(`${events.map((event) => JSON.stringify(event)).join('\n')}\n`, {
+        status: 200,
+        headers: { 'Content-Type': 'application/x-ndjson' },
+      });
+    }
+    const importMatch = parsed.pathname.match(/^\/api\/topics\/([^/]+)\/conversations\/([^/]+)\/summary-imports$/);
+    if (importMatch) {
+      const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
+      importCalls.push({ path: parsed.pathname, body });
+      const sourceMessage = summaryContract.import.message;
+      const message = {
+        ...sourceMessage,
+        summary_import: {
+          ...sourceMessage.summary_import,
+          file_id: body.file_id,
+          revision: body.revision,
+          section_id: body.section_id,
+          summary_id: body.summary_id,
+        },
+      };
+      return new Response(
+        JSON.stringify({ conversation_id: decodeURIComponent(importMatch[2]), imported: true, message, messages: [message] }),
+        { status: 200 },
+      );
+    }
     const match = parsed.pathname.match(/^\/api\/topics\/([^/]+)\/files\/([^/]+)\/map(?:\/sections\/([^/]+))?$/);
     if (!match) return base.fetch(input, init);
     const method = (init?.method ?? 'GET').toUpperCase();
@@ -74,15 +154,23 @@ function installMapApi(
       : options.stale
         ? { ...mapFixture.build_response, status: 'stale' }
         : built
-          ? mapFixture.build_response
+          ? (() => {
+              const saved = JSON.parse(JSON.stringify(mapFixture.build_response));
+              if (latestSummary) saved.map.sections[0].last_summary = latestSummary;
+              if (latestAttempt) saved.map.sections[0].latest_attempt = latestAttempt;
+              return saved;
+            })()
           : { status: 'not_built', map: null };
     return new Response(JSON.stringify(response), { status: 200 });
   };
   vi.stubGlobal('fetch', fakeFetch);
   return {
     mapCalls,
+    summaryCalls,
+    importCalls,
     resolveFirstGet: () => releaseFirstGet?.(),
     resolveBuild: () => releaseBuild?.(),
+    resolveSummary: () => releaseSummary?.(),
   };
 }
 
@@ -159,6 +247,26 @@ describe('document map navigation', () => {
     expect(buildButton).toBeDisabled();
     resolveBuild();
     expect(await screen.findByText('Methods')).toBeInTheDocument();
+  });
+
+  test('summary generation survives a tab return while the map refreshes and Stop is available immediately', async () => {
+    const { summaryCalls, resolveSummary } = installMapApi({ deferSummary: true });
+    const user = userEvent.setup();
+    render(<App />);
+    await waitForReady();
+    await user.click(screen.getByRole('button', { name: 'Map' }));
+    await user.selectOptions(screen.getByRole('combobox', { name: /PDF for map/i }), 'synthetic-paper');
+    await user.click(await screen.findByRole('button', { name: /Build outline/i }));
+    await user.click((await screen.findAllByRole('button', { name: 'Select for summary' }))[0]);
+    await user.click(screen.getByRole('button', { name: 'Generate summary' }));
+    expect(screen.getByRole('button', { name: /Stop summary/i })).toBeInTheDocument();
+    await waitFor(() => expect(summaryCalls).toHaveLength(1));
+
+    await user.click(screen.getByRole('button', { name: /Attached files/i }));
+    await user.click(screen.getByRole('button', { name: 'Map' }));
+    expect(screen.getByRole('button', { name: /Stop summary/i })).toBeInTheDocument();
+    resolveSummary();
+    expect(await screen.findByText('A synthetic statement [S1].')).toBeInTheDocument();
   });
 
   test('stale outline offers explicit rebuild and displays original page links', async () => {

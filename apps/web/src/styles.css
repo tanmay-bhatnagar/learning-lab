@@ -447,6 +447,91 @@ main {
 .map-pages a {
   color: var(--accent);
 }
+.section-summary-card {
+  max-width: 880px;
+  margin: 28px auto 12px;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+}
+.section-summary-header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.section-summary-header h3 {
+  margin: 4px 0;
+}
+.section-summary-header p,
+.map-summary-result > .muted {
+  margin: 4px 0 12px;
+  font-size: 12px;
+}
+.section-summary-header .primary,
+.section-summary-header .text-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex-shrink: 0;
+}
+.map-summary-result {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.map-summary-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  font-size: 12px;
+}
+.map-summary-meta span,
+.map-summary-meta time {
+  color: var(--muted);
+}
+.map-summary-draft {
+  margin-top: 14px;
+  padding: 12px;
+  border-left: 2px solid var(--warning-ink, #704c05);
+  background: var(--warning-soft, #fff6dc);
+  color: var(--warning-ink, #704c05);
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+.map-summary-draft p {
+  margin: 6px 0 0;
+}
+.map-summary-progress,
+.map-summary-notice {
+  color: var(--muted);
+  font-size: 12px;
+}
+.summary-import-meta {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.summary-import-meta strong {
+  color: var(--ink);
+}
+.summary-import-meta .map-pages {
+  flex-basis: 100%;
+  margin-top: 4px;
+}
+.map-section-preview .text-button {
+  margin-top: 8px;
+  color: var(--accent);
+}
 @media (max-width: 680px) {
   .document-map-header {
     align-items: stretch;
@@ -459,6 +544,9 @@ main {
   .map-coverage {
     flex-direction: column;
     gap: 6px;
+  }
+  .section-summary-header {
+    flex-direction: column;
   }
 }
 .count {
