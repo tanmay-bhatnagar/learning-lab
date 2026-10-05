@@ -145,3 +145,7 @@ Reviewer independently passed 22 focused cases but reproduced impossible saved-s
 ### Slice 5 import repair clearance `ef4df3a`
 
 Sixteen import cases and full backend 341 tests plus 21 subtests pass, with Ruff check/format and engineering checks. Independent reviewer reran 35 import/summary cases and repeated the original corruption/replay probes: all contradictions now fail while exact historical retry remains valid. Backend is cleared within those gates. Frontend hook/decoder/controls, imported-message rendering and real browser/model usage remain pending.
+
+### Slice 5 browser wire checkpoint `da9b242`
+
+Three dedicated wire tests and production build pass. The fixture now contains actual synthetic backend started/done attempts, completed summary and import payloads; initial empty-record scaffold was corrected rather than weakening schemas. The decoder handles chunk boundaries, validates events and refuses premature EOF; terminal errors remain explicit events for state/UI handling. Reducer/hook/control and imported-message rendering are next. Independent frontend wire review is beginning; coordinator's fresh isolated workspace has a real Docling table PDF, explicitly built outline and existing named destination ready for final usage. No new summaries have been generated in that final workspace yet.
