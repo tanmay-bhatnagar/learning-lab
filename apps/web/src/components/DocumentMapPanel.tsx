@@ -224,6 +224,8 @@ export function DocumentMapPanel({
                 conversationTitle={conversationTitle}
                 topic={topic}
                 fileId={fileId}
+                units={readyMap.units}
+                pageCount={selected.page_count}
                 onGenerate={onGenerateSummary}
                 onStop={onStopSummary}
                 onAdd={onAddSummary}
@@ -270,6 +272,8 @@ function SectionSummaryCard({
   conversationTitle,
   topic,
   fileId,
+  units,
+  pageCount,
   onGenerate,
   onStop,
   onAdd,
@@ -286,19 +290,23 @@ function SectionSummaryCard({
   conversationTitle: string;
   topic: string;
   fileId: string;
+  units: DocumentMap['units'];
+  pageCount?: number;
   onGenerate: () => void;
   onStop: () => void;
   onAdd: () => void;
 }) {
   if (!sectionTitle) return null;
-  const pages = summary ? [...new Set(summary.sources.flatMap((source) => source.pages))].sort((a, b) => a - b) : [];
+  const unitById = new Map(units.map((unit) => [unit.id, unit]));
   return (
     <section className="section-summary-card" aria-labelledby="section-summary-title">
       <div className="section-summary-header">
         <div>
           <span className="eyebrow">ON-DEMAND SUMMARY</span>
           <h3 id="section-summary-title">{sectionTitle}</h3>
-          <p className="muted">The selected section and all nested sections are sent in full to the current local model.</p>
+          <p className="muted">
+            The selected section and all nested sections are sent in full to the current local model.
+          </p>
         </div>
         {running ? (
           <button className="text-button" onClick={onStop}>
@@ -306,11 +314,16 @@ function SectionSummaryCard({
           </button>
         ) : (
           <button className="primary" disabled={busy} onClick={onGenerate}>
-            <Sparkles size={15} /> {summary ? 'Regenerate summary' : attempt?.status === 'error' ? 'Retry summary' : 'Generate summary'}
+            <Sparkles size={15} />{' '}
+            {summary ? 'Regenerate summary' : attempt?.status === 'error' ? 'Retry summary' : 'Generate summary'}
           </button>
         )}
       </div>
-      {running && <p className="map-summary-progress" role="status">Generating. Any partial text below is not saved as a completed summary.</p>}
+      {running && (
+        <p className="map-summary-progress" role="status">
+          Generating. Any partial text below is not saved as a completed summary.
+        </p>
+      )}
       {summary && (
         <article className="map-summary-result">
           <div className="map-summary-meta">
@@ -318,25 +331,43 @@ function SectionSummaryCard({
             <span>{summary.model}</span>
             <time dateTime={summary.created_at}>{new Date(summary.created_at).toLocaleString()}</time>
           </div>
-          <p className="muted">Generated summary, not verbatim PDF text. Source labels show where it came from; they do not verify each claim.</p>
+          <p className="muted">
+            Generated summary, not verbatim PDF text. Source labels show where it came from; they do not verify each
+            claim.
+          </p>
           <RichText text={summary.content} />
-          {pages.length > 0 && (
-            <div className="map-pages" aria-label="Summary source pages">
-              <strong>Source pages</strong>
-              {pages.map((page) => (
-                <a key={page} href={originalPdfUrl(topic, fileId, page)} target="_blank" rel="noreferrer">
-                  Page {page}
-                </a>
-              ))}
-            </div>
-          )}
+          <div className="summary-source-list" aria-label="Summary source units">
+            <strong>Source units</strong>
+            {summary.sources.map((source) => {
+              const unit = unitById.get(source.unit_id);
+              const pages = [...new Set(source.pages)].sort((a, b) => a - b);
+              const validPages = pages.filter((page) => page > 0 && (pageCount == null || page <= pageCount));
+              return (
+                <div className="summary-source-item" key={source.label}>
+                  <strong>[{source.label}]</strong>
+                  <span>{unit?.text || 'Source text preview unavailable.'}</span>
+                  <div className="map-pages">
+                    {validPages.map((page) => (
+                      <a key={page} href={originalPdfUrl(topic, fileId, page)} target="_blank" rel="noreferrer">
+                        Page {page}
+                      </a>
+                    ))}
+                    {pages.length === 0 && <span>Page unknown</span>}
+                    {pages.length > validPages.length && pages.length > 0 && <span>Some page targets unavailable</span>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
           <button className="secondary" disabled={busy || importing || !conversationTitle} onClick={onAdd}>
             {importing ? 'Adding…' : `Add to “${conversationTitle}”`}
           </button>
         </article>
       )}
       {!summary && !running && attempt?.status === 'generating' && (
-        <p className="map-summary-progress" role="status">A previous generation stopped before it could be verified. Retry to continue.</p>
+        <p className="map-summary-progress" role="status">
+          A previous generation stopped before it could be verified. Retry to continue.
+        </p>
       )}
       {!summary && !running && attempt && ['error', 'cancelled', 'interrupted'].includes(attempt.status) && (
         <p className="map-warning">Previous attempt: {attempt.status}. Its text is not a saved summary.</p>
@@ -347,8 +378,16 @@ function SectionSummaryCard({
           <p>{draft || 'Waiting for text…'}</p>
         </div>
       )}
-      {error && <p className="map-error" role="alert">{error}</p>}
-      {notice && <p className="map-summary-notice" role="status">{notice}</p>}
+      {error && (
+        <p className="map-error" role="alert">
+          {error}
+        </p>
+      )}
+      {notice && (
+        <p className="map-summary-notice" role="status">
+          {notice}
+        </p>
+      )}
     </section>
   );
 }

@@ -31,7 +31,13 @@ const otherFiles: LabFile[] = [
 ];
 
 function installMapApi(
-  options: { stale?: boolean; invalid?: boolean; deferFirstGet?: boolean; deferBuild?: boolean; deferSummary?: boolean } = {},
+  options: {
+    stale?: boolean;
+    invalid?: boolean;
+    deferFirstGet?: boolean;
+    deferBuild?: boolean;
+    deferSummary?: boolean;
+  } = {},
 ) {
   const base = createFakeApi({ files: { 'topic-a': otherFiles } });
   vi.stubGlobal('fetch', base.fetch);
@@ -70,13 +76,25 @@ function installMapApi(
         section_id: decodeURIComponent(summaryMatch[3]),
       };
       const events = [
-        { ...startEvent, attempt_id: attemptId, revision: body.revision, section_id: decodeURIComponent(summaryMatch[3]), attempt },
+        {
+          ...startEvent,
+          attempt_id: attemptId,
+          revision: body.revision,
+          section_id: decodeURIComponent(summaryMatch[3]),
+          attempt,
+        },
         { ...summaryContract.summary_events[2], attempt_id: attemptId },
         {
           ...doneEvent,
           attempt_id: attemptId,
           summary,
-          attempt: { ...attempt, status: 'completed', actual_model: 'fake-local-model', finished_at: summary.created_at, content: summary.content },
+          attempt: {
+            ...attempt,
+            status: 'completed',
+            actual_model: 'fake-local-model',
+            finished_at: summary.created_at,
+            content: summary.content,
+          },
         },
       ];
       latestSummary = summary;
@@ -89,7 +107,9 @@ function installMapApi(
         releaseSummary = () => finish?.();
         const stream = new ReadableStream<Uint8Array>({
           async start(controller) {
-            controller.enqueue(new TextEncoder().encode(`${JSON.stringify(events[0])}\n${JSON.stringify(events[1])}\n`));
+            controller.enqueue(
+              new TextEncoder().encode(`${JSON.stringify(events[0])}\n${JSON.stringify(events[1])}\n`),
+            );
             await done;
             controller.enqueue(new TextEncoder().encode(`${JSON.stringify(events[2])}\n`));
             controller.close();
@@ -118,7 +138,12 @@ function installMapApi(
         },
       };
       return new Response(
-        JSON.stringify({ conversation_id: decodeURIComponent(importMatch[2]), imported: true, message, messages: [message] }),
+        JSON.stringify({
+          conversation_id: decodeURIComponent(importMatch[2]),
+          imported: true,
+          message,
+          messages: [message],
+        }),
         { status: 200 },
       );
     }

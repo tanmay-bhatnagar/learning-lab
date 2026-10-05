@@ -280,7 +280,9 @@ export function App() {
                 loading={documentMap.state.loading}
                 busy={busy}
                 error={documentMap.state.error}
-                conversationTitle={session.conversations.find((item) => item.id === session.conversation)?.title ?? 'Default'}
+                conversationTitle={
+                  session.conversations.find((item) => item.id === session.conversation)?.title ?? 'Default'
+                }
                 selectedSectionId={sectionSummary.sectionId}
                 summaryView={sectionSummary.view}
                 summaryRunning={sectionSummary.running}

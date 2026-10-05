@@ -27,36 +27,33 @@ export function useDocumentMap(
   const currentTopic = useRef(topic);
   const selectedFile = files.find((file) => file.id === fileId);
 
-  const load = useCallback(
-    async () => {
-      if (!enabled || !topic || !fileId) return;
-      controller.current?.abort();
-      const requestController = new AbortController();
-      controller.current = requestController;
-      const requestRevision = ++revision.current;
-      const cached = responseRef.current;
-      setState({
-        topic,
-        fileId,
-        response: cached?.topic === topic && cached.fileId === fileId ? cached.response : null,
-        loading: true,
-        error: '',
+  const load = useCallback(async () => {
+    if (!enabled || !topic || !fileId) return;
+    controller.current?.abort();
+    const requestController = new AbortController();
+    controller.current = requestController;
+    const requestRevision = ++revision.current;
+    const cached = responseRef.current;
+    setState({
+      topic,
+      fileId,
+      response: cached?.topic === topic && cached.fileId === fileId ? cached.response : null,
+      loading: true,
+      error: '',
+    });
+    try {
+      const response = await api(`${filePath(topic, fileId)}/map`, documentMapResponseSchema, {
+        signal: requestController.signal,
       });
-      try {
-        const response = await api(`${filePath(topic, fileId)}/map`, documentMapResponseSchema, {
-          signal: requestController.signal,
-        });
-        if (requestController.signal.aborted || requestRevision !== revision.current || currentTopic.current !== topic)
-          return;
-        responseRef.current = { topic, fileId, response };
-        setState({ topic, fileId, response, loading: false, error: '' });
-      } catch (error) {
-        if (aborted(error) || requestRevision !== revision.current || currentTopic.current !== topic) return;
-        setState({ topic, fileId, response: null, loading: false, error: errorText(error) });
-      }
-    },
-    [enabled, fileId, topic],
-  );
+      if (requestController.signal.aborted || requestRevision !== revision.current || currentTopic.current !== topic)
+        return;
+      responseRef.current = { topic, fileId, response };
+      setState({ topic, fileId, response, loading: false, error: '' });
+    } catch (error) {
+      if (aborted(error) || requestRevision !== revision.current || currentTopic.current !== topic) return;
+      setState({ topic, fileId, response: null, loading: false, error: errorText(error) });
+    }
+  }, [enabled, fileId, topic]);
 
   useEffect(() => {
     currentTopic.current = topic;

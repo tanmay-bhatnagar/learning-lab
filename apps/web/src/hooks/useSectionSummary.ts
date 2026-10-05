@@ -9,7 +9,13 @@ import {
 import { conversationSummaryImportsPath, fileSectionSummaryPath } from '../api/urls';
 import type { Model } from '../api/types';
 import { aborted, errorText } from '../lib/errors';
-import { findMapSection, foldSummaryEvent, sectionSummaryState, type SectionSummaryState, type SummaryIdentity } from '../state/documentMap';
+import {
+  findMapSection,
+  foldSummaryEvent,
+  sectionSummaryState,
+  type SectionSummaryState,
+  type SummaryIdentity,
+} from '../state/documentMap';
 import type { Activity } from '../state/activity';
 import type { useActivity } from './useActivity';
 
@@ -65,12 +71,17 @@ export function useSectionSummary({
   };
   const scopeKey = `${topic}:${fileId}:${activeIdentity.revision}:${sectionId}`;
   const boundaryKey = `${topic}:${fileId}:${activeIdentity.revision}`;
+  const priorBoundary = useRef(boundaryKey);
   const identityRef = useRef(activeIdentity);
   identityRef.current = activeIdentity;
   conversationRef.current = conversationId;
   reloadMapRef.current = reloadMap;
 
   useEffect(() => {
+    if (priorBoundary.current !== boundaryKey) {
+      priorBoundary.current = boundaryKey;
+      setNotice('');
+    }
     const current = generation.current;
     if (current && !current.scope.startsWith(`${boundaryKey}:`)) current.controller.abort();
     const currentImport = importRequest.current;
@@ -89,8 +100,17 @@ export function useSectionSummary({
     }
     if (generation.current?.scope === scopeKey) return;
     setView(sectionSummaryState({ topic, fileId, revision: map.revision, sectionId }, section));
-    setNotice('');
-  }, [fileId, map, scopeKey, section, section?.id, section?.last_summary?.id, section?.latest_attempt?.id, sectionId, topic]);
+  }, [
+    fileId,
+    map,
+    scopeKey,
+    section,
+    section?.id,
+    section?.last_summary?.id,
+    section?.latest_attempt?.id,
+    sectionId,
+    topic,
+  ]);
 
   useEffect(
     () => () => {
@@ -203,20 +223,33 @@ export function useSectionSummary({
     const saved = view?.summary;
     const identity = identityRef.current;
     const destination = conversationId;
-    if (!saved || !destination || activity !== 'idle' || importRequest.current || !activityApi.begin('importSummary')) return;
+    if (!saved || !destination || activity !== 'idle' || importRequest.current || !activityApi.begin('importSummary'))
+      return;
     const controller = new AbortController();
     const requestScope = `${identity.topic}:${identity.fileId}:${identity.revision}`;
     importRequest.current = { controller, scope: requestScope };
     setNotice('');
     try {
-      const result = await api(conversationSummaryImportsPath(identity.topic, destination), summaryImportResponseSchema, {
-        ...json({ file_id: identity.fileId, revision: saved.revision, section_id: saved.section_id, summary_id: saved.id }),
-        signal: controller.signal,
-      });
+      const result = await api(
+        conversationSummaryImportsPath(identity.topic, destination),
+        summaryImportResponseSchema,
+        {
+          ...json({
+            file_id: identity.fileId,
+            revision: saved.revision,
+            section_id: saved.section_id,
+            summary_id: saved.id,
+          }),
+          signal: controller.signal,
+        },
+      );
       const currentIdentity = identityRef.current;
       if (
-        !controller.signal.aborted && conversationRef.current === destination && currentIdentity.topic === identity.topic &&
-        currentIdentity.fileId === identity.fileId && currentIdentity.revision === identity.revision
+        !controller.signal.aborted &&
+        conversationRef.current === destination &&
+        currentIdentity.topic === identity.topic &&
+        currentIdentity.fileId === identity.fileId &&
+        currentIdentity.revision === identity.revision
       ) {
         setNotice(result.imported ? `Added to “${conversationTitle}”.` : `Already in “${conversationTitle}”.`);
         onImported(destination);
@@ -224,8 +257,11 @@ export function useSectionSummary({
     } catch (error) {
       const currentIdentity = identityRef.current;
       if (
-        !controller.signal.aborted && conversationRef.current === destination && currentIdentity.topic === identity.topic &&
-        currentIdentity.fileId === identity.fileId && currentIdentity.revision === identity.revision
+        !controller.signal.aborted &&
+        conversationRef.current === destination &&
+        currentIdentity.topic === identity.topic &&
+        currentIdentity.fileId === identity.fileId &&
+        currentIdentity.revision === identity.revision
       ) {
         setNotice(errorText(error));
       }

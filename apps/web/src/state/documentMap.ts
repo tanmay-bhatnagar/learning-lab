@@ -36,17 +36,14 @@ export type SectionSummaryState = SummaryIdentity & {
   error: string;
 };
 
-export function sectionSummaryState(
-  identity: SummaryIdentity,
-  section: MapSection | null,
-): SectionSummaryState {
+export function sectionSummaryState(identity: SummaryIdentity, section: MapSection | null): SectionSummaryState {
   const attempt = section?.latest_attempt ?? null;
   const summary = section?.last_summary ?? null;
   return {
     ...identity,
     attempt,
     summary,
-    content: attempt?.status === 'generating' ? attempt.content : summary?.content ?? '',
+    content: attempt?.status === 'generating' ? attempt.content : (summary?.content ?? ''),
     thinking: '',
     error: attempt?.status === 'error' || attempt?.status === 'cancelled' ? (attempt.error ?? '') : '',
   };
@@ -71,7 +68,8 @@ export function foldSummaryEvent(
       event.section_id !== current.sectionId ||
       event.attempt_id !== event.attempt.id ||
       event.attempt.revision !== current.revision ||
-      event.attempt.section_id !== current.sectionId
+      event.attempt.section_id !== current.sectionId ||
+      event.attempt.status !== 'generating'
     ) {
       return previous;
     }
@@ -86,11 +84,22 @@ export function foldSummaryEvent(
       event.summary.revision !== current.revision ||
       event.summary.section_id !== current.sectionId ||
       event.attempt.id !== event.attempt_id ||
-      event.attempt.status !== 'completed'
+      event.attempt.status !== 'completed' ||
+      event.attempt.revision !== current.revision ||
+      event.attempt.section_id !== current.sectionId
     ) {
       return previous;
     }
     return { ...previous, summary: event.summary, attempt: event.attempt, content: event.summary.content, error: '' };
+  }
+  if (
+    event.attempt &&
+    (event.attempt.id !== event.attempt_id ||
+      event.attempt.revision !== current.revision ||
+      event.attempt.section_id !== current.sectionId ||
+      !['error', 'cancelled', 'interrupted'].includes(event.attempt.status))
+  ) {
+    return previous;
   }
   return {
     ...previous,

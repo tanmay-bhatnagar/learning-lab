@@ -9,14 +9,7 @@ export type Activity =
   | 'importingSummary';
 
 export type ActivityOp =
-  | 'send'
-  | 'upload'
-  | 'saveSettings'
-  | 'saveGoal'
-  | 'selectModel'
-  | 'buildMap'
-  | 'generateSummary'
-  | 'importSummary';
+  'send' | 'upload' | 'saveSettings' | 'saveGoal' | 'selectModel' | 'buildMap' | 'generateSummary' | 'importSummary';
 
 export function activityForOp(op: ActivityOp): Activity {
   switch (op) {
