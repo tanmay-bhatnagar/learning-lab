@@ -10,7 +10,16 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from .document_map import BUILDER_VERSION, build_document_map
-from .errors import Conflict, CorruptData, NotFound
+from .errors import Conflict, CorruptData, InvalidInput, NotFound
+from .section_summary import (
+    SavedSummary,
+    SummaryAttempt,
+    SummarySource,
+    saved_source_metadata,
+    section_sources,
+    source_digest,
+    validate_source_markers,
+)
 from .storage import Store, read_bytes, read_json, write_json
 
 MAP_SCHEMA_VERSION = 1
@@ -44,8 +53,8 @@ class MapSection(BaseModel):
     direct_unit_ids: list[str]
     source_unit_ids: list[str]
     children: list[MapSection]
-    latest_attempt: dict[str, object] | None = None
-    last_summary: dict[str, object] | None = None
+    latest_attempt: SummaryAttempt | None = None
+    last_summary: SavedSummary | None = None
 
 
 class Coverage(BaseModel):
@@ -160,6 +169,45 @@ def _validate_snapshot(record: MapSnapshot, *, expected_file_id: str | None) -> 
         or coverage.accounted_source_items != len(source_refs)
     ):
         raise CorruptData("Saved document map coverage accounting is inconsistent.")
+    snapshot = record.model_dump(mode="json")
+
+    def validate_summary_state(sections: list[MapSection]) -> None:
+        for section in sections:
+            sources = section_sources(snapshot, section.model_dump(mode="json"))
+            digest = source_digest(sources)
+            labels = [str(source["label"]) for source in sources]
+            attempt = section.latest_attempt
+            summary = section.last_summary
+            if attempt is not None:
+                if (
+                    attempt.revision != record.revision
+                    or attempt.section_id != section.id
+                    or attempt.source_sha256 != digest
+                    or (attempt.status == "generating") != (attempt.finished_at is None)
+                ):
+                    raise CorruptData("Saved section-summary attempt does not match its map revision or source scope.")
+                if attempt.status == "completed":
+                    validate_source_markers(attempt.content, labels)
+                    if summary is None or summary.id != attempt.id or summary.content != attempt.content:
+                        raise CorruptData("Completed section-summary attempt is missing its durable summary.")
+            if summary is not None:
+                if (
+                    summary.revision != record.revision
+                    or summary.section_id != section.id
+                    or summary.section_title != section.title
+                    or summary.source_sha256 != digest
+                    or summary.sources != [SummarySource.model_validate(item) for item in saved_source_metadata(sources)]
+                ):
+                    raise CorruptData("Saved section summary does not match its map revision or source provenance.")
+                try:
+                    validate_source_markers(summary.content, labels)
+                except InvalidInput as exc:
+                    raise CorruptData("Saved section summary has invalid source labels.") from exc
+                if attempt is not None and attempt.id == summary.id and attempt.status != "completed":
+                    raise CorruptData("A saved summary points at a non-completed attempt.")
+            validate_summary_state(section.children)
+
+    validate_summary_state(record.sections)
 
 
 def _current_revision(file_id: str, source_revision: dict[str, str]) -> str:
