@@ -121,4 +121,33 @@ describe('document summary wire contract', () => {
     expect(failed.error).toBe('synthetic regeneration failed');
     expect(done.type).toBe('done');
   });
+
+  test('reducer rejects terminal and started attempt records that disagree with the active scope', () => {
+    const started = contract.summary_events[0] as SummaryStreamEvent;
+    const done = contract.summary_events[3] as SummaryStreamEvent;
+    const section = { ...mapFixture.build_response.map.sections[0], id: contract.summary.section_id };
+    const savedSummary = savedSummarySchema.parse(contract.summary);
+    const scope = { topic: 'topic-a', fileId: 'synthetic-paper', revision: savedSummary.revision, sectionId: section.id };
+    const initial = sectionSummaryState(scope, section);
+    const invalidStart = {
+      ...started,
+      attempt: { ...started.attempt, status: 'completed' as const },
+    } as SummaryStreamEvent;
+    expect(foldSummaryEvent(initial, invalidStart, scope)).toBe(initial);
+
+    const active = foldSummaryEvent(initial, started, scope);
+    const invalidDone = {
+      ...done,
+      attempt: { ...done.attempt, revision: 'b'.repeat(64), section_id: 'other-section' },
+    } as SummaryStreamEvent;
+    expect(foldSummaryEvent(active, invalidDone, scope)).toBe(active);
+
+    const invalidError = {
+      type: 'error' as const,
+      attempt_id: started.attempt_id,
+      message: 'synthetic failure',
+      attempt: { ...started.attempt, status: 'error' as const, revision: 'b'.repeat(64), section_id: 'other-section' },
+    } as SummaryStreamEvent;
+    expect(foldSummaryEvent(active, invalidError, scope)).toBe(active);
+  });
 });
