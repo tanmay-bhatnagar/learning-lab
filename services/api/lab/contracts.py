@@ -58,6 +58,7 @@ class Message(TypedDict, total=False):
     file_ids: list[str]
     incomplete: bool
     retrieval: dict[str, object]
+    summary_import: dict[str, object]
 
 
 class Session(TypedDict, total=False):

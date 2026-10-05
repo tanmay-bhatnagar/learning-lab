@@ -54,6 +54,15 @@ class SectionSummaryInput(BaseModel):
     think: bool | Literal["low", "medium", "high"] | None = None
 
 
+class SummaryImportInput(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    file_id: str = Field(min_length=1, max_length=80)
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    section_id: str = Field(min_length=1, max_length=100)
+    summary_id: str = Field(min_length=1, max_length=100)
+
+
 class RetrievalInput(BaseModel):
     query: str = Field(min_length=1, max_length=20000)
     file_ids: list[str] = Field(default_factory=list, max_length=100)
