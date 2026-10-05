@@ -191,7 +191,7 @@ def router(deps: AppDeps) -> APIRouter:
                     actual_model = provider_event.get("model")
                     model_name = actual_model if isinstance(actual_model, str) and actual_model else body.model
                     completed = terminal_attempt("completed")
-                    completed["model"] = model_name
+                    completed["actual_model"] = model_name
                     summary = SavedSummary(
                         id=attempt_id,
                         revision=body.revision,

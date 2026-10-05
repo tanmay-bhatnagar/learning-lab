@@ -14,10 +14,16 @@ from tests.fakes import FakeModel
 
 
 class SummaryFakeModel(FakeModel):
-    def __init__(self, output: str = "A synthetic statement [S1].", behavior: str = "done"):
+    def __init__(
+        self,
+        output: str = "A synthetic statement [S1].",
+        behavior: str = "done",
+        actual_model: str | None = None,
+    ):
         super().__init__()
         self.output = output
         self.behavior = behavior
+        self.actual_model = actual_model
         self.summary_requests: list[dict[str, object]] = []
 
     def stream_chat(
@@ -53,8 +59,29 @@ class SummaryFakeModel(FakeModel):
                 yield {
                     "type": "done",
                     "context": {"used": 500, "limit": context_limit, "estimated": False},
-                    "model": model,
+                    "model": self.actual_model or model,
                 }
+
+        return events()
+
+
+class BlockingSummaryModel(SummaryFakeModel):
+    def __init__(self):
+        super().__init__()
+        self.stream_requested = asyncio.Event()
+        self.entered_generation = asyncio.Event()
+        self.release_generation = asyncio.Event()
+
+    def stream_chat(self, messages, model, think, context_limit, context_metadata=None, *, generation_lock):
+        self.summary_requests.append({"generation_lock": generation_lock})
+        self.stream_requested.set()
+
+        async def events():
+            async with generation_lock:
+                self.entered_generation.set()
+                yield {"type": "token", "text": "Partial finding [S1]."}
+                await self.release_generation.wait()
+                yield {"type": "done", "model": model}
 
         return events()
 
@@ -284,17 +311,14 @@ def test_empty_or_missing_citations_never_publish_summary(tmp_path):
 
 
 def test_disconnect_before_stream_starts_marks_cancelled_and_releases_topic(tmp_path):
-    import anyio
+    import lab.web.document_map_summaries as summary_routes
     from lab.web.middleware import FinalizedStreamingResponse
     from lab.web.schemas import SectionSummaryInput
+    from starlette.requests import ClientDisconnect
 
     client, _, topic, outline, model = _client(tmp_path)
     app = client.app
-    endpoint = next(
-        route.endpoint
-        for route in app.routes
-        if getattr(route, "path", "") == "/api/topics/{topic}/files/{file_id}/map/sections/{section_id}/summary"
-    )
+    endpoint = summary_routes.router(app.state.deps).routes[0].endpoint
     section = outline["sections"][0]
     response = asyncio.run(
         endpoint(
@@ -308,16 +332,87 @@ def test_disconnect_before_stream_starts_marks_cancelled_and_releases_topic(tmp_
     assert model.summary_requests == []
 
     async def run_disconnect():
-        async def interrupt(_message):
-            raise asyncio.CancelledError
+        async def receive():
+            return {"type": "http.disconnect"}
 
-        await response({"type": "http", "method": "POST", "path": "/summary", "headers": []}, None, interrupt)
+        async def send(message):
+            if message["type"] == "http.response.start":
+                raise OSError("synthetic disconnect before response body")
 
-    asyncio.run(run_disconnect())
+        await response(
+            {"type": "http", "asgi": {"spec_version": "2.4"}, "method": "POST", "path": "/summary", "headers": []},
+            receive,
+            send,
+        )
+
+    with pytest.raises(ClientDisconnect):
+        asyncio.run(run_disconnect())
     saved = client.get(f"/api/topics/{topic}/files/paper-1/map").json()["map"]["sections"][0]
     assert saved["latest_attempt"]["status"] == "cancelled"
     assert not app.state.deps.locks[topic].locked()
     assert app.state.deps.active_document_map_summaries == {}
+
+
+@pytest.mark.parametrize("phase", ["waiting_for_model_lock", "running_with_partial_token"])
+def test_cancel_waiting_or_running_generation_closes_stream_and_releases_locks(tmp_path, phase):
+    import lab.web.document_map_summaries as summary_routes
+    from lab.web.schemas import SectionSummaryInput
+
+    model = BlockingSummaryModel()
+    client, _, topic, outline, _ = _client(tmp_path, model=model)
+    deps = client.app.state.deps
+    endpoint = summary_routes.router(deps).routes[0].endpoint
+    section = outline["sections"][0]
+    token_sent = asyncio.Event()
+
+    async def scenario():
+        if phase == "waiting_for_model_lock":
+            await deps.model_generation_lock.acquire()
+        response = await endpoint(
+            topic,
+            "paper-1",
+            section["id"],
+            SectionSummaryInput(revision=outline["revision"], model="fake", context_limit=8192, think=None),
+        )
+
+        async def receive():
+            await asyncio.Event().wait()
+
+        async def send(message):
+            if message["type"] == "http.response.body" and b"Partial finding" in message.get("body", b""):
+                token_sent.set()
+
+        task = asyncio.create_task(
+            response(
+                {"type": "http", "asgi": {"spec_version": "2.4"}, "method": "POST", "path": "/summary", "headers": []},
+                receive,
+                send,
+            )
+        )
+        await asyncio.wait_for(model.stream_requested.wait(), timeout=1)
+        if phase == "running_with_partial_token":
+            await asyncio.wait_for(token_sent.wait(), timeout=1)
+        else:
+            assert not model.entered_generation.is_set()
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        if phase == "waiting_for_model_lock":
+            deps.model_generation_lock.release()
+
+    asyncio.run(scenario())
+    section = client.get(f"/api/topics/{topic}/files/paper-1/map").json()["map"]["sections"][0]
+    assert section["latest_attempt"]["status"] == "cancelled"
+    if phase == "running_with_partial_token":
+        assert section["latest_attempt"]["content"] == "Partial finding [S1]."
+    else:
+        assert section["latest_attempt"]["content"] == ""
+    assert section["last_summary"] is None
+    assert not deps.locks[topic].locked()
+    assert not deps.model_generation_lock.locked()
+    assert deps.active_document_map_summaries == {}
 
 
 def test_map_read_recovers_abandoned_generating_attempt(tmp_path):
@@ -346,11 +441,11 @@ def test_map_read_recovers_abandoned_generating_attempt(tmp_path):
 @pytest.mark.parametrize(
     ("attempt_field", "summary_field", "replacement"),
     [
-        ("model", "model", "different-model"),
-        ("context_limit", "context_limit", 4096),
-        ("think", "think", True),
-        ("policy_sha256", "policy_sha256", "0" * 64),
-        ("finished_at", "created_at", "2026-10-05T00:00:02+00:00"),
+        (None, "model", "different-model"),
+        (None, "context_limit", 4096),
+        (None, "think", True),
+        (None, "policy_sha256", "0" * 64),
+        (None, "created_at", "2026-10-05T00:00:02+00:00"),
     ],
 )
 def test_map_read_rejects_conflicting_completion_provenance(tmp_path, attempt_field, summary_field, replacement):
@@ -362,8 +457,24 @@ def test_map_read_rejects_conflicting_completion_provenance(tmp_path, attempt_fi
     )
     record = client.get(f"/api/topics/{topic}/files/paper-1/map").json()["map"]
     section = record["sections"][0]
-    section["latest_attempt"][attempt_field] = replacement
+    if attempt_field is not None:
+        section["latest_attempt"][attempt_field] = replacement
     section["last_summary"][summary_field] = replacement
     write_json(store.file_path(topic, "paper-1.map.json"), record)
 
     assert client.get(f"/api/topics/{topic}/files/paper-1/map").status_code == 500
+
+
+def test_attempt_preserves_requested_model_while_summary_records_actual_model(tmp_path):
+    model = SummaryFakeModel(actual_model="qwen3.5:4b-q8_0")
+    client, _, topic, outline, _ = _client(tmp_path, model=model)
+    section_id = outline["sections"][0]["id"]
+    response = client.post(
+        _summary_url(topic, outline["revision"], section_id),
+        json={"revision": outline["revision"], "model": "qwen-alias", "context_limit": 8192, "think": None},
+    )
+    assert _events(response)[-1]["type"] == "done"
+    section = client.get(f"/api/topics/{topic}/files/paper-1/map").json()["map"]["sections"][0]
+    assert section["latest_attempt"]["model"] == "qwen-alias"
+    assert section["latest_attempt"]["actual_model"] == "qwen3.5:4b-q8_0"
+    assert section["last_summary"]["model"] == "qwen3.5:4b-q8_0"

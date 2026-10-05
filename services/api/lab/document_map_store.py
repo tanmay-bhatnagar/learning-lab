@@ -189,6 +189,8 @@ def _validate_snapshot(record: MapSnapshot, *, expected_file_id: str | None) -> 
                     or (attempt.status == "generating") != (attempt.finished_at is None)
                 ):
                     raise CorruptData("Saved section-summary attempt does not match its map revision or source scope.")
+                if attempt.prompt_context.get("limit") != attempt.context_limit:
+                    raise CorruptData("Saved section-summary attempt context does not match its request metadata.")
                 if attempt.status == "completed":
                     try:
                         validate_source_markers(attempt.content, labels)
@@ -196,6 +198,15 @@ def _validate_snapshot(record: MapSnapshot, *, expected_file_id: str | None) -> 
                         raise CorruptData("Completed section-summary attempt has invalid source labels.") from exc
                     if summary is None or summary.id != attempt.id or summary.content != attempt.content:
                         raise CorruptData("Completed section-summary attempt is missing its durable summary.")
+                    if (
+                        summary.model != (attempt.actual_model or attempt.model)
+                        or summary.policy_sha256 != attempt.policy_sha256
+                        or summary.prompt_version != attempt.prompt_version
+                        or summary.context_limit != attempt.context_limit
+                        or summary.think != attempt.think
+                        or summary.created_at != attempt.finished_at
+                    ):
+                        raise CorruptData("Completed section-summary and attempt provenance disagree.")
             if summary is not None:
                 if (
                     summary.revision != record.revision

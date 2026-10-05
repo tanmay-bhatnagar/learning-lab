@@ -39,6 +39,7 @@ class SummaryAttempt(BaseModel):
     started_at: datetime
     finished_at: datetime | None
     model: str = Field(min_length=1, max_length=200)
+    actual_model: str | None = Field(default=None, min_length=1, max_length=200)
     context_limit: int = Field(ge=1024, le=MAX_CONTEXT_LIMIT)
     think: bool | Literal["low", "medium", "high"] | None
     policy_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
