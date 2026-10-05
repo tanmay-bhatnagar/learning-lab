@@ -147,6 +147,28 @@ export const messageRetrievalSchema = z.looseObject({
 });
 export type MessageRetrieval = z.infer<typeof messageRetrievalSchema>;
 
+export const summaryImportMetadataSchema = z.object({
+  schema_version: z.literal(1),
+  import_id: z.string().regex(/^[0-9a-f]{64}$/),
+  file_id: z.string().min(1),
+  revision: z.string().regex(/^[0-9a-f]{64}$/),
+  section_id: z.string().min(1),
+  summary_id: z.string().min(1),
+  section_title: z.string(),
+  model: z.string().min(1),
+  summary_created_at: z.string(),
+  imported_at: z.string(),
+  sources: z.array(
+    z.object({
+      label: z.string().regex(/^S[1-9][0-9]*$/),
+      unit_id: z.string().min(1),
+      source_refs: z.array(z.string()).min(1),
+      pages: z.array(z.number().int().positive()),
+    }),
+  ),
+});
+export type SummaryImportMetadata = z.infer<typeof summaryImportMetadataSchema>;
+
 export const messageSchema = z.looseObject({
   role: z.string(),
   content: z.string(),
@@ -154,6 +176,7 @@ export const messageSchema = z.looseObject({
   model: z.string().nullish(),
   incomplete: z.boolean().nullish(),
   retrieval: messageRetrievalSchema.nullish(),
+  summary_import: summaryImportMetadataSchema.nullish(),
 });
 export type Message = z.infer<typeof messageSchema>;
 

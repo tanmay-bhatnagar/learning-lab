@@ -16,9 +16,10 @@ describe('document summary wire contract', () => {
   });
 
   test('dedicated decoder handles chunk boundaries and preserves event identity', async () => {
+    const [started, , token, done] = contract.summary_events;
     const chunks = [
-      '{"type":"started","attempt_id":"attempt-1","revision":"rev","section_id":"sec","attempt":{}}\n',
-      '{"type":"token","attempt_id":"attempt-1","text":"hello"}\n{"type":"done","attempt_id":"attempt-1","summary":{},"attempt":{}}\n',
+      `${JSON.stringify(started)}\n`,
+      `${JSON.stringify(token)}\n${JSON.stringify(done)}\n`,
     ];
     vi.stubGlobal(
       'fetch',
@@ -40,16 +41,16 @@ describe('document summary wire contract', () => {
     await streamDocumentSummary('/summary', {}, new AbortController().signal, (event) => events.push(event));
 
     expect(events.map((event) => event.type)).toEqual(['started', 'token', 'done']);
-    expect(events[1]).toMatchObject({ attempt_id: 'attempt-1', text: 'hello' });
+    expect(events[1]).toMatchObject({ attempt_id: started.attempt_id, text: token.text });
   });
 
   test('invalid events and EOF without done fail visibly', async () => {
     const badFetch = (line: string) => {
       vi.stubGlobal('fetch', vi.fn(async () => new Response(line, { status: 200 })));
     };
-    badFetch('{"type":"token","attempt_id":"a","text":4}\n');
+    badFetch(`${JSON.stringify({ ...contract.summary_events[0], type: 'token', text: 4 })}\n`);
     await expect(streamDocumentSummary('/summary', {}, new AbortController().signal, () => {})).rejects.toThrow();
-    badFetch('{"type":"started","attempt_id":"a","revision":"r","section_id":"s","attempt":{}}\n');
+    badFetch(`${JSON.stringify(contract.summary_events[0])}\n`);
     await expect(streamDocumentSummary('/summary', {}, new AbortController().signal, () => {})).rejects.toThrow(/ended before/i);
   });
 });
