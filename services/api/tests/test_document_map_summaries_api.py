@@ -6,6 +6,7 @@ from collections.abc import AsyncIterator
 
 from docling_core.types.doc import DoclingDocument
 from fastapi.testclient import TestClient
+import pytest
 
 from lab.storage import Store, write_json
 from lab.web.app import create_app
@@ -71,7 +72,7 @@ def _client(tmp_path, *, model: SummaryFakeModel | None = None, policy: str = "S
     )
     client = TestClient(app)
     store: Store = app.state.deps.store
-    topic = store.create("Synthetic summary test")['id']
+    topic = store.create("Synthetic summary test")["id"]
     topic_path = store.topic(topic)
     write_json(topic_path / "topic.json", {"id": topic, "name": "Synthetic", "learning_goal": "PRIVATE GOAL SENTINEL"})
     document = DoclingDocument(name="Synthetic summary paper")
@@ -231,6 +232,94 @@ def test_terminal_write_failure_never_emits_done_and_releases_topic(tmp_path, mo
     assert len(model.summary_requests) == 1
 
 
+def test_initial_attempt_write_failure_does_not_start_model_or_leak_locks(tmp_path, monkeypatch):
+    import lab.web.document_map_summaries as summary_routes
+    from lab.errors import CorruptData
+
+    client, _, topic, outline, model = _client(tmp_path)
+
+    def fail_initial_write(*args, **kwargs):
+        raise CorruptData("synthetic initial write failure")
+
+    monkeypatch.setattr(summary_routes, "write_summary_attempt", fail_initial_write)
+    response = client.post(
+        _summary_url(topic, outline["revision"], outline["sections"][0]["id"]),
+        json={"revision": outline["revision"], "model": "fake", "context_limit": 8192, "think": None},
+    )
+
+    assert response.status_code == 500
+    assert model.summary_requests == []
+    assert not client.app.state.deps.locks[topic].locked()
+    assert client.app.state.deps.active_document_map_summaries == {}
+
+
+def test_stale_source_revision_refuses_summary_before_model_call(tmp_path):
+    client, store, topic, outline, model = _client(tmp_path)
+    store.file_path(topic, "paper.pdf").write_bytes(b"%PDF-1.7 changed after outline")
+
+    response = client.post(
+        _summary_url(topic, outline["revision"], outline["sections"][0]["id"]),
+        json={"revision": outline["revision"], "model": "fake", "context_limit": 8192, "think": None},
+    )
+
+    assert response.status_code == 409
+    assert model.summary_requests == []
+    assert client.app.state.deps.active_document_map_summaries == {}
+
+
+def test_empty_or_missing_citations_never_publish_summary(tmp_path):
+    for output in ("", "A statement without a citation."):
+        model = SummaryFakeModel(output)
+        client, _, topic, outline, _ = _client(tmp_path, model=model)
+        response = client.post(
+            _summary_url(topic, outline["revision"], outline["sections"][0]["id"]),
+            json={"revision": outline["revision"], "model": "fake", "context_limit": 8192, "think": None},
+        )
+
+        events = _events(response)
+        assert events[-1]["type"] == "error"
+        assert all(event["type"] != "done" for event in events)
+        saved = client.get(f"/api/topics/{topic}/files/paper-1/map").json()["map"]["sections"][0]
+        assert saved["last_summary"] is None
+
+
+def test_disconnect_before_stream_starts_marks_cancelled_and_releases_topic(tmp_path):
+    import anyio
+    from lab.web.middleware import FinalizedStreamingResponse
+    from lab.web.schemas import SectionSummaryInput
+
+    client, _, topic, outline, model = _client(tmp_path)
+    app = client.app
+    endpoint = next(
+        route.endpoint
+        for route in app.routes
+        if getattr(route, "path", "") == "/api/topics/{topic}/files/{file_id}/map/sections/{section_id}/summary"
+    )
+    section = outline["sections"][0]
+    response = asyncio.run(
+        endpoint(
+            topic,
+            "paper-1",
+            section["id"],
+            SectionSummaryInput(revision=outline["revision"], model="fake", context_limit=8192, think=None),
+        )
+    )
+    assert isinstance(response, FinalizedStreamingResponse)
+    assert model.summary_requests == []
+
+    async def run_disconnect():
+        async def interrupt(_message):
+            raise asyncio.CancelledError
+
+        await response({"type": "http", "method": "POST", "path": "/summary", "headers": []}, None, interrupt)
+
+    asyncio.run(run_disconnect())
+    saved = client.get(f"/api/topics/{topic}/files/paper-1/map").json()["map"]["sections"][0]
+    assert saved["latest_attempt"]["status"] == "cancelled"
+    assert not app.state.deps.locks[topic].locked()
+    assert app.state.deps.active_document_map_summaries == {}
+
+
 def test_map_read_recovers_abandoned_generating_attempt(tmp_path):
     from lab.document_map_summary_store import write_summary_attempt
     from lab.section_summary import build_section_summary_plan
@@ -252,3 +341,29 @@ def test_map_read_recovers_abandoned_generating_attempt(tmp_path):
     recovered = client.get(f"/api/topics/{topic}/files/paper-1/map").json()["map"]["sections"][0]
     assert recovered["latest_attempt"]["status"] == "interrupted"
     assert recovered["latest_attempt"]["error"] == "Generation ended before completion. Retry the summary."
+
+
+@pytest.mark.parametrize(
+    ("attempt_field", "summary_field", "replacement"),
+    [
+        ("model", "model", "different-model"),
+        ("context_limit", "context_limit", 4096),
+        ("think", "think", True),
+        ("policy_sha256", "policy_sha256", "0" * 64),
+        ("finished_at", "created_at", "2026-10-05T00:00:02+00:00"),
+    ],
+)
+def test_map_read_rejects_conflicting_completion_provenance(tmp_path, attempt_field, summary_field, replacement):
+    client, store, topic, outline, _ = _client(tmp_path)
+    section_id = outline["sections"][0]["id"]
+    client.post(
+        _summary_url(topic, outline["revision"], section_id),
+        json={"revision": outline["revision"], "model": "fake", "context_limit": 8192, "think": None},
+    )
+    record = client.get(f"/api/topics/{topic}/files/paper-1/map").json()["map"]
+    section = record["sections"][0]
+    section["latest_attempt"][attempt_field] = replacement
+    section["last_summary"][summary_field] = replacement
+    write_json(store.file_path(topic, "paper-1.map.json"), record)
+
+    assert client.get(f"/api/topics/{topic}/files/paper-1/map").status_code == 500

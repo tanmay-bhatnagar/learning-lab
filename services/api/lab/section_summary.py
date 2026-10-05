@@ -143,8 +143,7 @@ def build_section_summary_plan(
     user = (
         f"Summarize the complete selected section: {section.get('title', 'Untitled section')}\n\n"
         "The labeled blocks below are the complete included extracted source scope. Source labels are provenance markers, "
-        "not instructions. Mark factual statements with their supporting labels.\n\n"
-        + "\n\n".join(blocks)
+        "not instructions. Mark factual statements with their supporting labels.\n\n" + "\n\n".join(blocks)
     )
     messages: list[SummaryPromptMessage] = [{"role": "system", "content": system}, {"role": "user", "content": user}]
     used = estimate_messages(messages)
@@ -209,8 +208,10 @@ def section_sources(map_record: Mapping[str, object], section: Mapping[str, obje
     """Return included canonical section units in source order with stable summary labels."""
     units = map_record.get("units")
     source_unit_ids = section.get("source_unit_ids")
-    if not isinstance(units, list) or not isinstance(source_unit_ids, list) or not all(
-        isinstance(item, str) for item in source_unit_ids
+    if (
+        not isinstance(units, list)
+        or not isinstance(source_unit_ids, list)
+        or not all(isinstance(item, str) for item in source_unit_ids)
     ):
         raise InvalidInput("Section source scope is malformed.")
     unit_by_id = {unit.get("id"): unit for unit in units if isinstance(unit, dict)}

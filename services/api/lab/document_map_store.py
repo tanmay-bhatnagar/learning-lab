@@ -202,7 +202,8 @@ def _validate_snapshot(record: MapSnapshot, *, expected_file_id: str | None) -> 
                     or summary.section_id != section.id
                     or summary.section_title != section.title
                     or summary.source_sha256 != digest
-                    or summary.sources != [SummarySource.model_validate(item) for item in saved_source_metadata(sources)]
+                    or summary.sources
+                    != [SummarySource.model_validate(item) for item in saved_source_metadata(sources)]
                 ):
                     raise CorruptData("Saved section summary does not match its map revision or source provenance.")
                 try:

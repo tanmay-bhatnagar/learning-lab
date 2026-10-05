@@ -117,7 +117,12 @@ def test_map_is_idempotent_preserves_saved_summary_and_stale_rebuild_keeps_histo
         attempt_id="saved-attempt",
         started_at="2026-10-05T00:00:00+00:00",
     )
-    attempt = {**plan["attempt"], "status": "completed", "finished_at": "2026-10-05T00:00:01+00:00", "content": "Saved result [S1]."}
+    attempt = {
+        **plan["attempt"],
+        "status": "completed",
+        "finished_at": "2026-10-05T00:00:01+00:00",
+        "content": "Saved result [S1].",
+    }
     section["latest_attempt"] = attempt
     section["last_summary"] = {
         "id": attempt["id"],

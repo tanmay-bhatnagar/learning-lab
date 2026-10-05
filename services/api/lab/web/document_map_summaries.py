@@ -112,14 +112,20 @@ def router(deps: AppDeps) -> APIRouter:
                         try:
                             await stream.aclose()
                         except BaseException as exc:  # noqa: BLE001 - shielded provider cleanup must not strand the topic lease
-                            logger.error("Section-summary stream cleanup failed for %s (%s)", attempt_id, type(exc).__name__)
+                            logger.error(
+                                "Section-summary stream cleanup failed for %s (%s)", attempt_id, type(exc).__name__
+                            )
                     if not terminal:
                         cancelled = terminal_attempt("cancelled", error="Generation was cancelled before completion.")
                         try:
                             write_summary_attempt(deps.store, topic, file_id, cancelled)
                             terminal = True
                         except Exception as exc:  # noqa: BLE001 - leave durable generating state for recovery if cancellation persistence fails
-                            logger.error("Section-summary cancellation could not be saved for %s (%s)", attempt_id, type(exc).__name__)
+                            logger.error(
+                                "Section-summary cancellation could not be saved for %s (%s)",
+                                attempt_id,
+                                type(exc).__name__,
+                            )
                 finally:
                     deps.active_document_map_summaries.pop(attempt_id, None)
                     lease.release()
@@ -158,7 +164,11 @@ def router(deps: AppDeps) -> APIRouter:
                         continue
                     if kind == "error":
                         message = provider_event.get("message")
-                        text = message if isinstance(message, str) and message else "The model could not complete this summary."
+                        text = (
+                            message
+                            if isinstance(message, str) and message
+                            else "The model could not complete this summary."
+                        )
                         failed = terminal_attempt("error", error=text)
                         write_summary_attempt(deps.store, topic, file_id, failed)
                         terminal = True
@@ -171,7 +181,11 @@ def router(deps: AppDeps) -> APIRouter:
                     labels = [str(source["label"]) for source in plan["sources"]]
                     validate_source_markers(content, labels)
                     latest = get_document_map(deps.store, topic, file_id)
-                    if latest["status"] != "ready" or latest["map"] is None or latest["map"]["revision"] != body.revision:
+                    if (
+                        latest["status"] != "ready"
+                        or latest["map"] is None
+                        or latest["map"]["revision"] != body.revision
+                    ):
                         raise Conflict("The source document changed while the summary was generating.")
                     finished_at = datetime.now(UTC).isoformat()
                     actual_model = provider_event.get("model")
@@ -220,13 +234,19 @@ def router(deps: AppDeps) -> APIRouter:
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # noqa: BLE001 - stream boundary records every provider, validation and persistence failure
-                message = str(exc) if isinstance(exc, (Conflict, InvalidInput)) else "The section summary could not be completed."
+                message = (
+                    str(exc)
+                    if isinstance(exc, (Conflict, InvalidInput))
+                    else "The section summary could not be completed."
+                )
                 failed = terminal_attempt("error", error=message)
                 try:
                     write_summary_attempt(deps.store, topic, file_id, failed)
                     terminal = True
                 except Exception as save_exc:  # noqa: BLE001 - retain recovery state when terminal write fails
-                    logger.error("Section-summary failure could not be saved for %s (%s)", attempt_id, type(save_exc).__name__)
+                    logger.error(
+                        "Section-summary failure could not be saved for %s (%s)", attempt_id, type(save_exc).__name__
+                    )
                 yield line({"type": "error", "attempt_id": attempt_id, "message": message, "attempt": failed})
             finally:
                 await finish()
