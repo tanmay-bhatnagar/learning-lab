@@ -1,6 +1,6 @@
 # Architecture and ownership
 
-Current state on `dev` as of 4 October 2026. See the [interactive R1 map](../references/R1/system-map.html) for the system and its planned blocks, and the [R1 snapshot](../references/R1/README.md) for validation and remaining work.
+Current state on `dev` as of 5 October 2026; Document Map browser integration is undergoing final verification. See the [interactive R1 map](../references/R1/system-map.html) for the system and its planned blocks, and the [R1 snapshot](../references/R1/README.md) for validation and remaining work.
 
 ## Runtime path
 
@@ -8,7 +8,7 @@ Current state on `dev` as of 4 October 2026. See the [interactive R1 map](../ref
 
 A PDF upload follows a separate path: `browser → topic API → parser → bounded chunks and assets → topic SQLite index`. Selected MarkItDown and AnyDoc files use their Markdown as an unindexed chat attachment. Docling is the default structured parser.
 
-The API app owns one model-generation lock shared by embedding and chat generation, keeping local model use serialized for bounded memory. Parsed artifact writes are atomic per file; the complete set of derived files is not transactional, and a failed parse can leave partial derived artifacts.
+The API app owns one model-generation lock shared by embedding, chat and section-summary generation, keeping local model use serialized for bounded memory. Parsed artifact writes are atomic per file; the complete set of derived files is not transactional, and a failed parse can leave partial derived artifacts.
 
 | Location | Owns |
 | --- | --- |
@@ -29,6 +29,10 @@ The API app owns one model-generation lock shared by embedding and chat generati
 | `services/api/lab/index.py`, `retrieval.py` | Topic SQLite index, hybrid search and evidence assembly |
 | `services/api/lab/models.py`, `context.py` | Local model gateway, streaming and prompt budget |
 | `services/api/lab/storage.py` | Topic paths, original preservation, file and session records |
+| `services/api/lab/document_map.py`, `document_map_store.py` | Pure native-source reconstruction and versioned outline persistence |
+| `services/api/lab/section_summary.py`, `document_map_summary_store.py` | Pure full-section prompt planning, validated attempts and completed-summary persistence |
+| `services/api/lab/summary_import.py` | Pure immutable generated-context snapshots and conversation-local import identity |
+| `services/api/lab/web/document_maps.py`, `document_map_summaries.py`, `summary_imports.py` | Explicit outline build/read, request-bound summary streams, and existing-conversation imports |
 | `services/api/lab/query_traces.py` | Pure diagnostic record construction and versioned topic-local SQLite trace persistence |
 | `services/api/lab/asgi.py` | ASGI entry point |
 | `scripts/dev.py`, `scripts/verify_workspace.py` | Development and verification lifecycle |
@@ -47,6 +51,8 @@ Personal topics and their PDFs live in `../Learning/<topic>/`, outside this Git 
 - Chat is one retrieval pass followed by model streaming. No LangGraph workflow, model tool calls, approval interrupts, understanding checks or progress memory exist yet.
 - Topic and path validation is implemented. It is not an execution sandbox for future code, browser or device tools.
 - The model adapter can send retrieved figure images to a vision-capable local model. General multimodal R2 behavior and Mac–Jetson deployment are not implemented.
+
+An explicit Document Map request reconstructs saved Docling source without retrieval. Section generation sends the complete section and freshly loaded runtime policy through the selected Ollama gateway, with no conversation history or learning goal. Whole-prompt preflight refuses an oversized request instead of trimming source. Import appends an immutable, labeled generated-context snapshot to an existing conversation without inference. Attempt lifecycle, compatibility and decision evidence are in the [implementation note](2026_10_05_document_map_implementation.md) and [API contract](API.md). Native source accounting and valid source labels do not certify PDF fidelity or semantic support.
 
 ## Contracts to preserve
 
