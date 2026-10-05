@@ -101,3 +101,7 @@ Coordinator invoked the actual installed Qwen 3.5 4B gateway with fresh syntheti
 ### Slice 4 API scaffold `071085c`
 
 Three API cases initially fail on the absent route. They protect fresh-policy/source-only prompts and shared generation-lock identity, no-attempt/no-inference overfit refusal, and malformed-marker error persistence. Request model and provider-normalized completed-summary model are distinct provenance facts; legitimate model-tag aliases must not be rejected by stored invariants. Writer owns integration and fault tests next; no completed HTTP summary exists yet.
+
+### Resume after usage interruption — `1168d54`
+
+User resumed after limits reset. Coordinator inspected and preserved interrupted planner/typed-map/summary-store edits before dependent work. Correctly scoped targeted tests passed ten and failed four: three absent summary-route cases and one old map test injecting an arbitrary untyped placeholder. The fixture must become a valid completed summary while preserving same-revision/history assertions; strict stored validation remains selected. An initial coordinator pytest invocation from repository root had import-path collection errors, corrected by using services/api as the working directory. No browser service was left running by the earlier isolated navigation run. Code/reviewer resumed their prior owned roles; router, lifecycle faults and final UI/import remain pending.
