@@ -50,12 +50,12 @@
       ['Independent saved conversations','built','Messages and sources persist per conversation'],
       ['Session IDs & migration','built','Default legacy history plus named conversations'],
       ['Approval records','planned','Scope future agent actions by target and operation']]},
-    {id:'ingest', title:'PDF ingestion', status:'partial', x:456, y:45, parts:[
+    {id:'ingest', title:'PDF ingestion', status:'built', x:456, y:45, parts:[
       ['MarkItDown & AnyDoc','built','Direct backend conversion; unindexed fallback'],
       ['Docling structured parse','built','Text, headings, pages, figures, Markdown'],
       ['Bounded chunks','built','Tokenizer-aware chunks with intact source text'],
       ['Extraction diagnostics','built','Reported failures, suspected limitations; fidelity unassessed'],
-      ['Document outline & sections','planned','Build the material map from parsed structure']]},
+      ['Document outline & sections','built','Explicit native outline build with honest page fallback']]},
     {id:'retrieval', title:'Index & evidence', status:'partial', x:676, y:45, parts:[
       ['Topic SQLite index','built','Keyword search and local embeddings'],
       ['Ranked evidence & citations','built','Prompt keeps whole, cited passages'],
@@ -65,9 +65,9 @@
     {id:'models', title:'Local inference', status:'partial', x:676, y:245, parts:[
       ['Ollama model gateway','built','Installed-model selection and streaming'],
       ['Model-specific thinking','built','Toggle or effort levels when supported'],
-      ['Context budgeting','built','Trim oldest prompt input; save full history'],
+      ['Context budgeting','built','Chat trims request history; full-section summaries refuse oversized source'],
       ['Vision input path','partial','Retrieved figure images for vision-capable models'],
-      ['Shared learning policy loading','built','Read full configured AGENTS.md before every chat; fail visibly'],
+      ['Shared learning policy loading','built','Read full configured AGENTS.md before each chat and summary; fail visibly'],
       ['Mac + Jetson split','planned','Decide placement after model/latency tests']]},
     {id:'agent', title:'Agent workflow', status:'planned', x:456, y:245, parts:[
       ['LangGraph state machine','planned','Route, retrieve, reason, respond'],
@@ -77,7 +77,7 @@
       ['Restart checkpoint','planned','Resume an interrupted workflow']]},
     {id:'learning', title:'Learning functions', status:'partial', x:236, y:245, parts:[
       ['Explain & investigate','partial','Basic grounded chat exists; agent tools remain'],
-      ['Map the material','planned','Sections, prerequisites, cited summaries'],
+      ['Map the material','partial','On-demand sections and cited summaries built; inferred prerequisites pending'],
       ['Check understanding','planned','Ask, assess, hint, save attempts'],
       ['Coding experiments','planned','Later release: controlled code tools'],
       ['Web research','planned','Later release: external sources with provenance']]},

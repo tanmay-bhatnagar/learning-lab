@@ -11,13 +11,14 @@ Completion status reconciled with the ordered roadmap on 5 October 2026; histori
 - Project engineering rules, six role configurations and skills, CI, isolated tests and HTTP verification. Development policy is self-contained in Code-root AGENTS.md.
 - Citation page links, persistent topic learning goals, and extraction diagnostics.
 - Multiple saved conversations per topic, developer query traces, and a three-public-paper retrieval/trace baseline with simulated generation.
-- Shared runtime learning policy loaded before every chat request, independent of selected model; visible policy-read and context-fit failures.
+- Shared runtime learning policy loaded before every chat and section-summary request, independent of selected model; visible policy-read and context-fit failures.
+- On-demand single-PDF outlines, complete-section local summaries, source inspection, and immutable imports into the selected existing main conversation. [Implementation and decision history](../../docs/2026_10_05_document_map_implementation.md).
 
 ## R1 still to build
 
 | Order | Work |
 | --- | --- |
-| 6 | Document outline, section summaries and material map. |
+| 6 | Inferred prerequisites; the approved on-demand outline/summary/import increment is implemented. |
 | 7–8 | LangGraph workflow, retrieval tools, tool-call validation and scoped approvals. |
 | 9–10 | Understanding checks, topic progress memory and restart recovery. |
 | 11–12 | Full R1 acceptance demonstration, then context compaction. |
@@ -35,7 +36,7 @@ Sources: [architecture](../../docs/architecture.md), [API contract](../../docs/A
 
 3 October follow-up: the multi-conversation increment is implemented and validated locally on `dev`, with changes uncommitted at that time. Those changes were committed locally on `dev` on 5 October in scoped checkpoints. See [resume validation](../../docs/2026_10_03_resume_validation.md) for the skills inventory, two repaired frontend races, full passing gates, real Docling/local-model citation run, persistence choices, and coverage limits.
 
-Per-query trace logging is also implemented: topic-local metadata storage, developer inspection API, and lifecycle/failure diagnostics for Default and named conversations. See [query traces](../../docs/query_traces.md) for the contract and verification. The separate [retrieval evaluation baseline](../../evals/retrieval/README.md) is implemented using three registered public PDFs, with simulated generation and descriptive retrieval scores. See [eval validation](../../docs/retrieval_eval_validation.md) for results and limits. Document outline, section summaries and material map are the next staged R1 increment.
+Per-query trace logging is also implemented: topic-local metadata storage, developer inspection API, and lifecycle/failure diagnostics for Default and named conversations. See [query traces](../../docs/query_traces.md) for the contract and verification. The separate [retrieval evaluation baseline](../../evals/retrieval/README.md) is implemented using three registered public PDFs, with simulated generation and descriptive retrieval scores. See [eval validation](../../docs/retrieval_eval_validation.md) for results and limits. The approved on-demand Document Map increment is implemented; inferred prerequisites remain outside this increment. Tanmay's on-demand requirement supersedes the earlier roadmap suggestion of automatic background summaries. Final lifecycle validation is tracked in the implementation note.
 
 ## Current validation and policy separation — 4 October 2026
 
