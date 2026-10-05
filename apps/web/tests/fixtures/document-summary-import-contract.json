@@ -1,0 +1,108 @@
+{
+  "summary": {
+    "id": "3200c96c3abc487086cc118c8ca1ee91",
+    "revision": "aaaf3737dad538a7b4fb1324dcbc56ff194ca60a4f9438af76acb2265362582d",
+    "section_id": "section-f58c80f94301637a50b1",
+    "section_title": "Results",
+    "content": "A synthetic statement [S1].",
+    "model": "fake",
+    "created_at": "2026-10-05T07:50:28.723029Z",
+    "policy_sha256": "48538814ada966406d76c45e23d25dcd0df15df18aabe5cf33ab421b97a225eb",
+    "prompt_version": "section-summary-v1",
+    "source_sha256": "fe6ab34aa369118625779f1f7fe12e84dcc73594ea237f26b6d3c1c679fe71ea",
+    "sources": [
+      {
+        "label": "S1",
+        "unit_id": "unit-9972f363c484596d087d",
+        "source_refs": [
+          "#/texts/0"
+        ],
+        "pages": []
+      },
+      {
+        "label": "S2",
+        "unit_id": "unit-1989aa12ad7fc68ea3bf",
+        "source_refs": [
+          "#/texts/1"
+        ],
+        "pages": []
+      }
+    ],
+    "context_limit": 8192,
+    "think": null
+  },
+  "import": {
+    "conversation_id": "default",
+    "imported": true,
+    "message": {
+      "role": "user",
+      "content": "Saved section summary \u2014 Results\nGenerated summary, not verbatim PDF text.\n\nA synthetic statement [S1].",
+      "summary_import": {
+        "schema_version": 1,
+        "import_id": "37b4b76a08618c5e310f47f706102146ee6af9860fc8586d7b13588e86172b3d",
+        "file_id": "paper-1",
+        "revision": "aaaf3737dad538a7b4fb1324dcbc56ff194ca60a4f9438af76acb2265362582d",
+        "section_id": "section-f58c80f94301637a50b1",
+        "summary_id": "3200c96c3abc487086cc118c8ca1ee91",
+        "section_title": "Results",
+        "model": "fake",
+        "summary_created_at": "2026-10-05T07:50:28.723029Z",
+        "imported_at": "2026-10-05T07:50:28.731314Z",
+        "sources": [
+          {
+            "label": "S1",
+            "unit_id": "unit-9972f363c484596d087d",
+            "source_refs": [
+              "#/texts/0"
+            ],
+            "pages": []
+          },
+          {
+            "label": "S2",
+            "unit_id": "unit-1989aa12ad7fc68ea3bf",
+            "source_refs": [
+              "#/texts/1"
+            ],
+            "pages": []
+          }
+        ]
+      }
+    },
+    "messages": [
+      {
+        "role": "user",
+        "content": "Saved section summary \u2014 Results\nGenerated summary, not verbatim PDF text.\n\nA synthetic statement [S1].",
+        "summary_import": {
+          "schema_version": 1,
+          "import_id": "37b4b76a08618c5e310f47f706102146ee6af9860fc8586d7b13588e86172b3d",
+          "file_id": "paper-1",
+          "revision": "aaaf3737dad538a7b4fb1324dcbc56ff194ca60a4f9438af76acb2265362582d",
+          "section_id": "section-f58c80f94301637a50b1",
+          "summary_id": "3200c96c3abc487086cc118c8ca1ee91",
+          "section_title": "Results",
+          "model": "fake",
+          "summary_created_at": "2026-10-05T07:50:28.723029Z",
+          "imported_at": "2026-10-05T07:50:28.731314Z",
+          "sources": [
+            {
+              "label": "S1",
+              "unit_id": "unit-9972f363c484596d087d",
+              "source_refs": [
+                "#/texts/0"
+              ],
+              "pages": []
+            },
+            {
+              "label": "S2",
+              "unit_id": "unit-1989aa12ad7fc68ea3bf",
+              "source_refs": [
+                "#/texts/1"
+              ],
+              "pages": []
+            }
+          ]
+        }
+      }
+    ]
+  }
+}
