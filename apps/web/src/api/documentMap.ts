@@ -206,9 +206,12 @@ export async function streamDocumentSummary(
       buffer += decoder.decode(part.value, { stream: !part.done });
       const lines = buffer.split('\n');
       buffer = lines.pop() ?? '';
-      lines.forEach(consume);
+      for (const line of lines) {
+        consume(line);
+        if (terminal) break;
+      }
       if (part.done) {
-        consume(buffer);
+        if (!terminal) consume(buffer);
         break;
       }
     }

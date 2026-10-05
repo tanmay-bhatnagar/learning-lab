@@ -105,9 +105,10 @@ describe('document summary wire contract', () => {
         },
       },
     ];
-    const section = mapFixture.build_response.map.sections[0];
-    const scope = { topic: 'topic-a', fileId: 'synthetic-paper', revision: contract.summary.revision, sectionId: section.id };
-    const initial = sectionSummaryState(scope, { ...section, last_summary: contract.summary });
+    const section = { ...mapFixture.build_response.map.sections[0], id: contract.summary.section_id };
+    const savedSummary = savedSummarySchema.parse(contract.summary);
+    const scope = { topic: 'topic-a', fileId: 'synthetic-paper', revision: savedSummary.revision, sectionId: section.id };
+    const initial = sectionSummaryState(scope, { ...section, last_summary: savedSummary });
     const generated = foldSummaryEvent(initial, started as SummaryStreamEvent, scope);
     const withToken = foldSummaryEvent(generated, token as SummaryStreamEvent, scope);
     const wrongScope = foldSummaryEvent(withToken, token as SummaryStreamEvent, { ...scope, fileId: 'other' });
