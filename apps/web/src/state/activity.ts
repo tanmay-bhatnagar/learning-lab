@@ -1,6 +1,22 @@
-export type Activity = 'idle' | 'sending' | 'uploading' | 'savingSettings' | 'savingGoal' | 'buildingMap';
+export type Activity =
+  | 'idle'
+  | 'sending'
+  | 'uploading'
+  | 'savingSettings'
+  | 'savingGoal'
+  | 'buildingMap'
+  | 'generatingSummary'
+  | 'importingSummary';
 
-export type ActivityOp = 'send' | 'upload' | 'saveSettings' | 'saveGoal' | 'selectModel' | 'buildMap';
+export type ActivityOp =
+  | 'send'
+  | 'upload'
+  | 'saveSettings'
+  | 'saveGoal'
+  | 'selectModel'
+  | 'buildMap'
+  | 'generateSummary'
+  | 'importSummary';
 
 export function activityForOp(op: ActivityOp): Activity {
   switch (op) {
@@ -15,6 +31,10 @@ export function activityForOp(op: ActivityOp): Activity {
       return 'savingGoal';
     case 'buildMap':
       return 'buildingMap';
+    case 'generateSummary':
+      return 'generatingSummary';
+    case 'importSummary':
+      return 'importingSummary';
   }
 }
 

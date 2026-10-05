@@ -13,6 +13,9 @@ export const fileChunksPath = (topic: string, fileId: string) => `${filePath(top
 
 export const fileMapPath = (topic: string, fileId: string) => `${filePath(topic, fileId)}/map`;
 
+export const fileSectionSummaryPath = (topic: string, fileId: string, sectionId: string) =>
+  `${fileMapPath(topic, fileId)}/sections/${encodeURIComponent(sectionId)}/summary`;
+
 export const assetApiUrl = (topic: string, fileId: string, assetId: string) =>
   `/api${filePath(topic, fileId)}/assets/${encodeURIComponent(assetId)}`;
 
@@ -30,3 +33,5 @@ export const conversationsPath = (topic: string) => `${topicPath(topic)}/convers
 export const conversationPath = (topic: string, id: string) => `${conversationsPath(topic)}/${encodeURIComponent(id)}`;
 export const conversationMessagesPath = (topic: string, id: string) => `${conversationPath(topic, id)}/messages`;
 export const conversationChatPath = (topic: string, id: string) => `${conversationPath(topic, id)}/chat`;
+export const conversationSummaryImportsPath = (topic: string, id: string) =>
+  `${conversationPath(topic, id)}/summary-imports`;

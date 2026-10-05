@@ -6,6 +6,8 @@ import {
   streamDocumentSummary,
   type SummaryStreamEvent,
 } from '../src/api/documentMap';
+import { foldSummaryEvent, sectionSummaryState } from '../src/state/documentMap';
+import mapFixture from './fixtures/documentMapApi.json';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -52,5 +54,70 @@ describe('document summary wire contract', () => {
     await expect(streamDocumentSummary('/summary', {}, new AbortController().signal, () => {})).rejects.toThrow();
     badFetch(`${JSON.stringify(contract.summary_events[0])}\n`);
     await expect(streamDocumentSummary('/summary', {}, new AbortController().signal, () => {})).rejects.toThrow(/ended before/i);
+  });
+
+  test('a terminal event suppresses later events in the same network chunk', async () => {
+    const started = contract.summary_events[0];
+    const done = contract.summary_events[3];
+    const error = {
+      type: 'error' as const,
+      attempt_id: started.attempt_id,
+      message: 'synthetic error',
+      attempt: {
+        ...started.attempt,
+        status: 'error',
+        finished_at: '2026-10-05T00:00:01Z',
+        error: 'synthetic error',
+      },
+    };
+    const cases = [
+      [started, error, done],
+      [started, done, contract.summary_events[2]],
+    ];
+    for (const sequence of cases) {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => new Response(`${sequence.map((event) => JSON.stringify(event)).join('\n')}\n`, { status: 200 })),
+      );
+      const received: SummaryStreamEvent[] = [];
+      await streamDocumentSummary('/summary', {}, new AbortController().signal, (event) => received.push(event));
+      expect(received.map((event) => event.type)).toEqual(
+        sequence.slice(0, sequence.findIndex((event) => event.type === 'done' || event.type === 'error') + 1).map((event) => event.type),
+      );
+    }
+  });
+
+  test('pure event reducer rejects other scopes and keeps prior success when regeneration fails', () => {
+    const [started, , token, done, error] = [
+      contract.summary_events[0],
+      contract.summary_events[1],
+      contract.summary_events[2],
+      contract.summary_events[3],
+      {
+        type: 'error' as const,
+        attempt_id: contract.summary_events[0].attempt_id,
+        message: 'synthetic regeneration failed',
+        attempt: {
+          ...contract.summary_events[0].attempt,
+          status: 'error',
+          finished_at: '2026-10-05T00:00:00Z',
+          error: 'synthetic regeneration failed',
+        },
+      },
+    ];
+    const section = mapFixture.build_response.map.sections[0];
+    const scope = { topic: 'topic-a', fileId: 'synthetic-paper', revision: contract.summary.revision, sectionId: section.id };
+    const initial = sectionSummaryState(scope, { ...section, last_summary: contract.summary });
+    const generated = foldSummaryEvent(initial, started as SummaryStreamEvent, scope);
+    const withToken = foldSummaryEvent(generated, token as SummaryStreamEvent, scope);
+    const wrongScope = foldSummaryEvent(withToken, token as SummaryStreamEvent, { ...scope, fileId: 'other' });
+    const failed = foldSummaryEvent(wrongScope, error as SummaryStreamEvent, scope);
+
+    expect(wrongScope).toBe(withToken);
+    expect(failed.summary?.content).toBe(contract.summary.content);
+    expect(failed.attempt?.status).toBe('error');
+    expect(failed.content).toBe('A synthetic statement [S1].');
+    expect(failed.error).toBe('synthetic regeneration failed');
+    expect(done.type).toBe('done');
   });
 });
