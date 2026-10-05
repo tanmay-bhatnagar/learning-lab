@@ -19,23 +19,21 @@ describe('document summary wire contract', () => {
 
   test('dedicated decoder handles chunk boundaries and preserves event identity', async () => {
     const [started, , token, done] = contract.summary_events;
-    const chunks = [
-      `${JSON.stringify(started)}\n`,
-      `${JSON.stringify(token)}\n${JSON.stringify(done)}\n`,
-    ];
+    const chunks = [`${JSON.stringify(started)}\n`, `${JSON.stringify(token)}\n${JSON.stringify(done)}\n`];
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () =>
-        new Response(
-          new ReadableStream({
-            start(controller) {
-              controller.enqueue(new TextEncoder().encode(chunks[0].slice(0, 19)));
-              controller.enqueue(new TextEncoder().encode(chunks[0].slice(19) + chunks[1]));
-              controller.close();
-            },
-          }),
-          { status: 200 },
-        ),
+      vi.fn(
+        async () =>
+          new Response(
+            new ReadableStream({
+              start(controller) {
+                controller.enqueue(new TextEncoder().encode(chunks[0].slice(0, 19)));
+                controller.enqueue(new TextEncoder().encode(chunks[0].slice(19) + chunks[1]));
+                controller.close();
+              },
+            }),
+            { status: 200 },
+          ),
       ),
     );
     const events: SummaryStreamEvent[] = [];
@@ -48,12 +46,17 @@ describe('document summary wire contract', () => {
 
   test('invalid events and EOF without done fail visibly', async () => {
     const badFetch = (line: string) => {
-      vi.stubGlobal('fetch', vi.fn(async () => new Response(line, { status: 200 })));
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => new Response(line, { status: 200 })),
+      );
     };
     badFetch(`${JSON.stringify({ ...contract.summary_events[0], type: 'token', text: 4 })}\n`);
     await expect(streamDocumentSummary('/summary', {}, new AbortController().signal, () => {})).rejects.toThrow();
     badFetch(`${JSON.stringify(contract.summary_events[0])}\n`);
-    await expect(streamDocumentSummary('/summary', {}, new AbortController().signal, () => {})).rejects.toThrow(/ended before/i);
+    await expect(streamDocumentSummary('/summary', {}, new AbortController().signal, () => {})).rejects.toThrow(
+      /ended before/i,
+    );
   });
 
   test('a terminal event suppresses later events in the same network chunk', async () => {
@@ -77,12 +80,16 @@ describe('document summary wire contract', () => {
     for (const sequence of cases) {
       vi.stubGlobal(
         'fetch',
-        vi.fn(async () => new Response(`${sequence.map((event) => JSON.stringify(event)).join('\n')}\n`, { status: 200 })),
+        vi.fn(
+          async () => new Response(`${sequence.map((event) => JSON.stringify(event)).join('\n')}\n`, { status: 200 }),
+        ),
       );
       const received: SummaryStreamEvent[] = [];
       await streamDocumentSummary('/summary', {}, new AbortController().signal, (event) => received.push(event));
       expect(received.map((event) => event.type)).toEqual(
-        sequence.slice(0, sequence.findIndex((event) => event.type === 'done' || event.type === 'error') + 1).map((event) => event.type),
+        sequence
+          .slice(0, sequence.findIndex((event) => event.type === 'done' || event.type === 'error') + 1)
+          .map((event) => event.type),
       );
     }
   });
@@ -107,7 +114,12 @@ describe('document summary wire contract', () => {
     ];
     const section = { ...mapFixture.build_response.map.sections[0], id: contract.summary.section_id };
     const savedSummary = savedSummarySchema.parse(contract.summary);
-    const scope = { topic: 'topic-a', fileId: 'synthetic-paper', revision: savedSummary.revision, sectionId: section.id };
+    const scope = {
+      topic: 'topic-a',
+      fileId: 'synthetic-paper',
+      revision: savedSummary.revision,
+      sectionId: section.id,
+    };
     const initial = sectionSummaryState(scope, { ...section, last_summary: savedSummary });
     const generated = foldSummaryEvent(initial, started as SummaryStreamEvent, scope);
     const withToken = foldSummaryEvent(generated, token as SummaryStreamEvent, scope);
@@ -127,7 +139,12 @@ describe('document summary wire contract', () => {
     const done = contract.summary_events[3] as SummaryStreamEvent;
     const section = { ...mapFixture.build_response.map.sections[0], id: contract.summary.section_id };
     const savedSummary = savedSummarySchema.parse(contract.summary);
-    const scope = { topic: 'topic-a', fileId: 'synthetic-paper', revision: savedSummary.revision, sectionId: section.id };
+    const scope = {
+      topic: 'topic-a',
+      fileId: 'synthetic-paper',
+      revision: savedSummary.revision,
+      sectionId: section.id,
+    };
     const initial = sectionSummaryState(scope, section);
     const invalidStart = {
       ...started,
@@ -149,5 +166,24 @@ describe('document summary wire contract', () => {
       attempt: { ...started.attempt, status: 'error' as const, revision: 'b'.repeat(64), section_id: 'other-section' },
     } as SummaryStreamEvent;
     expect(foldSummaryEvent(active, invalidError, scope)).toBe(active);
+  });
+
+  test('restores failed attempt text separately from a prior saved summary', () => {
+    const section = { ...mapFixture.build_response.map.sections[0], id: contract.summary.section_id };
+    const savedSummary = savedSummarySchema.parse(contract.summary);
+    const scope = { topic: 'topic-a', fileId: 'synthetic-paper', revision: savedSummary.revision, sectionId: section.id };
+    const failedAttempt = {
+      ...contract.summary_events[0].attempt,
+      status: 'error' as const,
+      content: 'partial generated text',
+      finished_at: '2026-10-05T07:53:00Z',
+      error: 'synthetic failure',
+    };
+    const withPrior = sectionSummaryState(scope, { ...section, latest_attempt: failedAttempt, last_summary: savedSummary });
+    const withoutPrior = sectionSummaryState(scope, { ...section, latest_attempt: failedAttempt });
+    expect(withPrior.summary?.content).toBe(savedSummary.content);
+    expect(withPrior.content).toBe('partial generated text');
+    expect(withoutPrior.summary).toBeNull();
+    expect(withoutPrior.content).toBe('partial generated text');
   });
 });
