@@ -1,6 +1,6 @@
 # Architecture and ownership
 
-Current state on `dev` as of 5 October 2026; Document Map browser integration is undergoing final verification. See the [interactive R1 map](../references/R1/system-map.html) for the system and its planned blocks, and the [R1 snapshot](../references/R1/README.md) for validation and remaining work.
+Current state on `dev` as of 5 October 2026. See the [interactive R1 map](../references/R1/system-map.html) for the system and its planned blocks, and the [R1 snapshot](../references/R1/README.md) for validation and remaining work.
 
 ## Runtime path
 
