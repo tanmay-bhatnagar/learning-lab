@@ -149,3 +149,7 @@ Sixteen import cases and full backend 341 tests plus 21 subtests pass, with Ruff
 ### Slice 5 browser wire checkpoint `da9b242`
 
 Three dedicated wire tests and production build pass. The fixture now contains actual synthetic backend started/done attempts, completed summary and import payloads; initial empty-record scaffold was corrected rather than weakening schemas. The decoder handles chunk boundaries, validates events and refuses premature EOF; terminal errors remain explicit events for state/UI handling. Reducer/hook/control and imported-message rendering are next. Independent frontend wire review is beginning; coordinator's fresh isolated workspace has a real Docling table PDF, explicitly built outline and existing named destination ready for final usage. No new summaries have been generated in that final workspace yet.
+
+### Slice 5 terminal-event repair `828800a` → `e827c6f`
+
+Independent wire probe showed one chunk could deliver started/error/done because termination was checked only before the next read. The failing checkpoint also held a mismatched reducer-fixture identity; that was a fixture error, correctly ignored by the reducer. Repair stops current-chunk processing at the first terminal event and adds error→done and done→token coverage. Five wire/reducer tests and production build pass. The decision prevents a later event overwriting terminal state, with request/attempt/scope guards still required in the workspace hook. UI integration and full frontend review/usage remain next gates.
