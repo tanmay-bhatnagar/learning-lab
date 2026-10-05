@@ -303,7 +303,12 @@ function SectionSummaryCard({
   if (!sectionTitle) return null;
   const unitById = new Map(units.map((unit) => [unit.id, unit]));
   return (
-    <section className="section-summary-card" aria-labelledby="section-summary-title">
+    <section
+      id="selected-section-summary"
+      className="section-summary-card"
+      aria-labelledby="section-summary-title"
+      tabIndex={-1}
+    >
       <div className="section-summary-header">
         <div>
           <span className="eyebrow">ON-DEMAND SUMMARY</span>

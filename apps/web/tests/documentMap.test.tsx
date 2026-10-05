@@ -37,6 +37,8 @@ function installMapApi(
     deferFirstGet?: boolean;
     deferBuild?: boolean;
     deferSummary?: boolean;
+    deferImport?: boolean;
+    changeRevisionAfterFirstGet?: boolean;
   } = {},
 ) {
   const base = createFakeApi({ files: { 'topic-a': otherFiles } });
@@ -48,9 +50,11 @@ function installMapApi(
   let latestSummary: Record<string, unknown> | null = null;
   let latestAttempt: Record<string, unknown> | null = null;
   let firstGetStarted = false;
+  let documentGetCount = 0;
   let releaseFirstGet: (() => void) | null = null;
   let releaseBuild: (() => void) | null = null;
   let releaseSummary: (() => void) | null = null;
+  let releaseImport: (() => void) | null = null;
   const fakeFetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
     const parsed = new URL(url, 'http://test.local');
@@ -105,6 +109,7 @@ function installMapApi(
           finish = resolve;
         });
         releaseSummary = () => finish?.();
+        (init?.signal as AbortSignal | undefined)?.addEventListener('abort', () => finish?.(), { once: true });
         const stream = new ReadableStream<Uint8Array>({
           async start(controller) {
             controller.enqueue(
@@ -137,7 +142,7 @@ function installMapApi(
           summary_id: body.summary_id,
         },
       };
-      return new Response(
+      const result = new Response(
         JSON.stringify({
           conversation_id: decodeURIComponent(importMatch[2]),
           imported: true,
@@ -146,6 +151,12 @@ function installMapApi(
         }),
         { status: 200 },
       );
+      if (options.deferImport) {
+        return new Promise<Response>((resolve) => {
+          releaseImport = () => resolve(result);
+        });
+      }
+      return result;
     }
     const match = parsed.pathname.match(/^\/api\/topics\/([^/]+)\/files\/([^/]+)\/map(?:\/sections\/([^/]+))?$/);
     if (!match) return base.fetch(input, init);
@@ -154,6 +165,7 @@ function installMapApi(
     if (match[3]) {
       return new Response(JSON.stringify(mapFixture.section_response), { status: 200 });
     }
+    documentGetCount += 1;
     if (method === 'POST') {
       built = true;
       if (options.deferBuild) {
@@ -186,6 +198,9 @@ function installMapApi(
               return saved;
             })()
           : { status: 'not_built', map: null };
+    if (options.changeRevisionAfterFirstGet && documentGetCount > 1 && response.map) {
+      response.map.revision = 'c'.repeat(64);
+    }
     return new Response(JSON.stringify(response), { status: 200 });
   };
   vi.stubGlobal('fetch', fakeFetch);
@@ -196,6 +211,7 @@ function installMapApi(
     resolveFirstGet: () => releaseFirstGet?.(),
     resolveBuild: () => releaseBuild?.(),
     resolveSummary: () => releaseSummary?.(),
+    resolveImport: () => releaseImport?.(),
   };
 }
 
@@ -297,6 +313,109 @@ describe('document map navigation', () => {
     ).toBe(true);
     resolveSummary();
     expect(await screen.findByText('Saved summary')).toBeInTheDocument();
+  });
+
+  test('file change aborts a generation and late stream events cannot replace the next outline', async () => {
+    const { summaryCalls, resolveSummary } = installMapApi({ deferSummary: true });
+    const user = userEvent.setup();
+    render(<App />);
+    await waitForReady();
+    await user.click(screen.getByRole('button', { name: 'Map' }));
+    const picker = screen.getByRole('combobox', { name: /PDF for map/i });
+    await user.selectOptions(picker, 'synthetic-paper');
+    await user.click(await screen.findByRole('button', { name: /Build outline/i }));
+    await user.click((await screen.findAllByRole('button', { name: 'Select for summary' }))[0]);
+    fireEvent.click(screen.getByRole('button', { name: 'Generate summary' }));
+    await waitFor(() => expect(summaryCalls).toHaveLength(1));
+    await user.selectOptions(picker, 'second-paper');
+    await waitFor(() => expect(summaryCalls[0].signal?.aborted).toBe(true));
+    resolveSummary();
+    expect(await screen.findByText('Alternate outline')).toBeInTheDocument();
+    expect(screen.queryByText('Saved summary')).not.toBeInTheDocument();
+  });
+
+  test('topic navigation is blocked while workspace summary generation is active', async () => {
+    const { summaryCalls, resolveSummary } = installMapApi({ deferSummary: true });
+    const user = userEvent.setup();
+    render(<App />);
+    await waitForReady();
+    await user.click(screen.getByRole('button', { name: 'Map' }));
+    await user.selectOptions(screen.getByRole('combobox', { name: /PDF for map/i }), 'synthetic-paper');
+    await user.click(await screen.findByRole('button', { name: /Build outline/i }));
+    await user.click((await screen.findAllByRole('button', { name: 'Select for summary' }))[0]);
+    fireEvent.click(screen.getByRole('button', { name: 'Generate summary' }));
+    await waitFor(() => expect(summaryCalls).toHaveLength(1));
+    expect(screen.getByRole('button', { name: 'Topic B' })).toBeDisabled();
+    expect(summaryCalls[0].signal?.aborted).toBe(false);
+    resolveSummary();
+    expect(await screen.findByText('Saved summary')).toBeInTheDocument();
+  });
+
+  test('a refreshed map revision aborts the previous revision summary', async () => {
+    const { summaryCalls } = installMapApi({ deferSummary: true, changeRevisionAfterFirstGet: true });
+    const user = userEvent.setup();
+    render(<App />);
+    await waitForReady();
+    await user.click(screen.getByRole('button', { name: 'Map' }));
+    await user.selectOptions(screen.getByRole('combobox', { name: /PDF for map/i }), 'synthetic-paper');
+    await user.click(await screen.findByRole('button', { name: /Build outline/i }));
+    await user.click((await screen.findAllByRole('button', { name: 'Select for summary' }))[0]);
+    fireEvent.click(screen.getByRole('button', { name: 'Generate summary' }));
+    await waitFor(() => expect(summaryCalls).toHaveLength(1));
+    await user.click(screen.getByRole('button', { name: /Attached files/i }));
+    await user.click(screen.getByRole('button', { name: 'Map' }));
+    await waitFor(() => expect(summaryCalls[0].signal?.aborted).toBe(true));
+  });
+
+  test('changing the mapped file aborts the in-flight summary and ignores its late result', async () => {
+    const { summaryCalls, resolveSummary } = installMapApi({ deferSummary: true });
+    const user = userEvent.setup();
+    render(<App />);
+    await waitForReady();
+    await user.click(screen.getByRole('button', { name: 'Map' }));
+    const picker = screen.getByRole('combobox', { name: /PDF for map/i });
+    await user.selectOptions(picker, 'synthetic-paper');
+    await user.click(await screen.findByRole('button', { name: /Build outline/i }));
+    await user.click((await screen.findAllByRole('button', { name: 'Select for summary' }))[0]);
+    fireEvent.click(screen.getByRole('button', { name: 'Generate summary' }));
+    await waitFor(() => expect(summaryCalls).toHaveLength(1));
+    await user.selectOptions(picker, 'second-paper');
+    await waitFor(() => expect(summaryCalls[0].signal?.aborted).toBe(true));
+    resolveSummary();
+    expect(await screen.findByText('Alternate outline')).toBeInTheDocument();
+    expect(screen.queryByText('Saved summary')).not.toBeInTheDocument();
+  });
+
+  test('generation and named-chat import are explicit, same-tick duplicates are blocked, and the destination is captured', async () => {
+    const { summaryCalls, importCalls, resolveImport } = installMapApi({ deferImport: true });
+    const user = userEvent.setup();
+    render(<App />);
+    await waitForReady();
+    await user.click(screen.getByRole('button', { name: /New chat/i }));
+    await user.type(screen.getByRole('textbox', { name: 'Conversation title' }), 'Map Study');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await user.click(screen.getByRole('button', { name: 'Map' }));
+    await user.selectOptions(screen.getByRole('combobox', { name: /PDF for map/i }), 'synthetic-paper');
+    await user.click(await screen.findByRole('button', { name: /Build outline/i }));
+    await user.click((await screen.findAllByRole('button', { name: 'Select for summary' }))[0]);
+    const generate = screen.getByRole('button', { name: 'Generate summary' });
+    fireEvent.click(generate);
+    fireEvent.click(generate);
+    await waitFor(() => expect(summaryCalls).toHaveLength(1));
+    expect(await screen.findByText('Saved summary')).toBeInTheDocument();
+    expect(screen.getByText('[S1]')).toBeInTheDocument();
+    expect(screen.getAllByText('Page unknown').length).toBeGreaterThan(0);
+
+    const add = screen.getByRole('button', { name: 'Add to “Map Study”' });
+    fireEvent.click(add);
+    fireEvent.click(add);
+    await waitFor(() => expect(importCalls).toHaveLength(1));
+    expect(importCalls[0].path).toContain('/conversations/chat-1/summary-imports');
+    await user.selectOptions(screen.getByLabelText('Conversation'), 'default');
+    resolveImport();
+    await waitFor(() => expect(screen.queryByText('Added to “Map Study”.')).not.toBeInTheDocument());
+
+    expect(screen.queryByText('Added to “Map Study”.')).not.toBeInTheDocument();
   });
 
   test('stale outline offers explicit rebuild and displays original page links', async () => {

@@ -112,6 +112,11 @@ export function useSectionSummary({
     topic,
   ]);
 
+  useEffect(() => {
+    if (!map || !sectionId) return;
+    document.getElementById('selected-section-summary')?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' });
+  }, [fileId, sectionId, topic]);
+
   useEffect(
     () => () => {
       generation.current?.controller.abort();
