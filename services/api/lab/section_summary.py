@@ -6,9 +6,10 @@ import hashlib
 import json
 import re
 from collections.abc import Mapping
+from datetime import datetime
 from typing import Literal, TypedDict
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from lab.context import estimate_messages, response_token_reserve
 from lab.errors import DoesNotFit, InvalidInput
@@ -22,48 +23,62 @@ SOURCE_LABEL = re.compile(r"S[1-9][0-9]*")
 class SummarySource(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    label: str
-    unit_id: str
-    source_refs: list[str]
+    label: str = Field(pattern=r"^S[1-9][0-9]*$")
+    unit_id: str = Field(min_length=1)
+    source_refs: list[str] = Field(min_length=1)
     pages: list[int]
 
 
 class SummaryAttempt(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    id: str
-    revision: str
-    section_id: str
+    id: str = Field(min_length=1, max_length=100)
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    section_id: str = Field(min_length=1, max_length=100)
     status: Literal["generating", "completed", "cancelled", "error", "interrupted"]
-    started_at: str
-    finished_at: str | None
-    model: str
-    context_limit: int
-    think: bool | str | None
-    policy_sha256: str
-    prompt_version: str
-    source_sha256: str
+    started_at: datetime
+    finished_at: datetime | None
+    model: str = Field(min_length=1, max_length=200)
+    context_limit: int = Field(ge=1024, le=MAX_CONTEXT_LIMIT)
+    think: bool | Literal["low", "medium", "high"] | None
+    policy_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    prompt_version: Literal[SUMMARY_PROMPT_VERSION]
+    source_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     prompt_context: dict[str, int | bool]
     content: str
     error: str | None
+
+    @field_validator("started_at", "finished_at")
+    @classmethod
+    def require_aware_timestamps(cls, value: datetime | None) -> datetime | None:
+        if value is not None and value.tzinfo is None:
+            raise ValueError("summary timestamps must include a timezone")
+        return value
 
 
 class SavedSummary(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    id: str
+    id: str = Field(min_length=1, max_length=100)
     revision: str
-    section_id: str
+    section_id: str = Field(min_length=1, max_length=100)
     section_title: str
     content: str
     model: str
-    created_at: str
-    policy_sha256: str
-    prompt_version: str
-    source_sha256: str
-    sources: list[SummarySource]
-    context_limit: int
-    think: bool | str | None
+    created_at: datetime
+    policy_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    prompt_version: Literal[SUMMARY_PROMPT_VERSION]
+    source_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    sources: list[SummarySource] = Field(min_length=1)
+    context_limit: int = Field(ge=1024, le=MAX_CONTEXT_LIMIT)
+    think: bool | Literal["low", "medium", "high"] | None
+
+    @field_validator("created_at")
+    @classmethod
+    def require_aware_timestamp(cls, value: datetime) -> datetime:
+        if value.tzinfo is None:
+            raise ValueError("summary timestamp must include a timezone")
+        return value
 
 
 class SummaryPromptMessage(TypedDict):

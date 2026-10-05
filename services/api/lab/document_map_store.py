@@ -173,11 +173,14 @@ def _validate_snapshot(record: MapSnapshot, *, expected_file_id: str | None) -> 
 
     def validate_summary_state(sections: list[MapSection]) -> None:
         for section in sections:
+            attempt = section.latest_attempt
+            summary = section.last_summary
+            if attempt is None and summary is None:
+                validate_summary_state(section.children)
+                continue
             sources = section_sources(snapshot, section.model_dump(mode="json"))
             digest = source_digest(sources)
             labels = [str(source["label"]) for source in sources]
-            attempt = section.latest_attempt
-            summary = section.last_summary
             if attempt is not None:
                 if (
                     attempt.revision != record.revision
@@ -187,7 +190,10 @@ def _validate_snapshot(record: MapSnapshot, *, expected_file_id: str | None) -> 
                 ):
                     raise CorruptData("Saved section-summary attempt does not match its map revision or source scope.")
                 if attempt.status == "completed":
-                    validate_source_markers(attempt.content, labels)
+                    try:
+                        validate_source_markers(attempt.content, labels)
+                    except InvalidInput as exc:
+                        raise CorruptData("Completed section-summary attempt has invalid source labels.") from exc
                     if summary is None or summary.id != attempt.id or summary.content != attempt.content:
                         raise CorruptData("Completed section-summary attempt is missing its durable summary.")
             if summary is not None:

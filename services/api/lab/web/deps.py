@@ -17,6 +17,14 @@ StructuredParserFn = Callable[..., tuple[dict[str, object], list[IndexedChunk]]]
 RetrieverFn = Callable[..., Awaitable[dict[str, object]]]
 
 
+@dataclass(frozen=True, slots=True)
+class ActiveSummary:
+    topic: str
+    file_id: str
+    revision: str
+    section_id: str
+
+
 @dataclass
 class AppDeps:
     store: Store
@@ -25,6 +33,7 @@ class AppDeps:
     model_generation_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     locks: dict[str, asyncio.Lock] = field(default_factory=dict)
     active_uploads: set[str] = field(default_factory=set)
+    active_document_map_summaries: dict[str, ActiveSummary] = field(default_factory=dict)
     structured_parser: StructuredParserFn | None = None
     retriever: RetrieverFn | None = None
     parser_map: dict[str, ParserFn] | None = None

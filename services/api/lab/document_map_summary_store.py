@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from typing import Literal
 
-from .document_map_store import _current_revision, _read_saved_map, _validated_map
+from pydantic import ValidationError
+
+from .document_map_store import _current_revision, _read_saved_map, _source_record, _validated_map, map_filename
 from .errors import Conflict, CorruptData, NotFound
 from .section_summary import SavedSummary, SummaryAttempt
-from .storage import Store, read_json, write_json
+from .storage import Store, write_json
 
 AttemptStatus = Literal["generating", "completed", "cancelled", "error", "interrupted"]
 
@@ -21,13 +23,16 @@ def write_summary_attempt(
     summary: dict[str, object] | None = None,
 ) -> dict[str, object]:
     """Atomically publish one attempt transition and an optional completed summary."""
-    checked_attempt = SummaryAttempt.model_validate(attempt)
-    path = store.file_path(topic, f"{file_id}.map.json")
+    try:
+        checked_attempt = SummaryAttempt.model_validate(attempt)
+    except ValidationError as exc:
+        raise CorruptData("Section-summary attempt is malformed.") from exc
+    path = store.file_path(topic, map_filename(file_id))
     record = _read_saved_map(store, topic, file_id)
     if record is None:
         raise Conflict("Build the document map before generating a section summary.")
-    source_file = store.file(topic, file_id)
-    revision = _current_revision(file_id, _source_revisions(store, topic, source_file))
+    _, source_revision = _source_record(store, topic, file_id)
+    revision = _current_revision(file_id, source_revision)
     if record["revision"] != revision or checked_attempt.revision != revision:
         raise Conflict("This document map is out of date. Rebuild it before generating a summary.")
     section = _find_section(record["sections"], checked_attempt.section_id)
@@ -44,7 +49,10 @@ def write_summary_attempt(
         raise CorruptData("A finished section-summary attempt must have a finish time.")
     section["latest_attempt"] = checked_attempt.model_dump(mode="json")
     if summary is not None:
-        checked_summary = SavedSummary.model_validate(summary)
+        try:
+            checked_summary = SavedSummary.model_validate(summary)
+        except ValidationError as exc:
+            raise CorruptData("Completed section summary is malformed.") from exc
         if checked_attempt.status != "completed" or checked_summary.id != checked_attempt.id:
             raise CorruptData("Only a completed attempt can publish its matching saved summary.")
         section["last_summary"] = checked_summary.model_dump(mode="json")
@@ -90,7 +98,7 @@ def recover_interrupted_attempts(
         visit(snapshot["sections"])
     if changed:
         validated = _validated_map(record, expected_file_id=file_id)
-        write_json(store.file_path(topic, f"{file_id}.map.json"), validated)
+        write_json(store.file_path(topic, map_filename(file_id)), validated)
     return changed
 
 
@@ -102,18 +110,3 @@ def _find_section(sections: list[dict[str, object]], section_id: str) -> dict[st
         if found is not None:
             return found
     return None
-
-
-def _source_revisions(store: Store, topic: str, file_record: dict[str, object]) -> dict[str, str]:
-    from hashlib import sha256
-
-    from .storage import read_bytes
-
-    original_name = file_record.get("original_name")
-    docling_name = file_record.get("docling_name")
-    if not isinstance(original_name, str) or not isinstance(docling_name, str):
-        raise CorruptData("Ready Docling file is missing source artifact names.")
-    return {
-        "pdf_sha256": sha256(read_bytes(store.file_path(topic, original_name))).hexdigest(),
-        "docling_sha256": sha256(read_bytes(store.file_path(topic, docling_name))).hexdigest(),
-    }

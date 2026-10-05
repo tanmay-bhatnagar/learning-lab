@@ -47,6 +47,13 @@ class ChatInput(BaseModel):
     context_limit: int = Field(default=32768, ge=1024, le=32768)
 
 
+class SectionSummaryInput(BaseModel):
+    revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    model: str = Field(min_length=1, max_length=200)
+    context_limit: int = Field(default=32768, ge=1024, le=32768)
+    think: bool | Literal["low", "medium", "high"] | None = None
+
+
 class RetrievalInput(BaseModel):
     query: str = Field(min_length=1, max_length=20000)
     file_ids: list[str] = Field(default_factory=list, max_length=100)

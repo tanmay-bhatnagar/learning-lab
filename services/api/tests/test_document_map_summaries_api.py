@@ -13,9 +13,10 @@ from tests.fakes import FakeModel
 
 
 class SummaryFakeModel(FakeModel):
-    def __init__(self, output: str = "A synthetic statement [S1]."):
+    def __init__(self, output: str = "A synthetic statement [S1].", behavior: str = "done"):
         super().__init__()
         self.output = output
+        self.behavior = behavior
         self.summary_requests: list[dict[str, object]] = []
 
     def stream_chat(
@@ -43,6 +44,11 @@ class SummaryFakeModel(FakeModel):
             async with generation_lock:
                 yield {"type": "thinking", "text": "checking sources"}
                 yield {"type": "token", "text": self.output}
+                if self.behavior == "error":
+                    yield {"type": "error", "message": "synthetic provider failure"}
+                    return
+                if self.behavior == "eof":
+                    return
                 yield {
                     "type": "done",
                     "context": {"used": 500, "limit": context_limit, "estimated": False},
@@ -125,6 +131,8 @@ def test_summary_stream_uses_fresh_policy_and_complete_source_without_chat_conte
     assert saved["latest_attempt"]["status"] == "completed"
     assert saved["last_summary"]["content"] == "A synthetic statement [S1]."
     assert store.file_path(topic, "paper-1.map.json").exists()
+    assert not client.app.state.deps.locks[topic].locked()
+    assert client.app.state.deps.active_document_map_summaries == {}
 
 
 def test_oversized_full_policy_refuses_without_model_call_or_attempt(tmp_path):
@@ -157,3 +165,90 @@ def test_malformed_source_markers_fail_without_publishing_summary(tmp_path):
     assert saved["latest_attempt"]["status"] == "error"
     assert saved["last_summary"] is None
 
+
+def test_failed_regeneration_preserves_previous_durable_summary(tmp_path):
+    model = SummaryFakeModel()
+    client, _, topic, outline, _ = _client(tmp_path, model=model)
+    section = outline["sections"][0]
+    url = _summary_url(topic, outline["revision"], section["id"])
+    request = {"revision": outline["revision"], "model": "fake", "context_limit": 8192, "think": None}
+    first = _events(client.post(url, json=request))
+    assert first[-1]["type"] == "done"
+    model.output = "New result with no source label."
+
+    failed = _events(client.post(url, json=request))
+    assert failed[-1]["type"] == "error"
+    saved = client.get(f"/api/topics/{topic}/files/paper-1/map").json()["map"]["sections"][0]
+    assert saved["latest_attempt"]["status"] == "error"
+    assert saved["last_summary"]["content"] == "A synthetic statement [S1]."
+
+
+def test_provider_error_and_premature_eof_are_terminal_failures(tmp_path):
+    for behavior in ("error", "eof"):
+        model = SummaryFakeModel(behavior=behavior)
+        client, _, topic, outline, _ = _client(tmp_path, model=model)
+        section = outline["sections"][0]
+        response = client.post(
+            _summary_url(topic, outline["revision"], section["id"]),
+            json={"revision": outline["revision"], "model": "fake", "context_limit": 8192, "think": None},
+        )
+
+        events = _events(response)
+        assert events[-1]["type"] == "error"
+        assert events[-1]["attempt"]["status"] == "error"
+        saved = client.get(f"/api/topics/{topic}/files/paper-1/map").json()["map"]["sections"][0]
+        assert saved["latest_attempt"]["status"] == "error"
+        assert saved["last_summary"] is None
+
+
+def test_terminal_write_failure_never_emits_done_and_releases_topic(tmp_path, monkeypatch):
+    import lab.web.document_map_summaries as summary_routes
+    from lab.errors import CorruptData
+
+    client, _, topic, outline, model = _client(tmp_path)
+    section = outline["sections"][0]
+    write_attempt = summary_routes.write_summary_attempt
+
+    def fail_summary_write(store, write_topic, file_id, attempt, *, summary=None):
+        if summary is not None:
+            raise CorruptData("synthetic durable write failure")
+        return write_attempt(store, write_topic, file_id, attempt)
+
+    monkeypatch.setattr(summary_routes, "write_summary_attempt", fail_summary_write)
+    response = client.post(
+        _summary_url(topic, outline["revision"], section["id"]),
+        json={"revision": outline["revision"], "model": "fake", "context_limit": 8192, "think": None},
+    )
+
+    events = _events(response)
+    assert events[-1]["type"] == "error"
+    assert all(event["type"] != "done" for event in events)
+    state = client.get(f"/api/topics/{topic}/files/paper-1/map").json()["map"]["sections"][0]
+    assert state["latest_attempt"]["status"] == "error"
+    assert state["last_summary"] is None
+    assert not client.app.state.deps.locks[topic].locked()
+    assert client.app.state.deps.active_document_map_summaries == {}
+    assert len(model.summary_requests) == 1
+
+
+def test_map_read_recovers_abandoned_generating_attempt(tmp_path):
+    from lab.document_map_summary_store import write_summary_attempt
+    from lab.section_summary import build_section_summary_plan
+
+    client, store, topic, outline, _ = _client(tmp_path)
+    section = outline["sections"][0]
+    plan = build_section_summary_plan(
+        outline,
+        section["id"],
+        runtime_policy="Synthetic full runtime policy.",
+        model="fake",
+        context_limit=8192,
+        think=None,
+        attempt_id="abandoned-attempt",
+        started_at="2026-10-05T00:00:00+00:00",
+    )
+    write_summary_attempt(store, topic, "paper-1", plan["attempt"])
+
+    recovered = client.get(f"/api/topics/{topic}/files/paper-1/map").json()["map"]["sections"][0]
+    assert recovered["latest_attempt"]["status"] == "interrupted"
+    assert recovered["latest_attempt"]["error"] == "Generation ended before completion. Retry the summary."

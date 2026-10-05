@@ -7,6 +7,7 @@ from docling_core.types.doc import DoclingDocument
 from fastapi.testclient import TestClient
 
 from lab.storage import Store, write_json
+from lab.section_summary import build_section_summary_plan, saved_source_metadata
 from lab.web.app import create_app
 from tests.fakes import FakeModel
 
@@ -87,15 +88,56 @@ def test_nested_map_persists_source_ordered_parent_scope(tmp_path):
     assert section["children"][0]["title"] == "Training"
 
 
+def test_empty_heading_sections_remain_valid_and_map_without_summary_state(tmp_path):
+    client, store, topic, _, file_id = _client(tmp_path)
+    document = DoclingDocument(name="Synthetic paper with empty heading")
+    document.add_heading("")
+    write_json(store.file_path(topic, "paper.docling.json"), document.export_to_dict())
+
+    response = client.post(f"/api/topics/{topic}/files/{file_id}/map")
+    assert response.status_code == 200
+    section = response.json()["map"]["sections"][0]
+    assert section["title"] == "Untitled section"
+    assert section["latest_attempt"] is None
+    assert section["last_summary"] is None
+
+
 def test_map_is_idempotent_preserves_saved_summary_and_stale_rebuild_keeps_history(tmp_path):
     client, store, topic, _, file_id = _client(tmp_path)
     base = f"/api/topics/{topic}/files/{file_id}/map"
     first = client.post(base).json()["map"]
-    first["sections"][0]["last_summary"] = {"text": "Saved section result"}
+    section = first["sections"][0]
+    plan = build_section_summary_plan(
+        first,
+        section["id"],
+        runtime_policy="Synthetic runtime policy.",
+        model="fake",
+        context_limit=8192,
+        think=None,
+        attempt_id="saved-attempt",
+        started_at="2026-10-05T00:00:00+00:00",
+    )
+    attempt = {**plan["attempt"], "status": "completed", "finished_at": "2026-10-05T00:00:01+00:00", "content": "Saved result [S1]."}
+    section["latest_attempt"] = attempt
+    section["last_summary"] = {
+        "id": attempt["id"],
+        "revision": attempt["revision"],
+        "section_id": section["id"],
+        "section_title": section["title"],
+        "content": attempt["content"],
+        "model": "fake",
+        "created_at": attempt["finished_at"],
+        "policy_sha256": attempt["policy_sha256"],
+        "prompt_version": attempt["prompt_version"],
+        "source_sha256": attempt["source_sha256"],
+        "sources": saved_source_metadata(plan["sources"]),
+        "context_limit": attempt["context_limit"],
+        "think": None,
+    }
     write_json(store.file_path(topic, f"{file_id}.map.json"), first)
 
     same = client.post(base).json()["map"]
-    assert same["sections"][0]["last_summary"] == {"text": "Saved section result"}
+    assert same["sections"][0]["last_summary"]["content"] == "Saved result [S1]."
     (store.topic(topic) / "paper.pdf").write_bytes(b"%PDF-1.7 changed source")
     stale = client.get(base).json()
     assert stale["status"] == "stale"
@@ -104,7 +146,7 @@ def test_map_is_idempotent_preserves_saved_summary_and_stale_rebuild_keeps_histo
     rebuilt = client.post(base).json()["map"]
     assert rebuilt["revision"] != first["revision"]
     assert rebuilt["sections"][0]["last_summary"] is None
-    assert rebuilt["history"][0]["sections"][0]["last_summary"] == {"text": "Saved section result"}
+    assert rebuilt["history"][0]["sections"][0]["last_summary"]["content"] == "Saved result [S1]."
 
 
 def test_map_storage_rejects_corrupt_nested_data_and_unknown_versions(tmp_path):
