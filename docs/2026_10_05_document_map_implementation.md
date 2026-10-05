@@ -141,3 +141,7 @@ Twenty-two focused import/summary tests pass. Pure snapshot/identity/metadata fu
 ### Slice 5 independent import review and regression `f30fb38`
 
 Reviewer independently passed 22 focused cases but reproduced impossible saved-snapshot metadata (nonpositive pages, duplicate sources, naive/reversed times, empty body and unknown source markers) and an exact-import acknowledgment despite a changed requested section. Nine failing regressions with seven passing cases preserve this evidence. Standalone snapshot invariants and explicit requested-section matching were selected rather than consulting current map state for historical validation; that preserves legitimate retry after rebuild. These checks validate internal consistency, not semantic accuracy or coordinated-edit authenticity. Writer repairs, reviewer rechecks, and later usage verifies named/default/import/reload flows.
+
+### Slice 5 import repair clearance `ef4df3a`
+
+Sixteen import cases and full backend 341 tests plus 21 subtests pass, with Ruff check/format and engineering checks. Independent reviewer reran 35 import/summary cases and repeated the original corruption/replay probes: all contradictions now fail while exact historical retry remains valid. Backend is cleared within those gates. Frontend hook/decoder/controls, imported-message rendering and real browser/model usage remain pending.
