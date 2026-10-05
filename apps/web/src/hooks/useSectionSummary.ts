@@ -72,6 +72,7 @@ export function useSectionSummary({
   const scopeKey = `${topic}:${fileId}:${activeIdentity.revision}:${sectionId}`;
   const boundaryKey = `${topic}:${fileId}:${activeIdentity.revision}`;
   const priorBoundary = useRef(boundaryKey);
+  const lastScrollTarget = useRef('');
   const identityRef = useRef(activeIdentity);
   identityRef.current = activeIdentity;
   conversationRef.current = conversationId;
@@ -113,9 +114,11 @@ export function useSectionSummary({
   ]);
 
   useEffect(() => {
-    if (!map || !sectionId) return;
+    const target = `${topic}:${fileId}:${sectionId}`;
+    if (!map || !sectionId || lastScrollTarget.current === target) return;
+    lastScrollTarget.current = target;
     document.getElementById('selected-section-summary')?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' });
-  }, [fileId, sectionId, topic]);
+  }, [fileId, map, sectionId, topic]);
 
   useEffect(
     () => () => {
