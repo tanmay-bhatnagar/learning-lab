@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+import asyncio
 
 from docling_core.types.doc import DoclingDocument
 from fastapi.testclient import TestClient
+import pytest
 
+from lab.chat_session import history_messages
 from lab.storage import Store, write_json
 from lab.web.app import create_app
 from tests.test_document_map_summaries_api import SummaryFakeModel
@@ -104,3 +107,135 @@ def test_import_refuses_client_text_and_unknown_conversation(tmp_path):
         client.post(_import_path(topic, "missing-conversation"), json=_body(outline, section_id, summary)).status_code
         == 404
     )
+
+
+def test_named_conversation_import_and_history_projection_keep_metadata_out_of_model_context(tmp_path):
+    client, store, topic, outline, section_id, summary, _ = _client(tmp_path)
+    named = store.create_conversation(topic, "Reading notes")
+    response = client.post(_import_path(topic, named["id"]), json=_body(outline, section_id, summary))
+
+    assert response.status_code == 200
+    default = client.get(f"/api/topics/{topic}/messages").json()["messages"]
+    named_session = client.get(f"/api/topics/{topic}/conversations/{named['id']}/messages").json()
+    assert default == []
+    assert named_session["messages"][0]["summary_import"]["summary_id"] == summary["id"]
+    projected = history_messages(named_session)
+    assert projected == [{"role": "user", "content": named_session["messages"][0]["content"]}]
+    assert "summary_import" not in projected[0]
+
+
+def test_stale_revision_and_incomplete_or_unknown_summary_are_refused(tmp_path):
+    client, store, topic, outline, section_id, summary, _ = _client(tmp_path)
+    (store.topic(topic) / "paper.pdf").write_bytes(b"%PDF-1.7 changed")
+    stale = client.post(_import_path(topic), json=_body(outline, section_id, summary))
+    assert stale.status_code == 409
+
+    rebuilt = client.post(f"/api/topics/{topic}/files/paper-1/map").json()["map"]
+    body = {**_body(rebuilt, rebuilt["sections"][0]["id"], summary), "revision": rebuilt["revision"]}
+    assert client.post(_import_path(topic), json=body).status_code == 404
+
+
+def test_new_summary_revision_imports_as_distinct_snapshot(tmp_path):
+    client, store, topic, outline, section_id, old_summary, model = _client(tmp_path)
+    path = _import_path(topic)
+    assert client.post(path, json=_body(outline, section_id, old_summary)).status_code == 200
+
+    (store.topic(topic) / "paper.pdf").write_bytes(b"%PDF-1.7 new revision")
+    updated_outline = client.post(f"/api/topics/{topic}/files/paper-1/map").json()["map"]
+    updated_section_id = updated_outline["sections"][0]["id"]
+    new_response = client.post(
+        f"/api/topics/{topic}/files/paper-1/map/sections/{updated_section_id}/summary",
+        json={"revision": updated_outline["revision"], "model": "fake", "context_limit": 8192, "think": None},
+    )
+    new_summary = json.loads(new_response.text.splitlines()[-1])["summary"]
+    result = client.post(path, json=_body(updated_outline, updated_section_id, new_summary))
+
+    assert result.status_code == 200
+    assert result.json()["imported"] is True
+    assert len(result.json()["messages"]) == 2
+    assert (
+        result.json()["messages"][0]["summary_import"]["revision"]
+        != result.json()["messages"][1]["summary_import"]["revision"]
+    )
+    assert len(model.summary_requests) == 2
+
+
+def test_concurrent_exact_imports_commit_one_snapshot(tmp_path):
+    import lab.web.summary_imports as summary_import_routes
+    from lab.web.schemas import SummaryImportInput
+
+    client, _, topic, outline, section_id, summary, _ = _client(tmp_path)
+    deps = client.app.state.deps
+    endpoint = summary_import_routes.router(deps).routes[0].endpoint
+    body = SummaryImportInput(**_body(outline, section_id, summary))
+
+    async def concurrent_imports():
+        return await asyncio.gather(endpoint(topic, "default", body), endpoint(topic, "default", body))
+
+    first, second = asyncio.run(concurrent_imports())
+
+    assert sorted([first["imported"], second["imported"]]) == [False, True]
+    session = client.get(f"/api/topics/{topic}/messages").json()
+    assert len(session["messages"]) == 1
+
+
+def test_malformed_saved_import_metadata_fails_on_session_read(tmp_path):
+    client, store, topic, outline, section_id, summary, _ = _client(tmp_path)
+    response = client.post(_import_path(topic), json=_body(outline, section_id, summary))
+    assert response.status_code == 200
+    session = store.session(topic)
+    session["messages"][0]["summary_import"]["sources"][0]["pages"] = [-1]
+    store.save_session(topic, session)
+
+    assert client.get(f"/api/topics/{topic}/messages").status_code == 500
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "negative_page",
+        "duplicate_label",
+        "duplicate_unit",
+        "naive_timestamp",
+        "reversed_timestamp",
+        "empty_body",
+        "unknown_label",
+    ],
+)
+def test_malformed_immutable_snapshot_is_rejected_on_read(tmp_path, mutation):
+    client, store, topic, outline, section_id, summary, _ = _client(tmp_path)
+    response = client.post(_import_path(topic), json=_body(outline, section_id, summary))
+    assert response.status_code == 200
+    session = store.session(topic)
+    message = session["messages"][0]
+    metadata = message["summary_import"]
+    if mutation == "negative_page":
+        metadata["sources"][0]["pages"] = [-1, 0]
+    elif mutation == "duplicate_label":
+        metadata["sources"] = [metadata["sources"][0], {**metadata["sources"][0], "unit_id": "other-unit"}]
+    elif mutation == "duplicate_unit":
+        metadata["sources"] = [metadata["sources"][0], {**metadata["sources"][0], "label": "S2"}]
+    elif mutation == "naive_timestamp":
+        metadata["imported_at"] = "2026-10-05T12:00:00"
+    elif mutation == "reversed_timestamp":
+        metadata["imported_at"] = "2020-01-01T00:00:00+00:00"
+    elif mutation == "empty_body":
+        message["content"] = (
+            f"Saved section summary — {metadata['section_title']}\nGenerated summary, not verbatim PDF text.\n\n"
+        )
+    else:
+        message["content"] += " Fabricated claim [S999]."
+    store.save_session(topic, session)
+
+    assert client.get(f"/api/topics/{topic}/messages").status_code == 500
+
+
+def test_idempotent_retry_must_match_original_section_identity(tmp_path):
+    client, _, topic, outline, section_id, summary, _ = _client(tmp_path)
+    body = _body(outline, section_id, summary)
+    first = client.post(_import_path(topic), json=body)
+    assert first.status_code == 200
+
+    retry = client.post(_import_path(topic), json={**body, "section_id": "another-section"})
+
+    assert retry.status_code == 409
