@@ -43,7 +43,7 @@ export function sectionSummaryState(identity: SummaryIdentity, section: MapSecti
     ...identity,
     attempt,
     summary,
-    content: attempt?.status === 'generating' ? attempt.content : (summary?.content ?? ''),
+    content: attempt && attempt.status !== 'completed' ? attempt.content : '',
     thinking: '',
     error: attempt?.status === 'error' || attempt?.status === 'cancelled' ? (attempt.error ?? '') : '',
   };

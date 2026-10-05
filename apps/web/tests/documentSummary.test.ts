@@ -4,6 +4,7 @@ import {
   savedSummarySchema,
   summaryImportResponseSchema,
   streamDocumentSummary,
+  type SummaryAttempt,
   type SummaryStreamEvent,
 } from '../src/api/documentMap';
 import { foldSummaryEvent, sectionSummaryState } from '../src/state/documentMap';
@@ -148,14 +149,14 @@ describe('document summary wire contract', () => {
     const initial = sectionSummaryState(scope, section);
     const invalidStart = {
       ...started,
-      attempt: { ...started.attempt, status: 'completed' as const },
+      attempt: { ...(started.attempt as SummaryAttempt), status: 'completed' as const },
     } as SummaryStreamEvent;
     expect(foldSummaryEvent(initial, invalidStart, scope)).toBe(initial);
 
     const active = foldSummaryEvent(initial, started, scope);
     const invalidDone = {
       ...done,
-      attempt: { ...done.attempt, revision: 'b'.repeat(64), section_id: 'other-section' },
+      attempt: { ...(done.attempt as SummaryAttempt), revision: 'b'.repeat(64), section_id: 'other-section' },
     } as SummaryStreamEvent;
     expect(foldSummaryEvent(active, invalidDone, scope)).toBe(active);
 
@@ -163,7 +164,12 @@ describe('document summary wire contract', () => {
       type: 'error' as const,
       attempt_id: started.attempt_id,
       message: 'synthetic failure',
-      attempt: { ...started.attempt, status: 'error' as const, revision: 'b'.repeat(64), section_id: 'other-section' },
+      attempt: {
+        ...(started.attempt as SummaryAttempt),
+        status: 'error' as const,
+        revision: 'b'.repeat(64),
+        section_id: 'other-section',
+      },
     } as SummaryStreamEvent;
     expect(foldSummaryEvent(active, invalidError, scope)).toBe(active);
   });
@@ -171,15 +177,24 @@ describe('document summary wire contract', () => {
   test('restores failed attempt text separately from a prior saved summary', () => {
     const section = { ...mapFixture.build_response.map.sections[0], id: contract.summary.section_id };
     const savedSummary = savedSummarySchema.parse(contract.summary);
-    const scope = { topic: 'topic-a', fileId: 'synthetic-paper', revision: savedSummary.revision, sectionId: section.id };
+    const scope = {
+      topic: 'topic-a',
+      fileId: 'synthetic-paper',
+      revision: savedSummary.revision,
+      sectionId: section.id,
+    };
     const failedAttempt = {
-      ...contract.summary_events[0].attempt,
+      ...(contract.summary_events[0] as Extract<SummaryStreamEvent, { type: 'started' }>).attempt,
       status: 'error' as const,
       content: 'partial generated text',
       finished_at: '2026-10-05T07:53:00Z',
       error: 'synthetic failure',
     };
-    const withPrior = sectionSummaryState(scope, { ...section, latest_attempt: failedAttempt, last_summary: savedSummary });
+    const withPrior = sectionSummaryState(scope, {
+      ...section,
+      latest_attempt: failedAttempt,
+      last_summary: savedSummary,
+    });
     const withoutPrior = sectionSummaryState(scope, { ...section, latest_attempt: failedAttempt });
     expect(withPrior.summary?.content).toBe(savedSummary.content);
     expect(withPrior.content).toBe('partial generated text');

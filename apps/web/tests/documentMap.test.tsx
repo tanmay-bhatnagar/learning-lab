@@ -98,7 +98,7 @@ function installMapApi(
         },
       ];
       latestSummary = summary;
-      latestAttempt = events[2].attempt;
+      latestAttempt = events[2].attempt as Record<string, unknown>;
       if (options.deferSummary) {
         let finish: (() => void) | null = null;
         const done = new Promise<void>((resolve) => {
@@ -290,8 +290,13 @@ describe('document map navigation', () => {
     await user.click(screen.getByRole('button', { name: /Attached files/i }));
     await user.click(screen.getByRole('button', { name: 'Map' }));
     expect(screen.getByRole('button', { name: /Stop summary/i })).toBeInTheDocument();
+    expect(
+      screen
+        .getAllByRole('button', { name: /Select for summary/i })
+        .every((button) => (button as HTMLButtonElement).disabled),
+    ).toBe(true);
     resolveSummary();
-    expect(await screen.findByText('A synthetic statement [S1].')).toBeInTheDocument();
+    expect(await screen.findByText('Saved summary')).toBeInTheDocument();
   });
 
   test('stale outline offers explicit rebuild and displays original page links', async () => {

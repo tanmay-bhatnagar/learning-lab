@@ -280,7 +280,7 @@ export function useSectionSummary({
     section: section as MapSection | null,
     view: currentView,
     running: activeScope.startsWith(`${topic}:${fileId}:${activeIdentity.revision}:`),
-    importing: activity === 'importSummary',
+    importing: activity === 'importingSummary',
     notice,
     selectSection,
     generate,

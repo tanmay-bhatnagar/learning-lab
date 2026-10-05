@@ -35,12 +35,14 @@ function SectionTree({
   topic,
   fileId,
   selectedSectionId,
+  selectionDisabled,
   onSelectSection,
 }: {
   sections: MapSection[];
   topic: string;
   fileId: string;
   selectedSectionId: string;
+  selectionDisabled: boolean;
   onSelectSection: (id: string) => void;
 }) {
   return (
@@ -57,7 +59,7 @@ function SectionTree({
             <div className="map-section-preview">
               <p>{section.text || 'No direct preview text was extracted.'}</p>
               <small>Direct extracted text. A generated summary covers this section and its nested sections.</small>
-              <button className="text-button" onClick={() => onSelectSection(section.id)}>
+              <button className="text-button" disabled={selectionDisabled} onClick={() => onSelectSection(section.id)}>
                 {selectedSectionId === section.id ? 'Selected for summary' : 'Select for summary'}
               </button>
               {section.pages.length > 0 && (
@@ -76,6 +78,7 @@ function SectionTree({
                 topic={topic}
                 fileId={fileId}
                 selectedSectionId={selectedSectionId}
+                selectionDisabled={selectionDisabled}
                 onSelectSection={onSelectSection}
               />
             )}
@@ -206,6 +209,7 @@ export function DocumentMapPanel({
                   topic={topic}
                   fileId={fileId}
                   selectedSectionId={selectedSectionId}
+                  selectionDisabled={summaryRunning}
                   onSelectSection={onSelectSection}
                 />
               ) : (
@@ -291,7 +295,7 @@ function SectionSummaryCard({
   topic: string;
   fileId: string;
   units: DocumentMap['units'];
-  pageCount?: number;
+  pageCount?: number | null;
   onGenerate: () => void;
   onStop: () => void;
   onAdd: () => void;
