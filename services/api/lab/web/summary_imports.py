@@ -27,6 +27,7 @@ def router(deps: AppDeps) -> APIRouter:
                 conversation_id,
                 file_id=body.file_id,
                 revision=body.revision,
+                section_id=body.section_id,
                 summary_id=body.summary_id,
             )
             if prior is not None:

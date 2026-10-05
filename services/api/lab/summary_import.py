@@ -7,11 +7,11 @@ import json
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from lab.contracts import Message, Session
-from lab.errors import CorruptData
-from lab.section_summary import SummarySource
+from lab.errors import Conflict, CorruptData, InvalidInput
+from lab.section_summary import SummarySource, validate_source_markers
 
 
 class SummaryImportMetadata(BaseModel):
@@ -28,6 +28,32 @@ class SummaryImportMetadata(BaseModel):
     summary_created_at: datetime
     imported_at: datetime
     sources: list[SummarySource] = Field(min_length=1)
+
+    @field_validator("summary_created_at", "imported_at")
+    @classmethod
+    def require_aware_timestamps(cls, value: datetime) -> datetime:
+        if value.tzinfo is None:
+            raise ValueError("summary-import timestamps must include a timezone")
+        return value
+
+    @field_validator("sources")
+    @classmethod
+    def require_unique_valid_sources(cls, sources: list[SummarySource]) -> list[SummarySource]:
+        labels = [source.label for source in sources]
+        units = [source.unit_id for source in sources]
+        if len(labels) != len(set(labels)) or len(units) != len(set(units)):
+            raise ValueError("summary-import source labels and unit IDs must be unique")
+        if any(page <= 0 for source in sources for page in source.pages):
+            raise ValueError("summary-import source pages must be positive")
+        if any(len(source.pages) != len(set(source.pages)) for source in sources):
+            raise ValueError("summary-import source pages must be unique")
+        return sources
+
+    @model_validator(mode="after")
+    def require_import_after_summary(self) -> SummaryImportMetadata:
+        if self.imported_at < self.summary_created_at:
+            raise ValueError("summary import cannot predate its saved summary")
+        return self
 
 
 def deterministic_import_id(conversation_id: str, file_id: str, revision: str, summary_id: str) -> str:
@@ -86,13 +112,19 @@ def validated_summary_imports(session: Session, conversation_id: str) -> list[Me
             raise CorruptData("Saved summary-import metadata is malformed.") from exc
         expected_id = deterministic_import_id(conversation_id, metadata.file_id, metadata.revision, metadata.summary_id)
         prefix = f"Saved section summary — {metadata.section_title}\nGenerated summary, not verbatim PDF text.\n\n"
+        content = message.get("content")
         if (
             message.get("role") != "user"
-            or not isinstance(message.get("content"), str)
-            or not message["content"].startswith(prefix)
+            or not isinstance(content, str)
+            or not content.startswith(prefix)
             or metadata.import_id != expected_id
+            or not content[len(prefix) :].strip()
         ):
             raise CorruptData("Saved summary-import message does not match its immutable metadata.")
+        try:
+            validate_source_markers(content[len(prefix) :], [source.label for source in metadata.sources])
+        except InvalidInput as exc:
+            raise CorruptData("Saved summary-import text has invalid source labels.") from exc
         imports.append(message)
     return imports
 
@@ -103,11 +135,12 @@ def existing_summary_import(
     *,
     file_id: str,
     revision: str,
+    section_id: str,
     summary_id: str,
 ) -> Message | None:
     """Find an exact prior import, validating all import metadata encountered in the session."""
     target = deterministic_import_id(conversation_id, file_id, revision, summary_id)
-    return next(
+    message = next(
         (
             message
             for message in validated_summary_imports(session, conversation_id)
@@ -115,6 +148,9 @@ def existing_summary_import(
         ),
         None,
     )
+    if message is not None and message["summary_import"]["section_id"] != section_id:
+        raise Conflict("This saved summary was previously imported from a different section.")
+    return message
 
 
 def find_section_summary(map_record: dict[str, object], section_id: str) -> dict[str, object] | None:
