@@ -152,7 +152,9 @@ def test_plan_uses_full_section_sources_and_fresh_source_separated_context():
     assert "untrusted generated summary" not in message_text
     assert "must not enter the new request" not in message_text
     assert "Fresh complete runtime policy text." in message_text
-    assert "runtime policy is not evidence" in message_text
+    assert "Runtime policy is not evidence" in message_text
+    assert "Never infer skill or unfamiliarity from a degree" in message_text
+    assert "Do not list libraries" in message_text
     assert "CV_TEXT" not in message_text
     assert message_text.count(CV_TEXT) == 1
     assert CV_TEXT in plan["messages"][1]["content"]
@@ -194,6 +196,31 @@ def test_missing_or_empty_cv_blocks_prerequisite_planning(selected_cv, cv_text):
             "section-root",
             selected_cv=selected_cv,
             cv_text=cv_text,
+            runtime_policy="Policy.",
+            goal=None,
+            model="local-model",
+            context_limit=8192,
+            think=None,
+            assessment_id="assessment-1",
+            attempt_id="attempt-1",
+            started_at="2026-10-12T00:00:00+00:00",
+        )
+
+
+@pytest.mark.parametrize(
+    "cv",
+    [
+        {**_cv_record(), "status": "error"},
+        {**_cv_record(), "revoked": True},
+    ],
+)
+def test_ineligible_or_revoked_cv_blocks_planning(cv):
+    with pytest.raises(InvalidInput, match="CV"):
+        build_prerequisite_plan(
+            _map_record(),
+            "section-root",
+            selected_cv=cv,
+            cv_text=CV_TEXT,
             runtime_policy="Policy.",
             goal=None,
             model="local-model",
@@ -278,6 +305,24 @@ def test_zero_requirements_is_a_valid_model_answer():
 @pytest.mark.parametrize(
     "response",
     [
+        {"overview": "o" * 1201, "requirements": []},
+        {"overview": "ok", "requirements": [_model_response()["requirements"][0]] * 9},
+        " " * 24_001,
+    ],
+)
+def test_response_size_and_item_limits_are_enforced(response):
+    with pytest.raises(InvalidInput):
+        validate_prerequisite_response(
+            response,
+            sources=_plan()["sources"],
+            cv_text=CV_TEXT,
+            assessment_id="assessment-1",
+        )
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
         "not JSON",
         {"overview": "ok", "requirements": [], "action": "create a course"},
         {
@@ -298,9 +343,7 @@ def test_zero_requirements_is_a_valid_model_answer():
         },
         {
             "overview": "ok",
-            "requirements": [
-                {**_model_response()["requirements"][0], "cv_quote": "Python basics were not in the CV."}
-            ],
+            "requirements": [{**_model_response()["requirements"][0], "cv_quote": "Python basics were not in the CV."}],
         },
         {
             "overview": "ok",
@@ -326,9 +369,7 @@ def test_zero_requirements_is_a_valid_model_answer():
         },
         {
             "overview": "ok",
-            "requirements": [
-                {**_model_response()["requirements"][0], "source_labels": []}
-            ],
+            "requirements": [{**_model_response()["requirements"][0], "source_labels": []}],
         },
     ],
 )
