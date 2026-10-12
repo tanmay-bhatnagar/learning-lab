@@ -135,9 +135,9 @@ def test_cv_background_can_be_qualified_without_becoming_a_study_citation():
     )
     system = plan["prompt"][0]["content"].casefold()
 
-    assert "runtime policy is not factual evidence" in system
+    assert "runtime policy governs behavior, not facts" in system
     assert "cv background may be attributed as cv-derived" in system
-    assert "cv background is not indexed study evidence or a paper/page citation" in system
+    assert "it is not indexed study evidence or a paper/page citation" in system
     assert "profile familiarity is self-reported, not proof of mastery" in system
 
 
