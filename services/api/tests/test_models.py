@@ -151,6 +151,7 @@ class ModelTests(unittest.IsolatedAsyncioTestCase):
         ]
         self.assertEqual(events[-1]["type"], "done")
         self.assertEqual(self.requests[-1][1]["format"], schema)
+        self.assertEqual(self.requests[-1][1]["options"]["temperature"], 0)
         self.assertEqual(self.requests[-1][1]["messages"][0]["content"], "Return the requirements.")
 
     async def test_structured_schema_stream_errors_stay_visible(self):
