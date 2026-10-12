@@ -74,6 +74,8 @@ All development roles follow the entire [Product development and exploration pol
 
 ## Learning delivery and decision records
 
+Use feature folders under `docs/reports/`, with names of at most three words, and maintain the [report index](reports/README.md). Preserve dates and separate versus consolidated report provenance. Raw/local reports stay ignored under `.local/verification/reports/<feature>/`; record where their original verification artifacts remain.
+
 Learning delivery is part of checkpoint acceptance, not an optional final summary. Follow [the mandatory policy](../AGENTS.md#mandatory-learning-delivery-and-decision-records). For consequential choices, explain the evidence-based decision path in the user walkthrough and a dated feature/design note under `docs/`; raw agent reports or commit bodies alone are insufficient. The coordinator owns synthesis, attribution and read-only worker records. Reuse the existing feature note rather than creating duplicate reports for every checkpoint.
 
 A concise paragraph or table should cover:

@@ -46,7 +46,7 @@ Section summaries use the same selected Ollama model with a fresh request contai
 
 Open this Code repository as the Codex project. [AGENTS.md](AGENTS.md) is the self-contained development policy, including research, alternatives, shared learning, proportional exploration, and reversible implementation for every agent. Six development procedures live in `.agents/skills/`; role configurations live in `.codex/agents/`. The browser backend loads the separate parent learning-agent policy before every chat request, regardless of the selected model. See [runtime policy loading](docs/runtime_policy.md) for configuration, failure behavior, and verification.
 
-Consequential development checkpoints include a user walkthrough and durable dated decision notes explaining evidence, actual alternatives, rationale, tradeoffs, and remaining uncertainty. See [learning delivery](docs/engineering.md#learning-delivery-and-decision-records).
+Consequential development checkpoints include a user walkthrough and durable dated decision notes explaining evidence, actual alternatives, rationale, tradeoffs, and remaining uncertainty. Browse the [feature report index](docs/reports/README.md) for saved research, design and implementation records. See [learning delivery](docs/engineering.md#learning-delivery-and-decision-records).
 
 ## Repository layout
 

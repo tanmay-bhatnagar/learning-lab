@@ -32,7 +32,7 @@ The ingestion and retrieval refactor and the subsequent functional-design refact
 - Retrieval and citation integration tests exercised the actual model adapter with mocked HTTP. Independent review caught a whitespace regression in oversized code chunks; it was fixed and re-reviewed without further findings.
 - The current Docling path has targeted unit and synthetic integration tests. This snapshot does not certify real-model answer quality, the full browser chat journey after the latest changes, difficult PDF extraction quality, or the full parser corpus.
 
-Sources: [architecture](../../docs/architecture.md), [API contract](../../docs/API.md), [validation history](../../docs/reports/foundation/validation.md), and the committed tests. Local bug-fix evidence is retained under ignored `.local/reviews/` and `.local/verification/`; it contains no personal topic data.
+Sources: [architecture](../../docs/architecture.md), [API contract](../../docs/API.md), [validation history](../../docs/reports/foundation/validation.md), and the committed tests. Local bug-fix reports are organized under ignored `.local/verification/reports/`; related run artifacts remain under `.local/verification/`; it contains no personal topic data.
 
 3 October follow-up: the multi-conversation increment is implemented and validated locally on `dev`, with changes uncommitted at that time. Those changes were committed locally on `dev` on 5 October in scoped checkpoints. See [resume validation](../../docs/reports/conversations/2026_10_03_resume_validation.md) for the skills inventory, two repaired frontend races, full passing gates, real Docling/local-model citation run, persistence choices, and coverage limits.
 
