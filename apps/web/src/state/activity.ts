@@ -4,12 +4,25 @@ export type Activity =
   | 'uploading'
   | 'savingSettings'
   | 'savingGoal'
+  | 'savingProficiency'
+  | 'managingCv'
+  | 'refreshingProficiency'
   | 'buildingMap'
   | 'generatingSummary'
   | 'importingSummary';
 
 export type ActivityOp =
-  'send' | 'upload' | 'saveSettings' | 'saveGoal' | 'selectModel' | 'buildMap' | 'generateSummary' | 'importSummary';
+  | 'send'
+  | 'upload'
+  | 'saveSettings'
+  | 'saveGoal'
+  | 'saveProficiency'
+  | 'manageCv'
+  | 'refreshProficiency'
+  | 'selectModel'
+  | 'buildMap'
+  | 'generateSummary'
+  | 'importSummary';
 
 export function activityForOp(op: ActivityOp): Activity {
   switch (op) {
@@ -22,6 +35,12 @@ export function activityForOp(op: ActivityOp): Activity {
       return 'savingSettings';
     case 'saveGoal':
       return 'savingGoal';
+    case 'saveProficiency':
+      return 'savingProficiency';
+    case 'manageCv':
+      return 'managingCv';
+    case 'refreshProficiency':
+      return 'refreshingProficiency';
     case 'buildMap':
       return 'buildingMap';
     case 'generateSummary':

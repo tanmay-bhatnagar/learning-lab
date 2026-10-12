@@ -22,7 +22,10 @@ export type MyProficiencyPanelProps = {
   saving: boolean;
   error: string;
   notice: string;
+  preferencesAvailable: boolean;
+  refreshing: boolean;
   onSave: (drafts: ProficiencyDraft[]) => void | Promise<void>;
+  onRefresh: () => void | Promise<void>;
   onUploadCv: (file: File, filename: string) => void | Promise<void>;
   onSelectCv: (id: string) => void;
   onRevokeCv: (id: string) => void;
@@ -78,7 +81,10 @@ export function MyProficiencyPanel({
   saving,
   error,
   notice,
+  preferencesAvailable = true,
+  refreshing,
   onSave,
+  onRefresh,
   onUploadCv,
   onSelectCv,
   onRevokeCv,
@@ -231,6 +237,9 @@ export function MyProficiencyPanel({
       <section className="proficiency-section" aria-labelledby="manual-title">
         <h3 id="manual-title">Your skills and concepts</h3>
         <p className="muted">Add or correct entries at any time. You do not need a CV to manage your proficiency.</p>
+        <button className="text-button" type="button" disabled={busy || refreshing} onClick={onRefresh}>
+          {refreshing ? 'Reloading…' : 'Reload proficiency'}
+        </button>
         <div className="proficiency-add-row">
           <label className="proficiency-field">
             Add a skill or concept
@@ -379,12 +388,16 @@ export function MyProficiencyPanel({
             type="checkbox"
             aria-label="Always include CV in this conversation"
             checked={includeCv}
-            disabled={busy || (!includeCv && !canIncludeCv)}
+            disabled={!preferencesAvailable || busy || (!includeCv && !canIncludeCv)}
             onChange={(event) => onIncludeCvChange(event.target.checked)}
           />
           Always include CV in this conversation
         </label>
-        <p className="muted">Complete extracted text is included on every applicable turn and uses more context.</p>
+        {preferencesAvailable ? (
+          <p className="muted">Complete extracted text is included on every applicable turn and uses more context.</p>
+        ) : (
+          <p className="muted">This option is not available until conversation preferences are connected.</p>
+        )}
       </section>
 
       {(panelError || error) && (

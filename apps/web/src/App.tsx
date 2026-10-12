@@ -13,6 +13,7 @@ import { Sidebar } from './components/Sidebar';
 import { TopBar } from './components/TopBar';
 import { WorkspaceTabs } from './components/WorkspaceTabs';
 import { DocumentMapPanel } from './components/DocumentMapPanel';
+import { MyProficiencyPanel } from './components/MyProficiencyPanel';
 
 export function App() {
   const state = useAppState();
@@ -93,6 +94,10 @@ export function App() {
     stop,
     upload,
     refreshFiles,
+    proficiency,
+    proficiencyEntries,
+    proficiencyCvs,
+    runProfileActivity,
   } = state;
 
   const {
@@ -133,6 +138,7 @@ export function App() {
           setPage('settings');
           void refreshModels();
         }}
+        onProficiency={() => setPage('proficiency')}
         onNewTopic={() => setNewTopic('')}
         onSelectTopic={(id) => {
           selectTopic(id);
@@ -143,7 +149,13 @@ export function App() {
       <main>
         <TopBar
           sidebar={sidebar}
-          pageTitle={page === 'settings' ? 'Settings' : activeTopic?.name || 'Welcome'}
+          pageTitle={
+            page === 'settings'
+              ? 'Settings'
+              : page === 'proficiency'
+                ? 'My proficiency'
+                : activeTopic?.name || 'Welcome'
+          }
           onToggleSidebar={() => setSidebar(!sidebar)}
         />
         <ErrorBanner
@@ -161,6 +173,38 @@ export function App() {
             <LoaderCircle className="spin" />
             <p>Connecting to your workspace…</p>
           </div>
+        ) : page === 'proficiency' ? (
+          <MyProficiencyPanel
+            requirements={[]}
+            entries={proficiencyEntries}
+            cvs={proficiencyCvs}
+            selectedCvId={proficiency.profile?.active_cv_id ?? ''}
+            activeConversationId={session.conversation}
+            includeCv={false}
+            preferencesAvailable={false}
+            busy={busy}
+            saving={state.activity === 'savingProficiency'}
+            refreshing={state.activity === 'refreshingProficiency'}
+            error={[proficiency.profileError, proficiency.proficiencyError, proficiency.cvError]
+              .map((message) =>
+                message && proficiencyCvs.some((cv) => cv.extractionDiagnostics.some((item) => message.includes(item)))
+                  ? null
+                  : message,
+              )
+              .filter(Boolean)
+              .join(' ')}
+            notice=""
+            onSave={(drafts) => runProfileActivity('saveProficiency', () => proficiency.saveProficiency(drafts))}
+            onRefresh={() => runProfileActivity('refreshProficiency', () => proficiency.refreshProficiency())}
+            onUploadCv={(file, filename) => runProfileActivity('manageCv', () => proficiency.uploadCv(file, filename))}
+            onSelectCv={(id) => {
+              void runProfileActivity('manageCv', () => proficiency.selectCv(id)).catch(() => undefined);
+            }}
+            onRevokeCv={(id) => {
+              void runProfileActivity('manageCv', () => proficiency.revokeCv(id)).catch(() => undefined);
+            }}
+            onIncludeCvChange={() => undefined}
+          />
         ) : page === 'settings' ? (
           <SettingsPage
             draft={draft}

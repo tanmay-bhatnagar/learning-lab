@@ -15,10 +15,13 @@ import { useTopicSession } from './useTopicSession';
 import { useUploads } from './useUploads';
 import { useDocumentMap } from './useDocumentMap';
 import { useSectionSummary } from './useSectionSummary';
+import { useProficiency } from './useProficiency';
+import { cvOriginalUrl } from '../api/profile';
+import { adaptProficiencyEntries } from '../domain/proficiency';
 import { useSidebarDefault, useTopicSidebarClose, useWindowDragGuards } from './useWindowEffects';
 
 export function useAppState() {
-  const [page, setPage] = useState<'workspace' | 'settings'>('workspace');
+  const [page, setPage] = useState<'workspace' | 'settings' | 'proficiency'>('workspace');
   const [tab, setTab] = useState<'chat' | 'files' | 'trace' | 'map'>('chat');
   const [newTopic, setNewTopic] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -30,6 +33,7 @@ export function useAppState() {
 
   const activityApi = useActivity();
   const bootstrap = useBootstrap();
+  const proficiency = useProficiency(bootstrap.parser);
   const topicRef = useRef(bootstrap.topic);
   useEffect(() => {
     topicRef.current = bootstrap.topic;
@@ -167,6 +171,28 @@ export function useAppState() {
     session.reload();
   };
 
+  const runProfileActivity = async (
+    operation: 'saveProficiency' | 'manageCv' | 'refreshProficiency',
+    action: () => Promise<void>,
+  ) => {
+    if (!activityApi.begin(operation)) throw new Error('Finish the current action before changing My proficiency.');
+    try {
+      await action();
+    } finally {
+      activityApi.end();
+    }
+  };
+
+  const proficiencyEntries = adaptProficiencyEntries(proficiency.proficiency?.entries ?? []);
+  const proficiencyCvs = (proficiency.profile?.cvs ?? []).map((cv) => ({
+    id: cv.id,
+    originalName: cv.original_name,
+    originalUrl: cvOriginalUrl(cv.id),
+    status: cv.revoked ? ('revoked' as const) : cv.status,
+    extractedText: proficiency.cvText?.id === cv.id ? proficiency.cvText.text : '',
+    extractionDiagnostics: cv.extraction_diagnostics.findings,
+  }));
+
   return {
     page,
     setPage,
@@ -189,6 +215,10 @@ export function useAppState() {
     session,
     documentMap,
     sectionSummary,
+    proficiency,
+    proficiencyEntries,
+    proficiencyCvs,
+    runProfileActivity,
     chat,
     uploads,
     settingsUi,

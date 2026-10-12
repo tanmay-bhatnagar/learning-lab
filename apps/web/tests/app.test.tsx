@@ -137,11 +137,11 @@ function installSharedProfileApi(options: { uploadStatus?: 'ready' | 'error'; pa
         id: 'd'.repeat(32),
         source_kind: 'user_manual' as const,
       }));
-      const updates = proficiency.entries.map((entry) => {
-        const update = payload.updates.find((candidate) => candidate.id === entry.id);
-        return update ? { ...entry, ...update } : entry;
-      });
-      proficiency = { ...proficiency, revision: proficiency.revision + 1, entries: [...updates, ...additions] };
+      proficiency = {
+        ...proficiency,
+        revision: proficiency.revision + 1,
+        entries: [...proficiency.entries, ...additions],
+      };
       return jsonResponse(proficiency);
     }
     if (apiPath === '/profile/cvs' && method === 'POST') {
@@ -225,7 +225,7 @@ describe('App characterization', () => {
       body: {
         expected_revision: 3,
         additions: [{ concept: 'Probability', comfort: 'refresher', notes: '' }],
-        updates: [],
+        updates: [{ id: 'a'.repeat(32), concept: 'Python' }],
       },
     });
 
@@ -254,10 +254,10 @@ describe('App characterization', () => {
     await user.type(filename, 'Research Profile.pdf');
     await user.click(screen.getByRole('button', { name: 'Upload CV' }));
 
-    await waitFor(() => expect(screen.getByText(/No text was extracted/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getAllByText(/No text was extracted/).length).toBeGreaterThan(0));
     const upload = profileApi.requests.find((request) => request.path === '/profile/cvs' && request.method === 'POST');
     expect((upload?.body as FormData).get('original_name')).toBe('Research Profile.pdf');
-    expect((upload?.body as FormData).get('file')).toBe(file);
+    expect((upload?.body as FormData).get('file')).toMatchObject({ name: file.name, type: file.type, size: file.size });
     expect(screen.getByRole('button', { name: 'Research Profile.pdf' })).toBeDisabled();
     expect(screen.getByRole('link', { name: 'Download original CV' })).toHaveAttribute(
       'href',

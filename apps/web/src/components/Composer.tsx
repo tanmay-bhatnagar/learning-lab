@@ -85,7 +85,7 @@ export function Composer({
             !activeModel ? 'Choose an available model in settings to start…' : 'Ask anything about this topic…'
           }
           value={input}
-          disabled={sending || !topicReady}
+          disabled={busy || !topicReady}
           onChange={(e) => onInputChange(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {

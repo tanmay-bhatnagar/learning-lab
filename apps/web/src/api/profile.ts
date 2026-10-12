@@ -4,7 +4,12 @@ import { api, json } from './client';
 const recordIdSchema = z.string().regex(/^[a-f0-9]{32}$/);
 const sha256Schema = z.string().regex(/^[a-f0-9]{64}$/);
 const comfortSchema = z.enum(['comfortable', 'refresher', 'new', 'unsure']);
-const parserSchema = z.enum(['docling', 'markitdown', 'anydoc']);
+export const parserSchema = z.enum(['docling', 'markitdown', 'anydoc']);
+export type ProfileParser = z.infer<typeof parserSchema>;
+
+export function parseProfileParser(parser: string): ProfileParser {
+  return parserSchema.parse(parser);
+}
 
 export const cvDiagnosticsSchema = z
   .object({
@@ -165,12 +170,7 @@ export function saveProficiencyBatch(input: ProficiencyBatchInput, signal?: Abor
   });
 }
 
-export function uploadCv(
-  file: File,
-  originalName: string,
-  parser: z.infer<typeof parserSchema> = 'docling',
-  signal?: AbortSignal,
-) {
+export function uploadCv(file: File, originalName: string, parser: ProfileParser = 'docling', signal?: AbortSignal) {
   const body = new FormData();
   body.append('file', file, file.name);
   body.append('original_name', originalName);

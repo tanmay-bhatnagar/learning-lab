@@ -3,6 +3,7 @@ import {
   getCvText,
   getProfile,
   getProficiency,
+  parseProfileParser,
   revokeCv as revokeCvRequest,
   saveProficiencyBatch,
   selectCv as selectCvRequest,
@@ -14,8 +15,6 @@ import {
   type ProficiencyState,
 } from '../api/profile';
 import type { ComfortLevel, ProficiencyDraft } from '../domain/proficiency';
-
-type Parser = 'docling' | 'markitdown' | 'anydoc';
 
 type UseProficiencyResult = {
   profile: Profile | null;
@@ -92,7 +91,7 @@ function buildBatch(
   return { additions, updates };
 }
 
-export function useProficiency(parser: Parser): UseProficiencyResult {
+export function useProficiency(parser: string): UseProficiencyResult {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [proficiency, setProficiency] = useState<ProficiencyState | null>(null);
   const [cvText, setCvText] = useState<CvText | null>(null);
@@ -238,11 +237,12 @@ export function useProficiency(parser: Parser): UseProficiencyResult {
       setCvOperationError(null);
       setCvPreviewError(null);
       try {
-        const result = await uploadCvRequest(file, originalName, parser, controller.signal);
+        const result = await uploadCvRequest(file, originalName, parseProfileParser(parser), controller.signal);
         if (!mountedRef.current || controller.signal.aborted || revision !== cvMutationRevision.current) return;
-        const diagnostics = result.extraction_diagnostics.findings.join(' ');
         if (result.status === 'error') {
-          setCvOperationError(diagnostics || 'The CV was saved, but text extraction failed.');
+          setCvOperationError(
+            result.extraction_diagnostics.findings.join(' ') || 'The CV was saved, but text extraction failed.',
+          );
         }
         await refreshProfile(controller.signal);
       } catch (error) {

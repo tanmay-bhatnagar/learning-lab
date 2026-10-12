@@ -1,14 +1,15 @@
-import { BookOpen, FlaskConical, MessageSquare, Plus, Settings2 } from 'lucide-react';
+import { BookOpen, FlaskConical, MessageSquare, Plus, Settings2, UserRound } from 'lucide-react';
 import type { Topic } from '../api/types';
 
 type Props = {
-  page: 'workspace' | 'settings';
+  page: 'workspace' | 'settings' | 'proficiency';
   topics: Topic[];
   topic: string;
   loading: boolean;
   busy: boolean;
   onWorkspace: () => void;
   onSettings: () => void;
+  onProficiency: () => void;
   onNewTopic: () => void;
   onSelectTopic: (id: string) => void;
 };
@@ -21,6 +22,7 @@ export function Sidebar({
   busy,
   onWorkspace,
   onSettings,
+  onProficiency,
   onNewTopic,
   onSelectTopic,
 }: Props) {
@@ -45,6 +47,9 @@ export function Sidebar({
         <span className="eyebrow">YOUR WORKSPACE</span>
         <button className={`nav-item ${page === 'workspace' ? 'active' : ''}`} onClick={onWorkspace}>
           <MessageSquare size={18} /> Conversations
+        </button>
+        <button className={`nav-item ${page === 'proficiency' ? 'active' : ''}`} onClick={onProficiency}>
+          <UserRound size={18} /> My proficiency
         </button>
       </div>
       <div className="topic-heading">

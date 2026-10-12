@@ -6,6 +6,9 @@ describe('activity', () => {
     expect(activityForOp('send')).toBe('sending');
     expect(activityForOp('selectModel')).toBe('savingSettings');
     expect(activityForOp('saveGoal')).toBe('savingGoal');
+    expect(activityForOp('saveProficiency')).toBe('savingProficiency');
+    expect(activityForOp('manageCv')).toBe('managingCv');
+    expect(activityForOp('refreshProficiency')).toBe('refreshingProficiency');
   });
 
   test('isBusy matches original busy flag semantics (excludes topic creation)', () => {
@@ -14,6 +17,9 @@ describe('activity', () => {
     expect(isBusy('uploading')).toBe(true);
     expect(isBusy('savingSettings')).toBe(true);
     expect(isBusy('savingGoal')).toBe(true);
+    expect(isBusy('savingProficiency')).toBe(true);
+    expect(isBusy('managingCv')).toBe(true);
+    expect(isBusy('refreshingProficiency')).toBe(true);
   });
 
   test('uploadBlockedReason mirrors upload guard messages', () => {
