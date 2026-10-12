@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import copy
 import multiprocessing
+import os
 from concurrent.futures import ProcessPoolExecutor
 
 import pytest
 
 from lab.conversation_profile import (
-    DEFAULT_CONVERSATION_PROFILE,
+    empty_conversation_profile,
     get_conversation_profile,
     save_conversation_profile,
 )
@@ -34,7 +35,7 @@ def _focus():
 def _save_from_process(root, settings, topic, conversation_id, include_cv):
     store = Store(root, settings)
     try:
-        return save_conversation_profile(
+        save_conversation_profile(
             store,
             topic,
             conversation_id,
@@ -42,7 +43,8 @@ def _save_from_process(root, settings, topic, conversation_id, include_cv):
             expected_revision=0,
         )
     except Conflict:
-        return "conflict"
+        return os.getpid(), "conflict"
+    return os.getpid(), "success"
 
 
 def test_missing_preferences_default_without_rewriting_saved_session(tmp_path):
@@ -53,9 +55,9 @@ def test_missing_preferences_default_without_rewriting_saved_session(tmp_path):
 
     state = get_conversation_profile(store, topic, "default")
 
-    assert state == DEFAULT_CONVERSATION_PROFILE
+    assert state == empty_conversation_profile()
     assert read_bytes(session_path) == original_session
-    assert not store.file_path(topic, "conversation_profile_default.json").exists()
+    assert not store.file_path(topic, "learner_context_default.json").exists()
 
 
 def test_preferences_are_isolated_by_topic_and_existing_conversation(tmp_path):
@@ -77,7 +79,7 @@ def test_preferences_are_isolated_by_topic_and_existing_conversation(tmp_path):
     assert saved == {"schema_version": 1, "revision": 1, "include_cv": True, "active_assessment": None}
     assert updates == {"include_cv": True}
     assert read_bytes(session_path) == original_session
-    assert get_conversation_profile(store, second_topic, "default") == DEFAULT_CONVERSATION_PROFILE
+    assert get_conversation_profile(store, second_topic, "default") == empty_conversation_profile()
     with pytest.raises(NotFound):
         get_conversation_profile(store, topic, "missing-chat")
     with pytest.raises(NotFound):
@@ -147,8 +149,9 @@ def test_two_processes_writing_the_same_revision_cannot_both_succeed(tmp_path):
             )
         )
 
-    assert sum(result != "conflict" for result in results) == 1
-    assert sum(result == "conflict" for result in results) == 1
+    assert sum(result == "success" for _, result in results) == 1
+    assert sum(result == "conflict" for _, result in results) == 1
+    assert len({process_id for process_id, _ in results}) == 2
     assert get_conversation_profile(store, topic, conversation_id)["revision"] == 1
 
 
@@ -168,7 +171,7 @@ def test_two_processes_writing_the_same_revision_cannot_both_succeed(tmp_path):
 )
 def test_corrupt_or_unknown_preference_schema_fails_visibly(tmp_path, value):
     store, topic = _store(tmp_path)
-    write_json(store.file_path(topic, "conversation_profile_default.json"), value)
+    write_json(store.file_path(topic, "learner_context_default.json"), value)
 
     with pytest.raises(CorruptData):
         get_conversation_profile(store, topic, "default")
@@ -185,6 +188,7 @@ def test_invalid_updates_and_invalid_active_focus_are_rejected_without_writes(tm
         {},
         {"active_assessment": {**_focus(), "file_id": "../outside"}},
         {"active_assessment": {**_focus(), "map_revision": "not-a-revision"}},
+        {"active_assessment": {**_focus(), "goal": None}},
     ]
 
     for updates in invalid_updates:
@@ -196,4 +200,4 @@ def test_invalid_updates_and_invalid_active_focus_are_rejected_without_writes(tm
                 updates=updates,
                 expected_revision=0,
             )
-        assert get_conversation_profile(store, topic, conversation_id) == DEFAULT_CONVERSATION_PROFILE
+        assert get_conversation_profile(store, topic, conversation_id) == empty_conversation_profile()
