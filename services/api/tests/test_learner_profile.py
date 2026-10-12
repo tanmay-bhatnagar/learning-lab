@@ -314,6 +314,86 @@ def test_update_manual_proficiency_uses_explicit_timestamp():
     assert state["entries"][0]["comfort"] == "new"
 
 
+def test_discard_unpublished_pending_preserves_answers_notes_manual_and_other_assessments():
+    from lab.learner_profile import discard_unpublished_pending
+
+    state = {
+        **empty_proficiency(),
+        "revision": 1,
+        "entries": [
+            {
+                "id": f"{index:032x}",
+                "concept": f"Concept {index}",
+                "comfort": comfort,
+                "notes": notes,
+                "source_kind": "model_requirement",
+                "topic_id": topic_id,
+                "assessment_id": assessment_id,
+                "requirement_id": f"req-{index:024x}",
+                "updated_at": "2026-10-13T00:00:00+00:00",
+            }
+            for index, comfort, notes, topic_id, assessment_id in (
+                (1, None, "", "topic-one", "assessment-one"),
+                (2, "comfortable", "answered by learner", "topic-one", "assessment-one"),
+                (3, None, "learner note", "topic-one", "assessment-one"),
+                (4, None, "", "topic-two", "assessment-two"),
+            )
+        ],
+    }
+    original = {**state, "entries": [dict(entry) for entry in state["entries"]]}
+
+    cleaned = discard_unpublished_pending(state, topic_id="topic-one", assessment_id="assessment-one")
+
+    assert [entry["id"] for entry in cleaned["entries"]] == ["0" * 31 + "2", "0" * 31 + "3", "0" * 31 + "4"]
+    assert cleaned["revision"] == 2
+    assert state == original
+
+
+def test_profile_store_cleanup_frees_capacity_atomically_and_is_idempotent(tmp_path):
+    store = ProfileStore(tmp_path)
+    seeded = empty_proficiency()
+    seeded["entries"] = [
+        {
+            "id": f"{index + 1:032x}",
+            "concept": f"Existing {index}",
+            "comfort": None,
+            "notes": "",
+            "source_kind": "model_requirement",
+            "topic_id": "topic-old",
+            "assessment_id": "old-assessment",
+            "requirement_id": f"req-{index:024x}",
+            "updated_at": "2026-10-13T00:00:00+00:00",
+        }
+        for index in range(498)
+    ]
+    seeded["entries"].extend(
+        [
+            {
+                "id": f"{index:032x}",
+                "concept": f"Unpublished {index}",
+                "comfort": None,
+                "notes": "",
+                "source_kind": "model_requirement",
+                "topic_id": "topic-one",
+                "assessment_id": "unpublished-assessment",
+                "requirement_id": f"req-{index:024x}",
+                "updated_at": "2026-10-13T00:00:00+00:00",
+            }
+            for index in (900, 901)
+        ]
+    )
+    from lab.storage import write_json
+
+    write_json(store.proficiency_path, seeded)
+
+    cleaned = store.discard_unpublished_pending(topic_id="topic-one", assessment_id="unpublished-assessment")
+    repeated = store.discard_unpublished_pending(topic_id="topic-one", assessment_id="unpublished-assessment")
+
+    assert len(cleaned["entries"]) == 498
+    assert cleaned["revision"] == 1
+    assert repeated == cleaned
+
+
 def _active_cv(store, filename="Selected CV.pdf", text="Synthetic CV evidence"):
     record = store.register_cv(filename, filename.encode(), text, {"status": "ready"})
     profile = store.read_profile()

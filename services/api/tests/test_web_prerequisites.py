@@ -373,8 +373,31 @@ def test_final_result_write_failure_leaves_registered_rows_inactive_and_keeps_ol
     assert failed["type"] == "error"
     assert [item["assessment_id"] for item in state["assessments"]] == [first["assessment_id"]]
     assert state["current_assessment"]["assessment_id"] == first["assessment_id"]
-    assert len([item for item in profile["entries"] if item["source_kind"] == "model_requirement"]) == 4
+    assert len([item for item in profile["entries"] if item["source_kind"] == "model_requirement"]) == 2
     assert all(item["comfort"] is None for item in profile["entries"])
+
+
+def test_ambiguous_completed_write_is_recognized_as_published_success(tmp_path, monkeypatch):
+    import lab.web.prerequisites as prerequisite_routes
+
+    client, topic, outline, _model, _cv = _prepared(tmp_path)
+    section = outline["sections"][0]
+    write_attempt = prerequisite_routes.write_prerequisite_attempt
+
+    def publish_then_raise(*args, assessment=None, **kwargs):
+        result = write_attempt(*args, assessment=assessment, **kwargs)
+        if assessment is not None:
+            raise OSError("synthetic post-publish acknowledgement loss")
+        return result
+
+    monkeypatch.setattr(prerequisite_routes, "write_prerequisite_attempt", publish_then_raise)
+    events = _events(client.post(_generate_url(topic, section["id"]), json=_request(outline)))
+    state = client.get(f"/api/topics/{topic}/files/paper-1/prerequisites?section_id={section['id']}").json()
+
+    assert events[-1]["type"] == "done"
+    assert state["attempts"][-1]["status"] == "completed"
+    assert state["current_assessment"] is not None
+    assert len(client.app.state.deps.profile_store.read_proficiency()["entries"]) == 2
 
 
 @pytest.mark.parametrize("phase", ["before_stream", "during_stream"])
