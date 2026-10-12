@@ -8,6 +8,7 @@ import {
   profileSchema,
   proficiencySchema,
   revokeCv,
+  saveProficiencyBatch,
   selectCv,
   updateProficiencyEntry,
   uploadCv,
@@ -177,6 +178,29 @@ describe('profile API functions', () => {
       ['/api/profile/proficiency/entries', 'POST'],
       [`/api/profile/proficiency/entries/${manualId}`, 'PATCH'],
     ]);
+  });
+
+  test('saves manual additions and requirement answers in one revision-checked PUT', async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      expect(init?.method).toBe('PUT');
+      expect(JSON.parse(String(init?.body))).toEqual({
+        expected_revision: 7,
+        additions: [{ concept: 'Probability', comfort: 'refresher', notes: 'Synthetic note.' }],
+        updates: [{ id: requirementId, comfort: null }],
+      });
+      return Response.json(proficiencyPayload);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      saveProficiencyBatch({
+        expected_revision: 7,
+        additions: [{ concept: 'Probability', comfort: 'refresher', notes: 'Synthetic note.' }],
+        updates: [{ id: requirementId, comfort: null }],
+      }),
+    ).resolves.toEqual(proficiencyPayload);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith('/api/profile/proficiency', expect.any(Object));
   });
 
   test('exposes malformed successful payloads instead of returning unvalidated state', async () => {
