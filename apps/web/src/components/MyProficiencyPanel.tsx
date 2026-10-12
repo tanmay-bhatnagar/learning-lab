@@ -98,8 +98,10 @@ export function MyProficiencyPanel({
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [filename, setFilename] = useState('');
   const [uploadPending, setUploadPending] = useState(false);
+  const [savePending, setSavePending] = useState(false);
   const [panelError, setPanelError] = useState('');
   const fileInput = useRef<HTMLInputElement>(null);
+  const saveInFlight = useRef(false);
   const visibleDrafts = mergeRefreshedDrafts(
     drafts,
     initialDrafts,
@@ -110,6 +112,7 @@ export function MyProficiencyPanel({
   const canUpload = !!selectedFile && !!filename.trim() && !busy && !uploadPending;
 
   const updateDraft = (id: string, update: Partial<ProficiencyDraft>) => {
+    if (busy || saving || savePending || saveInFlight.current) return;
     setDrafts((current) => {
       const source = current.find((draft) => draft.id === id) ?? visibleDrafts.find((draft) => draft.id === id);
       if (!source) return current;
@@ -118,6 +121,7 @@ export function MyProficiencyPanel({
   };
 
   const addSkill = () => {
+    if (busy || saving || savePending || saveInFlight.current) return;
     const concept = newConcept.trim();
     if (!concept || hasDuplicateConcept(concept, visibleDrafts)) {
       setPanelError(
@@ -138,12 +142,18 @@ export function MyProficiencyPanel({
   };
 
   const submitProficiency = async () => {
-    if (busy || saving) return;
+    if (busy || saving || savePending || saveInFlight.current) return;
+    saveInFlight.current = true;
+    setSavePending(true);
     setPanelError('');
     try {
       await onSave(visibleDrafts);
+      setDrafts([]);
     } catch (cause) {
       setPanelError(cause instanceof Error ? cause.message : 'Could not save proficiency. Your edits are still here.');
+    } finally {
+      saveInFlight.current = false;
+      setSavePending(false);
     }
   };
 
@@ -198,7 +208,7 @@ export function MyProficiencyPanel({
                 <ComfortSelect
                   concept={requirement.concept}
                   value={draft.comfort}
-                  disabled={busy || saving}
+                  disabled={busy || saving || savePending}
                   onChange={(comfort) => updateDraft(draft.id, { comfort })}
                 />
                 <label className="proficiency-field">
@@ -206,7 +216,7 @@ export function MyProficiencyPanel({
                   <textarea
                     aria-label={`Notes for ${requirement.concept}`}
                     value={draft.note}
-                    disabled={busy || saving}
+                    disabled={busy || saving || savePending}
                     onChange={(event) => updateDraft(draft.id, { note: event.target.value })}
                     rows={2}
                   />
@@ -224,9 +234,13 @@ export function MyProficiencyPanel({
         <div className="proficiency-add-row">
           <label className="proficiency-field">
             Add a skill or concept
-            <input value={newConcept} onChange={(event) => setNewConcept(event.target.value)} />
+            <input
+              value={newConcept}
+              disabled={busy || saving || savePending}
+              onChange={(event) => setNewConcept(event.target.value)}
+            />
           </label>
-          <button className="secondary" type="button" onClick={addSkill} disabled={busy || saving}>
+          <button className="secondary" type="button" onClick={addSkill} disabled={busy || saving || savePending}>
             Add skill
           </button>
         </div>
@@ -240,7 +254,7 @@ export function MyProficiencyPanel({
                   <input
                     aria-label={`Skill or concept ${draft.concept}`}
                     value={draft.concept}
-                    disabled={busy || saving}
+                    disabled={busy || saving || savePending}
                     onChange={(event) => updateDraft(draft.id, { concept: event.target.value })}
                   />
                 </label>
@@ -249,7 +263,7 @@ export function MyProficiencyPanel({
               <ComfortSelect
                 concept={draft.concept}
                 value={draft.comfort}
-                disabled={busy || saving}
+                disabled={busy || saving || savePending}
                 onChange={(comfort) => updateDraft(draft.id, { comfort })}
               />
               <label className="proficiency-field">
@@ -257,15 +271,15 @@ export function MyProficiencyPanel({
                 <textarea
                   aria-label={`Notes for ${draft.concept}`}
                   value={draft.note}
-                  disabled={busy || saving}
+                  disabled={busy || saving || savePending}
                   onChange={(event) => updateDraft(draft.id, { note: event.target.value })}
                   rows={2}
                 />
               </label>
             </article>
           ))}
-        <button className="primary" type="button" disabled={busy || saving} onClick={submitProficiency}>
-          {saving ? 'Saving…' : 'Save proficiency'}
+        <button className="primary" type="button" disabled={busy || saving || savePending} onClick={submitProficiency}>
+          {saving || savePending ? 'Saving…' : 'Save proficiency'}
         </button>
         {notice && (
           <p className="success" role="status">
