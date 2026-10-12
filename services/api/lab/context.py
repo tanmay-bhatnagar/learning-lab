@@ -35,7 +35,11 @@ def estimate_messages(messages: list[dict]) -> int:
 
 
 def prepare_context_details(
-    messages: list[dict], context_limit: int = DEFAULT_CONTEXT_LIMIT, *, atomic_indices: set[int] | None = None
+    messages: list[dict],
+    context_limit: int = DEFAULT_CONTEXT_LIMIT,
+    *,
+    atomic_indices: set[int] | None = None,
+    protected_indices: set[int] | None = None,
 ) -> tuple[list[dict], dict[str, int | bool], int, tuple[int, ...]]:
     """Return a bounded prompt, metadata, reserve, and original indices retained.
 
@@ -45,15 +49,19 @@ def prepare_context_details(
     preceding the latest user retains the largest suffix that fits alongside the
     full question. Only then may the question itself be shortened from the front.
     System messages are retained in their original positions and never shortened.
-    Indices in ``atomic_indices`` are removed whole instead of shortened.
+    Indices in ``atomic_indices`` are removed whole instead of shortened. Indices
+    in ``protected_indices`` remain complete; system messages are protected too.
     ``truncated_messages`` counts each removed or shortened message once.
     """
     atomic = atomic_indices or set()
+    protected = set(protected_indices or ())
     if type(context_limit) is not int or not 256 <= context_limit <= MAX_CONTEXT_LIMIT:
         raise ValueError("context_limit must be an integer between 256 and 32768")
     reserve = response_token_reserve(context_limit)
     budget = context_limit - reserve
     copied = deepcopy(messages)
+    if any(type(index) is not int or not 0 <= index < len(copied) for index in protected | atomic):
+        raise ValueError("Message indices must refer to an input message")
     for message in copied:
         if message.get("role") not in {"system", "user", "assistant", "tool"}:
             raise ValueError("Unsupported message role")
@@ -62,6 +70,7 @@ def prepare_context_details(
     groups = []
     for index, message in enumerate(copied):
         if message["role"] == "system":
+            protected.add(index)
             continue
         if message["role"] == "user" or not groups:
             groups.append([])
@@ -81,7 +90,7 @@ def prepare_context_details(
 
     def shorten(index: int) -> bool:
         """Keep the longest suffix fitting the current selection, if possible."""
-        if index in atomic:
+        if index in atomic or index in protected:
             return False
         original = copied[index].get("content", "")
         copied[index]["content"] = ""
@@ -104,6 +113,8 @@ def prepare_context_details(
     for group in groups:
         if estimate_messages(selected()) <= budget:
             break
+        if any(index in protected for index in group):
+            continue
         if latest_user in group:
             break
         if attachment in group and shorten(attachment):
@@ -112,7 +123,7 @@ def prepare_context_details(
         affected.update(group)
     if estimate_messages(selected()) > budget and latest_user is not None:
         if not shorten(latest_user):
-            raise ValueError("System messages or protected tool group exceed prompt budget")
+            raise ValueError("System messages or protected context exceed prompt budget")
     prompt = selected()
     used = estimate_messages(prompt)
     if used > budget:

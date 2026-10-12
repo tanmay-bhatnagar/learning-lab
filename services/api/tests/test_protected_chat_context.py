@@ -74,6 +74,11 @@ def test_protected_minimum_that_does_not_fit_is_rejected_without_partial_context
 
 def test_chat_prompt_keeps_latest_question_profile_and_complete_cv_separate_and_untrusted():
     kwargs = _prompt_kwargs()
+    kwargs["history"] = [
+        {"role": "user", "content": "old question " * 1000},
+        {"role": "assistant", "content": "old answer " * 1000},
+    ]
+    original = copy.deepcopy(kwargs)
     profile = "Python: user reports comfortable; this is not a mastery guarantee."
     cv_text = "Synthetic CV literal extracted text with unique marker CV-ONLY-734."
 
@@ -84,7 +89,14 @@ def test_chat_prompt_keeps_latest_question_profile_and_complete_cv_separate_and_
         cv_name="Tanmay CV.pdf",
     )
 
-    assert kwargs["history"] == _prompt_kwargs()["history"]
+    repeated_plan = build_chat_prompt(
+        **kwargs,
+        learner_context=profile,
+        cv_text=cv_text,
+        cv_name="Tanmay CV.pdf",
+    )
+    assert kwargs == original
+    assert repeated_plan == plan
     assert plan["prompt"][-1] == {"role": "user", "content": kwargs["question"]}
     user_content = [message["content"] for message in plan["prompt"] if message["role"] == "user"]
     assert any(profile in content for content in user_content)
@@ -92,10 +104,12 @@ def test_chat_prompt_keeps_latest_question_profile_and_complete_cv_separate_and_
     assert plan["prompt"][0]["content"].startswith(SYSTEM_RULES)
     system = plan["prompt"][0]["content"]
     assert "all supplied material belongs" not in system
-    assert "registered shared learner profile" in system
+    assert "registered shared profile/cv are context only" in system.casefold()
     assert cv_text not in system
     assert "CV-ONLY-734" not in system
     assert len([content for content in user_content if "CV-ONLY-734" in content]) == 1
+    assert not any("old question" in content or "old answer" in content for content in user_content)
+    assert plan["prompt_context"]["truncated_messages"] >= 2
     assert plan["citations"] == kwargs["citations"]
     assert plan["retained_indices"] == tuple(sorted(plan["retained_indices"]))
     assert plan["prompt_context"]["cv_text_tokens"] == len(cv_text.encode("utf-8"))
