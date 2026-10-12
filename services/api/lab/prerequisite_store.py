@@ -117,12 +117,21 @@ def validate_prerequisite_state(value: object, *, topic_id: str, file_id: str) -
             or attempt["status"] != "completed"
             or attempt["assessment_id"] != assessment["assessment_id"]
             or attempt["finished_at"] != assessment["finished_at"]
-            or _assessment_identity(assessment) != _attempt_identity(attempt)
+            or _assessment_identity(assessment) != _attempt_source_identity(attempt)
         ):
             raise CorruptData("Saved prerequisite assessment does not match its completed attempt.")
     for attempt in attempts:
-        if attempt["status"] == "completed" and attempt["assessment_id"] not in assessment_ids:
-            raise CorruptData("Completed prerequisite attempt has no published assessment.")
+        if attempt["status"] == "completed":
+            linked = next(
+                (
+                    item
+                    for item in assessments
+                    if item["attempt_id"] == attempt["id"] and item["assessment_id"] == attempt["assessment_id"]
+                ),
+                None,
+            )
+            if linked is None:
+                raise CorruptData("Completed prerequisite attempt has no exactly linked assessment.")
     return {
         "schema_version": PREREQUISITE_SCHEMA_VERSION,
         "topic_id": expected_topic,
@@ -160,7 +169,7 @@ def write_prerequisite_attempt(
         checked_assessment["attempt_id"] != checked_attempt["id"]
         or checked_assessment["assessment_id"] != checked_attempt["assessment_id"]
         or checked_assessment["finished_at"] != checked_attempt["finished_at"]
-        or _assessment_identity(checked_assessment) != _attempt_identity(checked_attempt)
+        or _assessment_identity(checked_assessment) != _attempt_source_identity(checked_attempt)
     ):
         raise CorruptData("Prerequisite assessment identity does not match its attempt.")
 
@@ -321,11 +330,11 @@ def _validate_attempt(value: object, topic_id: str, file_id: str) -> dict[str, A
     if (
         not isinstance(provenance["prompt_version"], str)
         or not provenance["prompt_version"]
-        or not _SHA256.fullmatch(str(provenance["source_sha256"]))
-        or not _SHA256.fullmatch(str(provenance["runtime_policy_sha256"]))
+        or not _is_sha256(provenance["source_sha256"])
+        or not _is_sha256(provenance["runtime_policy_sha256"])
         or not isinstance(provenance["cv_id"], str)
         or not _CV_ID.fullmatch(provenance["cv_id"])
-        or not _SHA256.fullmatch(str(provenance["cv_text_sha256"]))
+        or not _is_sha256(provenance["cv_text_sha256"])
         or not isinstance(provenance["goal"], str)
         or not isinstance(provenance["model"], str)
         or not provenance["model"]
@@ -438,6 +447,24 @@ def _validate_requirements(requirements: list[object], source_labels: set[str], 
 def _attempt_identity(attempt: dict[str, Any]) -> tuple[object, ...]:
     provenance = attempt["provenance"]
     return (
+        attempt["id"],
+        attempt["assessment_id"],
+        attempt["topic_id"],
+        attempt["file_id"],
+        attempt["map_revision"],
+        attempt["section_id"],
+        attempt["started_at"],
+        provenance["prompt_version"],
+        provenance["goal"],
+        provenance["model"],
+        provenance["runtime_policy_sha256"],
+        _attempt_source_identity(attempt),
+    )
+
+
+def _attempt_source_identity(attempt: dict[str, Any]) -> tuple[object, ...]:
+    provenance = attempt["provenance"]
+    return (
         attempt["assessment_id"],
         attempt["topic_id"],
         attempt["file_id"],
@@ -492,3 +519,7 @@ def _validate_timestamp(value: object) -> None:
         raise CorruptData("Prerequisite attempt timestamp is malformed.") from None
     if parsed.tzinfo is None or parsed.utcoffset() is None:
         raise CorruptData("Prerequisite timestamps must include a timezone.")
+
+
+def _is_sha256(value: object) -> bool:
+    return isinstance(value, str) and _SHA256.fullmatch(value) is not None
