@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 
 import pytest
@@ -68,10 +69,11 @@ def _assessment(*, attempt_id="attempt-1", assessment_id="assessment-1"):
         "section_id": "section-1",
         "cv_id": CV_ID,
         "cv_text_sha256": CV_HASH,
+        "source_sha256": SOURCE_HASH,
         "overview": "A concise overview.",
         "requirements": [
             {
-                "requirement_id": "req-one",
+                "requirement_id": "req-" + hashlib.sha256(b"assessment-1:0").hexdigest()[:24],
                 "concept": "Basic programming",
                 "reason": "The section describes an algorithm.",
                 "question": "Are you already comfortable with Basic programming?",
@@ -95,6 +97,13 @@ def _write(store, topic_id, file_id, attempt, assessment=None):
     return write_prerequisite_attempt(store, topic_id, file_id, attempt, assessment=assessment)
 
 
+def _complete(store, topic_id, file_id, attempt=None, assessment=None):
+    attempt = attempt or _attempt()
+    _write(store, topic_id, file_id, attempt)
+    completed = {**attempt, "status": "completed", "finished_at": "2026-10-13T10:01:00+00:00"}
+    return _write(store, topic_id, file_id, completed, assessment or _assessment())
+
+
 def test_missing_state_is_empty_and_topic_local(scoped_store):
     store, topic_id, file_id = scoped_store
 
@@ -113,36 +122,45 @@ def test_missing_state_is_empty_and_topic_local(scoped_store):
 
 def test_completed_assessment_is_immutable_and_excludes_prompt_material(scoped_store):
     store, topic_id, file_id = scoped_store
-    attempt = _attempt(status="completed", finished_at="2026-10-13T10:01:00+00:00")
+    attempt = _attempt()
     assessment = _assessment()
 
-    _write(store, topic_id, file_id, attempt, assessment)
-    replay = _write(store, topic_id, file_id, attempt, assessment)
+    completed = {**attempt, "status": "completed", "finished_at": "2026-10-13T10:01:00+00:00"}
+    _complete(store, topic_id, file_id, attempt, assessment)
+    replay = _write(store, topic_id, file_id, completed, assessment)
 
-    assert replay["assessments"] == [assessment]
+    expected = {**assessment, "topic_id": topic_id}
+    assert replay["assessments"] == [expected]
     raw = (store.topic(topic_id) / f"{file_id}.prerequisites.json").read_text(encoding="utf-8")
     assert "complete-cv" not in raw
     assert "runtime-policy" not in raw
     assert '"messages"' not in raw
     with pytest.raises(Conflict):
-        _write(store, topic_id, file_id, attempt, {**assessment, "overview": "changed"})
+        _write(
+            store,
+            topic_id,
+            file_id,
+            {**attempt, "status": "completed", "finished_at": assessment["finished_at"]},
+            {**assessment, "overview": "changed"},
+        )
 
 
 def test_new_failed_attempt_does_not_replace_last_completed_assessment(scoped_store):
     store, topic_id, file_id = scoped_store
-    completed = _attempt(status="completed", finished_at="2026-10-13T10:01:00+00:00")
-    _write(store, topic_id, file_id, completed, _assessment())
+    completed = _attempt()
+    _complete(store, topic_id, file_id, completed, _assessment())
 
     failed = _attempt(
         attempt_id="attempt-2",
         assessment_id="assessment-2",
-        status="error",
-        finished_at="2026-10-13T10:03:00+00:00",
     )
+    _write(store, topic_id, file_id, failed)
+    failed = {**failed, "status": "error", "finished_at": "2026-10-13T10:03:00+00:00"}
     failed["diagnostic"] = "Synthetic model error"
     state = _write(store, topic_id, file_id, failed)
 
     assert len(state["assessments"]) == 1
+    expected = {**_assessment(), "topic_id": topic_id}
     assert (
         current_assessment(
             state,
@@ -151,7 +169,7 @@ def test_new_failed_attempt_does_not_replace_last_completed_assessment(scoped_st
             cv_id=CV_ID,
             cv_text_sha256=CV_HASH,
         )
-        == _assessment()
+        == expected
     )
 
 
@@ -163,27 +181,44 @@ def test_generating_attempt_cannot_publish_partial_assessment(scoped_store):
     assert get_prerequisite_state(store, topic_id, file_id)["assessments"] == []
 
 
+@pytest.mark.parametrize(
+    "change",
+    [
+        lambda assessment: assessment["requirements"][0].update(question="Tell me about programming."),
+        lambda assessment: assessment["requirements"][0].update(source_labels=["S2"]),
+        lambda assessment: assessment["requirements"][0].update(comfort="comfortable"),
+        lambda assessment: assessment.update(cv_text="literal CV must not be stored"),
+        lambda assessment: assessment.update(runtime_policy="policy text must not be stored"),
+    ],
+    ids=["question", "source-reference", "comfort", "full-cv", "policy"],
+)
+def test_invalid_or_prompt_bearing_assessment_cannot_be_published(scoped_store, change):
+    store, topic_id, file_id = scoped_store
+    attempt = _attempt()
+    _write(store, topic_id, file_id, attempt)
+    completed = {**attempt, "status": "completed", "finished_at": "2026-10-13T10:01:00+00:00"}
+    assessment = _assessment()
+    change(assessment)
+
+    with pytest.raises(CorruptData):
+        _write(store, topic_id, file_id, completed, assessment)
+    state = get_prerequisite_state(store, topic_id, file_id)
+    assert state["assessments"] == []
+    assert state["attempts"][0]["status"] == "generating"
+
+
 def test_current_assessment_requires_exact_scope_and_source_version(scoped_store):
     store, topic_id, file_id = scoped_store
-    _write(
-        store,
-        topic_id,
-        file_id,
-        _attempt(status="completed", finished_at="2026-10-13T10:01:00+00:00"),
-        _assessment(),
-    )
+    _complete(store, topic_id, file_id)
     state = get_prerequisite_state(store, topic_id, file_id)
 
-    assert (
-        current_assessment(
-            state,
-            map_revision=MAP_REVISION,
-            section_id="section-1",
-            cv_id=CV_ID,
-            cv_text_sha256=CV_HASH,
-        )
-        == _assessment()
-    )
+    assert current_assessment(
+        state,
+        map_revision=MAP_REVISION,
+        section_id="section-1",
+        cv_id=CV_ID,
+        cv_text_sha256=CV_HASH,
+    ) == {**_assessment(), "topic_id": topic_id}
     assert (
         current_assessment(
             state,
@@ -194,6 +229,16 @@ def test_current_assessment_requires_exact_scope_and_source_version(scoped_store
         )
         is None
     )
+
+
+def test_zero_requirements_is_a_valid_completed_assessment(scoped_store):
+    store, topic_id, file_id = scoped_store
+    assessment = _assessment()
+    assessment["requirements"] = []
+
+    state = _complete(store, topic_id, file_id, assessment=assessment)
+
+    assert state["assessments"][0]["requirements"] == []
     assert (
         current_assessment(
             state,
