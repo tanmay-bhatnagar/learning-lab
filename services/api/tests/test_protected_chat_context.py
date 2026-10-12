@@ -126,6 +126,21 @@ def test_cv_is_omitted_when_disabled_and_defaults_keep_existing_prompt_shape():
     assert "learner_context_tokens" not in default_plan["prompt_context"]
 
 
+def test_cv_background_can_be_qualified_without_becoming_a_study_citation():
+    plan = build_chat_prompt(
+        **_prompt_kwargs(),
+        learner_context="Python: user reports comfortable.",
+        cv_text="Synthetic CV background.",
+        cv_name="CV.pdf",
+    )
+    system = plan["prompt"][0]["content"].casefold()
+
+    assert "runtime policy is not factual evidence" in system
+    assert "cv background may be attributed as cv-derived" in system
+    assert "cv background is not indexed study evidence or a paper/page citation" in system
+    assert "profile familiarity is self-reported, not proof of mastery" in system
+
+
 def test_empty_cv_cannot_silently_turn_off_an_explicit_cv_request():
     with pytest.raises(InvalidInput, match="cv_text"):
         build_chat_prompt(**_prompt_kwargs(), cv_text="", cv_name="CV.pdf")
