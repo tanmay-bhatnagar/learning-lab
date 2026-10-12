@@ -321,3 +321,64 @@ def test_duplicate_attempt_id_with_different_content_is_conflict(scoped_store):
 
     with pytest.raises(Conflict):
         _write(store, topic_id, file_id, {**original, "section_id": "different-section"})
+
+
+@pytest.mark.parametrize(
+    ("field", "replacement"),
+    [
+        ("started_at", "2026-10-13T10:00:01+00:00"),
+        ("goal", "A different goal"),
+        ("model", "another-local-model"),
+        ("runtime_policy_sha256", "f" * 64),
+        ("prompt_version", "another-prompt"),
+    ],
+)
+def test_finishing_attempt_preserves_original_request_metadata(scoped_store, field, replacement):
+    store, topic_id, file_id = scoped_store
+    generating = _attempt()
+    _write(store, topic_id, file_id, generating)
+    completed = {
+        **generating,
+        "status": "completed",
+        "finished_at": "2026-10-13T10:01:00+00:00",
+    }
+    if field in {"started_at"}:
+        completed[field] = replacement
+    else:
+        completed["provenance"] = {**generating["provenance"], field: replacement}
+
+    with pytest.raises(Conflict):
+        _write(store, topic_id, file_id, completed, _assessment())
+
+
+def test_corrupt_second_completed_attempt_requires_its_exact_result_link(scoped_store):
+    store, topic_id, file_id = scoped_store
+    _complete(store, topic_id, file_id)
+    path = store.topic(topic_id) / f"{file_id}.prerequisites.json"
+    state = json.loads(path.read_text(encoding="utf-8"))
+    second_attempt = _attempt(attempt_id="attempt-2")
+    second_attempt.update(
+        {
+            "topic_id": topic_id,
+            "status": "completed",
+            "finished_at": "2026-10-13T10:01:00+00:00",
+        }
+    )
+    state["attempts"].append(second_attempt)
+    write_json(path, state)
+
+    with pytest.raises(CorruptData):
+        get_prerequisite_state(store, topic_id, file_id)
+
+
+@pytest.mark.parametrize("hash_field", ["source_sha256", "runtime_policy_sha256", "cv_text_sha256"])
+def test_corrupt_state_requires_hash_values_to_be_strings(scoped_store, hash_field):
+    store, topic_id, file_id = scoped_store
+    _write(store, topic_id, file_id, _attempt())
+    path = store.topic(topic_id) / f"{file_id}.prerequisites.json"
+    state = json.loads(path.read_text(encoding="utf-8"))
+    state["attempts"][0]["provenance"][hash_field] = int("1" * 64)
+    write_json(path, state)
+
+    with pytest.raises(CorruptData):
+        get_prerequisite_state(store, topic_id, file_id)
