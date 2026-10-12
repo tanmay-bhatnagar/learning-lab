@@ -159,6 +159,7 @@ class ModelGateway(Protocol):
         context_metadata: dict | None = None,
         *,
         generation_lock: asyncio.Lock,
+        response_schema: dict | None = None,
     ) -> AsyncIterator[dict]: ...
 
 

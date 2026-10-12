@@ -127,6 +127,7 @@ class ModelTests(unittest.IsolatedAsyncioTestCase):
             ],
         )
         payload = self.requests[-1][1]
+        self.assertNotIn("format", payload)
         self.assertIs(payload["think"], False)
         self.assertEqual(payload["options"], {"num_ctx": 32768, "num_predict": 2048})
         self.assertEqual(payload["keep_alive"], 0)

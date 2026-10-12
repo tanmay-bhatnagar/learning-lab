@@ -143,6 +143,7 @@ class OllamaGateway:
         context_metadata: dict | None = None,
         *,
         generation_lock: asyncio.Lock,
+        response_schema: dict | None = None,
     ) -> AsyncIterator[dict]:
         try:
             if context_metadata is not None:
@@ -187,6 +188,8 @@ class OllamaGateway:
                         "keep_alive": 0,
                         "options": {"num_ctx": context_limit, "num_predict": prediction},
                     }
+                    if response_schema is not None:
+                        payload["format"] = response_schema
                     if thinking["type"] == "toggle" and type(think) is bool:
                         payload["think"] = think
                     elif thinking["type"] == "levels" and think in thinking["levels"]:
