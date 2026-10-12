@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, test, vi } from 'vitest';
 import { MyProficiencyPanel } from '../src/components/MyProficiencyPanel';
 import type { MyProficiencyPanelProps } from '../src/components/MyProficiencyPanel';
+import { adaptProficiencyEntries, hasDuplicateConcept } from '../src/domain/proficiency';
 
 const baseProps: MyProficiencyPanelProps = {
   requirements: [],
@@ -115,6 +116,58 @@ describe('My proficiency panel', () => {
     );
     expect(screen.getByLabelText('Your comfort with Python')).toHaveValue('unsure');
     expect(screen.getByLabelText('Your comfort with Algebra')).toHaveValue('');
+  });
+
+  test('adapts saved model requirements into requirement drafts instead of manual cards', () => {
+    const entries = adaptProficiencyEntries([
+      {
+        id: 'manual-python',
+        concept: 'Python',
+        comfort: 'new',
+        notes: 'Self-reported.',
+        source_kind: 'user_manual',
+      },
+      {
+        id: 'requirement-python',
+        concept: 'Python',
+        comfort: 'refresher',
+        notes: 'Saved answer.',
+        source_kind: 'model_requirement',
+        topic_id: 'topic-1',
+        assessment_id: 'assessment-1',
+        requirement_id: 'python',
+      },
+    ]);
+
+    expect(entries).toEqual([
+      expect.objectContaining({ id: 'manual-python', concept: 'Python', kind: 'manual', comfort: 'new' }),
+      expect.objectContaining({
+        id: 'requirement-python',
+        concept: 'Python',
+        kind: 'requirement',
+        requirementId: 'python',
+        comfort: 'refresher',
+      }),
+    ]);
+    expect(entries.filter((entry) => entry.kind === 'manual')).toHaveLength(1);
+    expect(hasDuplicateConcept('Python', entries)).toBe(true);
+  });
+
+  test('model requirement names do not count as duplicate manual skills', () => {
+    const requirements = adaptProficiencyEntries([
+      {
+        id: 'requirement-python',
+        concept: 'Python',
+        comfort: null,
+        notes: '',
+        source_kind: 'model_requirement',
+        topic_id: 'topic-1',
+        assessment_id: 'assessment-1',
+        requirement_id: 'python',
+      },
+    ]);
+
+    expect(hasDuplicateConcept('Python', requirements)).toBe(false);
   });
 
   test('uses the exact edited CV filename and waits for explicit upload submission', async () => {
@@ -237,5 +290,33 @@ describe('My proficiency panel', () => {
     expect(toggle).toBeEnabled();
     await user.click(toggle);
     expect(onIncludeCvChange).toHaveBeenCalledWith(false);
+  });
+
+  test('failed CVs show extraction diagnostics and original download but cannot be selected', () => {
+    const onSelectCv = vi.fn();
+    render(
+      <MyProficiencyPanel
+        {...baseProps}
+        cvs={[
+          {
+            id: 'cv-failed',
+            originalName: 'Failed CV.pdf',
+            originalUrl: '/api/profile/cvs/cv-failed/original',
+            status: 'error',
+            extractedText: '',
+            extractionDiagnostics: ['No text was extracted.', 'The file appears to be image-only.'],
+          },
+        ]}
+        onSelectCv={onSelectCv}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: 'Failed CV.pdf' })).toBeDisabled();
+    expect(screen.getByText(/No text was extracted/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Download original CV' })).toHaveAttribute(
+      'href',
+      '/api/profile/cvs/cv-failed/original',
+    );
+    expect(onSelectCv).not.toHaveBeenCalled();
   });
 });

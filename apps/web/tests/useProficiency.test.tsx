@@ -344,4 +344,38 @@ describe('useProficiency', () => {
     expect(result.current.proficiencyError).toMatch(/changed; reload/i);
     expect(result.current.proficiency).toEqual(populatedProficiency);
   });
+
+  test('refreshes the latest proficiency after model requirement registration and ignores an aborted stale response', async () => {
+    vi.spyOn(profileApi, 'getProfile').mockResolvedValue(emptyProfile);
+    const initialLoad = deferred<ProficiencyState>();
+    const olderRefresh = deferred<ProficiencyState>();
+    const newerRefresh = deferred<ProficiencyState>();
+    const getState = vi
+      .spyOn(profileApi, 'getProficiency')
+      .mockReturnValueOnce(initialLoad.promise)
+      .mockReturnValueOnce(olderRefresh.promise)
+      .mockReturnValueOnce(newerRefresh.promise);
+    const { result } = renderHook(() => useProficiency('docling'));
+    await act(async () => initialLoad.resolve(emptyProficiency));
+
+    let refreshOne!: Promise<void>;
+    let refreshTwo!: Promise<void>;
+    await act(async () => {
+      refreshOne = result.current.refreshProficiency();
+      refreshTwo = result.current.refreshProficiency();
+    });
+    expect(getState.mock.calls[2]?.[0]?.aborted).toBe(true);
+
+    const latest: ProficiencyState = {
+      schema_version: 1,
+      revision: 6,
+      entries: [populatedProficiency.entries[1]],
+    };
+    await act(async () => newerRefresh.resolve(latest));
+    await act(async () => olderRefresh.resolve(populatedProficiency));
+    await Promise.all([refreshOne, refreshTwo]);
+
+    expect(result.current.proficiency).toEqual(latest);
+    expect(getState).toHaveBeenCalledTimes(3);
+  });
 });
