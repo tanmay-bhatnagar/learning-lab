@@ -12,7 +12,7 @@ import pytest
 
 from lab.storage import Store, write_json
 from lab.web.app import create_app
-from lab.web.prerequisites import router as prerequisite_router
+from lab.web.prerequisites import PrerequisiteInput, router as prerequisite_router
 
 
 def _model_response() -> str:
@@ -209,7 +209,7 @@ def test_generation_uses_fresh_full_context_and_only_publishes_on_done(tmp_path)
     assert "TOPIC GOAL" not in json.dumps(messages)
     assert call["response_schema"]["properties"]["requirements"]["items"]["properties"]["source_labels"]["items"][
         "enum"
-    ] == ["S1"]
+    ] == [source["label"] for source in assessment["sources"]]
     assert call["generation_lock"] is client.app.state.deps.model_generation_lock
 
 
@@ -389,8 +389,7 @@ def test_cancellation_before_or_during_stream_closes_provider_and_releases_resou
         for route in prerequisite_router(deps).routes
         if "POST" in route.methods and route.path.endswith("/prerequisites")
     )
-    body_type = post_route.dependant.body_params[0].type_
-    body = body_type(**_request(outline))
+    body = PrerequisiteInput(**_request(outline))
 
     async def scenario():
         response = await post_route.endpoint(topic, "paper-1", section["id"], body)
