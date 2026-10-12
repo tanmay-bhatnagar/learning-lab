@@ -366,7 +366,7 @@ export function MyProficiencyPanel({
             type="checkbox"
             aria-label="Always include CV in this conversation"
             checked={includeCv}
-            disabled={!canIncludeCv || busy}
+            disabled={busy || (!includeCv && !canIncludeCv)}
             onChange={(event) => onIncludeCvChange(event.target.checked)}
           />
           Always include CV in this conversation

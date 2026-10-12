@@ -97,9 +97,11 @@ export function useProficiency(parser: Parser): UseProficiencyResult {
   const [cvText, setCvText] = useState<CvText | null>(null);
   const [profileError, setProfileError] = useState<string | null>(null);
   const [proficiencyError, setProficiencyError] = useState<string | null>(null);
-  const [cvError, setCvError] = useState<string | null>(null);
+  const [cvOperationError, setCvOperationError] = useState<string | null>(null);
+  const [cvPreviewError, setCvPreviewError] = useState<string | null>(null);
   const profileRef = useRef<Profile | null>(null);
   const proficiencyRef = useRef<ProficiencyState | null>(null);
+  const cvTextRef = useRef<CvText | null>(null);
   const mountedRef = useRef(false);
   const previewController = useRef<AbortController | null>(null);
   const profileLoadController = useRef<AbortController | null>(null);
@@ -119,28 +121,37 @@ export function useProficiency(parser: Parser): UseProficiencyResult {
     setProficiency(next);
   }, []);
 
-  const loadCvPreview = useCallback(async (cvId: string | null) => {
-    previewController.current?.abort();
-    const revision = ++previewRevision.current;
-    if (!cvId) {
-      if (mountedRef.current) setCvText(null);
-      return;
-    }
-    const controller = new AbortController();
-    previewController.current = controller;
-    try {
-      const text = await getCvText(cvId, controller.signal);
-      if (mountedRef.current && revision === previewRevision.current && !controller.signal.aborted) {
-        setCvText(text);
-        setCvError(null);
-      }
-    } catch (error) {
-      if (mountedRef.current && revision === previewRevision.current && !controller.signal.aborted) {
-        setCvText(null);
-        setCvError(errorMessage(error, 'Could not load the selected CV text.'));
-      }
-    }
+  const adoptCvText = useCallback((next: CvText | null) => {
+    cvTextRef.current = next;
+    setCvText(next);
   }, []);
+
+  const loadCvPreview = useCallback(
+    async (cvId: string | null) => {
+      previewController.current?.abort();
+      const revision = ++previewRevision.current;
+      if (!cvId) {
+        if (mountedRef.current) adoptCvText(null);
+        return;
+      }
+      if (cvTextRef.current?.id !== cvId && mountedRef.current) adoptCvText(null);
+      const controller = new AbortController();
+      previewController.current = controller;
+      try {
+        const text = await getCvText(cvId, controller.signal);
+        if (mountedRef.current && revision === previewRevision.current && !controller.signal.aborted) {
+          adoptCvText(text);
+          setCvPreviewError(null);
+        }
+      } catch (error) {
+        if (mountedRef.current && revision === previewRevision.current && !controller.signal.aborted) {
+          adoptCvText(null);
+          setCvPreviewError(errorMessage(error, 'Could not load the selected CV text.'));
+        }
+      }
+    },
+    [adoptCvText],
+  );
 
   useEffect(() => {
     mountedRef.current = true;
@@ -201,16 +212,19 @@ export function useProficiency(parser: Parser): UseProficiencyResult {
       const controller = new AbortController();
       cvMutationController.current = controller;
       const revision = ++cvMutationRevision.current;
-      setCvError(null);
+      setCvOperationError(null);
+      setCvPreviewError(null);
       try {
         const result = await uploadCvRequest(file, originalName, parser, controller.signal);
         if (!mountedRef.current || controller.signal.aborted || revision !== cvMutationRevision.current) return;
         const diagnostics = result.extraction_diagnostics.findings.join(' ');
-        if (result.status === 'error') setCvError(diagnostics || 'The CV was saved, but text extraction failed.');
+        if (result.status === 'error') {
+          setCvOperationError(diagnostics || 'The CV was saved, but text extraction failed.');
+        }
         await refreshProfile(controller.signal);
       } catch (error) {
         if (mountedRef.current && !controller.signal.aborted && revision === cvMutationRevision.current) {
-          setCvError(errorMessage(error, 'Could not upload the CV.'));
+          setCvOperationError(errorMessage(error, 'Could not upload the CV.'));
           throw error;
         }
       }
@@ -227,7 +241,8 @@ export function useProficiency(parser: Parser): UseProficiencyResult {
       const controller = new AbortController();
       cvMutationController.current = controller;
       const revision = ++cvMutationRevision.current;
-      setCvError(null);
+      setCvOperationError(null);
+      setCvPreviewError(null);
       try {
         const next = await selectCvRequest(cvId, current.revision, controller.signal);
         if (!mountedRef.current || controller.signal.aborted || revision !== cvMutationRevision.current) return;
@@ -236,7 +251,7 @@ export function useProficiency(parser: Parser): UseProficiencyResult {
         await loadCvPreview(next.active_cv_id);
       } catch (error) {
         if (mountedRef.current && !controller.signal.aborted && revision === cvMutationRevision.current) {
-          setCvError(errorMessage(error, 'Could not select this CV.'));
+          setCvOperationError(errorMessage(error, 'Could not select this CV.'));
         }
         throw error;
       }
@@ -253,7 +268,8 @@ export function useProficiency(parser: Parser): UseProficiencyResult {
       const controller = new AbortController();
       cvMutationController.current = controller;
       const revision = ++cvMutationRevision.current;
-      setCvError(null);
+      setCvOperationError(null);
+      setCvPreviewError(null);
       try {
         const next = await revokeCvRequest(cvId, current.revision, controller.signal);
         if (!mountedRef.current || controller.signal.aborted || revision !== cvMutationRevision.current) return;
@@ -262,7 +278,7 @@ export function useProficiency(parser: Parser): UseProficiencyResult {
         await loadCvPreview(next.active_cv_id);
       } catch (error) {
         if (mountedRef.current && !controller.signal.aborted && revision === cvMutationRevision.current) {
-          setCvError(errorMessage(error, 'Could not revoke this CV.'));
+          setCvOperationError(errorMessage(error, 'Could not revoke this CV.'));
         }
         throw error;
       }
@@ -313,7 +329,7 @@ export function useProficiency(parser: Parser): UseProficiencyResult {
     cvText,
     profileError,
     proficiencyError,
-    cvError,
+    cvError: cvOperationError ?? cvPreviewError,
     uploadCv,
     selectCv,
     revokeCv,
