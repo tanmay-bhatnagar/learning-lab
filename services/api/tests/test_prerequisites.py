@@ -154,6 +154,11 @@ def test_plan_uses_full_section_sources_and_fresh_source_separated_context():
     assert "Fresh complete runtime policy text." in message_text
     assert "Runtime policy is not evidence" in message_text
     assert "Never infer skill or unfamiliarity from a degree" in message_text
+    assert "cv_source_labels MUST be []" in message_text
+    assert "cv_quote MUST be an exact, non-whitespace substring" in message_text
+    assert "Never quote unrelated CV experience or omission as evidence" in message_text
+    assert "Do not omit a section requirement merely because the CV mentions it" in message_text
+    assert "basic programming may be relevant at a conceptual level" in message_text
     assert "Do not list libraries" in message_text
     assert "CV_TEXT" not in message_text
     assert message_text.count(CV_TEXT) == 1
@@ -289,6 +294,28 @@ def test_valid_response_gets_one_deterministic_pending_question_per_requirement(
     assert requirement["question"] == "Are you already comfortable with Basic Python?"
     assert requirement["requirement_id"] == repeated["requirements"][0]["requirement_id"]
     assert requirement["cv_quote"] == "Experience: Python basics."
+
+
+def test_not_stated_cv_background_requires_no_label_and_an_empty_quote():
+    response = _model_response()
+    response["requirements"][0].update(
+        {
+            "cv_background": "not_stated",
+            "cv_source_labels": [],
+            "cv_quote": "",
+        }
+    )
+
+    validated = validate_prerequisite_response(
+        response,
+        sources=_plan()["sources"],
+        cv_text=CV_TEXT,
+        assessment_id="assessment-1",
+    )
+
+    assert validated["requirements"][0]["cv_background"] == "not_stated"
+    assert validated["requirements"][0]["cv_source_labels"] == []
+    assert validated["requirements"][0]["cv_quote"] == ""
 
 
 def test_zero_requirements_is_a_valid_model_answer():

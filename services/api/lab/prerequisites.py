@@ -79,10 +79,15 @@ def build_prerequisite_plan(
         "is behavior guidance. Runtime policy is not evidence; do not cite it or use it to invent learner skills.\n\n"
         "The CV describes background, not demonstrated comfort, competence, or mastery. Never infer skill or "
         "unfamiliarity from a degree, job title, or omission. When the CV does not explicitly mention relevant "
-        "experience, mark it not_stated and do not infer it. Quote only an exact substring of the supplied CV. "
+        "experience, mark it not_stated and do not infer it. If cv_background is not_stated, cv_source_labels "
+        "MUST be [] and cv_quote MUST be the empty string. If mentioned, cv_source_labels MUST be [CV1] and "
+        "cv_quote MUST be an exact, non-whitespace substring of the supplied CV that explicitly supports this "
+        "concept. Never quote unrelated CV experience or omission as evidence. Do not omit a section requirement "
+        "merely because the CV mentions it; every requirement still needs its own comfort question.\n\n"
         "Each proposed requirement will receive an app-generated question asking whether the learner is already "
         "comfortable with that concept; do not answer or omit that question.\n\n"
-        "Keep requirements concise and conceptual. Do not list libraries, APIs, implementation recipes, or a "
+        "Keep requirements concise and conceptual. For a reproduction goal, basic programming may be relevant "
+        "at a conceptual level. Do not list libraries, APIs, implementation recipes, or a "
         "course syllabus. Do not invent a large prerequisite program. Zero requirements is valid when the section "
         "does not justify one. Return only the requested structured response.\n\n"
         "The complete configured Learning Lab runtime policy follows. It is not factual evidence:\n"
@@ -351,7 +356,7 @@ def _validate_requirement(
     if not isinstance(quote, str) or len(quote) > 1000:
         raise InvalidInput("A prerequisite contains an invalid CV quote; retry generation.")
     if background == "mentioned":
-        if cv_labels != ["CV1"] or not quote or quote not in cv_text:
+        if cv_labels != ["CV1"] or not quote.strip() or quote not in cv_text:
             raise InvalidInput("A cited CV quote is not an exact substring of the selected CV; retry generation.")
     elif background == "not_stated":
         if cv_labels or quote:
