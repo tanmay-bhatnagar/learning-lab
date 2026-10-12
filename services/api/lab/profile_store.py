@@ -97,7 +97,10 @@ class ProfileStore:
             self.cv_root.mkdir(parents=True, exist_ok=True)
             self._reject_filename_collision(filename)
             original_path = checked(self.cv_root / filename)
-            write_new_bytes(original_path, original_bytes)
+            try:
+                write_new_bytes(original_path, original_bytes)
+            except FileExistsError as exc:
+                raise Conflict("A file with the same filename already exists. Choose a different name.") from exc
             if ready:
                 record_dir = checked(self.cv_root / ".records" / cv_id)
                 record_dir.mkdir(parents=True, exist_ok=False)
@@ -168,8 +171,6 @@ class ProfileStore:
         key = filename_collision_key(filename)
         for candidate in self.cv_root.iterdir():
             if candidate.name == ".records":
-                continue
-            if candidate.name.startswith(".write-"):
                 continue
             try:
                 candidate_key = filename_collision_key(candidate.name)
