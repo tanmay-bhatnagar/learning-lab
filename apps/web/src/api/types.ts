@@ -169,6 +169,38 @@ export const summaryImportMetadataSchema = z.object({
 });
 export type SummaryImportMetadata = z.infer<typeof summaryImportMetadataSchema>;
 
+export const prerequisiteImportMetadataSchema = z
+  .object({
+    schema_version: z.literal(1),
+    import_id: z.string().regex(/^[0-9a-f]{64}$/),
+    conversation_id: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,79}$/),
+    topic_id: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,79}$/),
+    file_id: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,79}$/),
+    assessment_id: z.string().min(1).max(100),
+    map_revision: z.string().regex(/^[0-9a-f]{64}$/),
+    section_id: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,79}$/),
+    section_title: z.string().min(1).max(1000),
+    goal: z.string().max(2000),
+    model: z.string().min(1).max(200),
+    assessment_finished_at: z.string().datetime({ offset: true }),
+    imported_at: z.string().datetime({ offset: true }),
+    sources: z
+      .array(
+        z
+          .object({
+            label: z.string().regex(/^S[1-9][0-9]*$/),
+            unit_id: z.string().min(1),
+            source_refs: z.array(z.string().min(1)).min(1),
+            pages: z.array(z.number().int().positive()),
+          })
+          .strict(),
+      )
+      .min(1),
+    content_sha256: z.string().regex(/^[0-9a-f]{64}$/),
+  })
+  .strict();
+export type PrerequisiteImportMetadata = z.infer<typeof prerequisiteImportMetadataSchema>;
+
 export const messageSchema = z.looseObject({
   role: z.string(),
   content: z.string(),
@@ -177,6 +209,7 @@ export const messageSchema = z.looseObject({
   incomplete: z.boolean().nullish(),
   retrieval: messageRetrievalSchema.nullish(),
   summary_import: summaryImportMetadataSchema.nullish(),
+  prerequisite_import: prerequisiteImportMetadataSchema.nullish(),
 });
 export type Message = z.infer<typeof messageSchema>;
 

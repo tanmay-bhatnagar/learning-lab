@@ -35,3 +35,14 @@ export const conversationMessagesPath = (topic: string, id: string) => `${conver
 export const conversationChatPath = (topic: string, id: string) => `${conversationPath(topic, id)}/chat`;
 export const conversationSummaryImportsPath = (topic: string, id: string) =>
   `${conversationPath(topic, id)}/summary-imports`;
+
+export const filePrerequisitesPath = (topic: string, fileId: string) => `${filePath(topic, fileId)}/prerequisites`;
+
+export const sectionPrerequisitesPath = (topic: string, fileId: string, sectionId: string) =>
+  `${fileMapPath(topic, fileId)}/sections/${encodeURIComponent(sectionId)}/prerequisites`;
+
+export const conversationLearnerContextPath = (topic: string, id: string) =>
+  `${conversationPath(topic, id)}/learner-context`;
+
+export const conversationPrerequisiteImportsPath = (topic: string, id: string) =>
+  `${conversationPath(topic, id)}/prerequisite-imports`;

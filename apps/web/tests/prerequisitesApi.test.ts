@@ -117,6 +117,12 @@ describe('prerequisite API contracts', () => {
         requirements: [{ ...requirement, comfort: 'comfortable' }],
       }).success,
     ).toBe(false);
+    expect(
+      prerequisiteAssessmentSchema.safeParse({
+        ...assessment,
+        requirements: [{ ...requirement, cv_background: 'mentioned', cv_source_labels: [], cv_quote: '' }],
+      }).success,
+    ).toBe(false);
   });
 
   test('reads the optional section-filtered state using encoded path segments', async () => {
@@ -192,7 +198,18 @@ describe('prerequisite API contracts', () => {
 
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue(streamResponse([{ type: 'progress', attempt_id: attempt.id, phase: 'generating' }])),
+      vi.fn().mockResolvedValue(
+        streamResponse([
+          {
+            type: 'started',
+            attempt_id: attempt.id,
+            revision: sha,
+            section_id: attempt.section_id,
+            attempt: { ...attempt, status: 'generating', finished_at: null },
+          },
+          { type: 'progress', attempt_id: attempt.id, phase: 'generating' },
+        ]),
+      ),
     );
     await expect(
       streamPrerequisites(
@@ -204,6 +221,70 @@ describe('prerequisite API contracts', () => {
         () => undefined,
       ),
     ).rejects.toThrow(/ended before/i);
+  });
+
+  test('delivers a terminal generation error without exposing its failed attempt as an assessment', async () => {
+    const failedAttempt = {
+      ...attempt,
+      status: 'error',
+      diagnostic: 'The local model could not complete prerequisite generation.',
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        streamResponse([
+          {
+            type: 'started',
+            attempt_id: attempt.id,
+            revision: sha,
+            section_id: attempt.section_id,
+            attempt: { ...attempt, status: 'generating', finished_at: null },
+          },
+          { type: 'error', attempt_id: attempt.id, message: failedAttempt.diagnostic, attempt: failedAttempt },
+        ]),
+      ),
+    );
+    const received: unknown[] = [];
+    await streamPrerequisites(
+      'topic-a',
+      'file-a',
+      'section-a',
+      { revision: sha, model: 'qwen-local' },
+      new AbortController().signal,
+      (event) => received.push(event),
+    );
+    expect(received.map((event) => (event as { type: string }).type)).toEqual(['started', 'error']);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        streamResponse([
+          {
+            type: 'started',
+            attempt_id: attempt.id,
+            revision: sha,
+            section_id: attempt.section_id,
+            attempt: { ...attempt, status: 'generating', finished_at: null },
+          },
+          {
+            type: 'done',
+            attempt_id: attempt.id,
+            assessment,
+            proficiency_revision: 9,
+            attempt: { ...attempt, assessment_id: 'another-assessment' },
+          },
+        ]),
+      ),
+    );
+    await expect(
+      streamPrerequisites(
+        'topic-a',
+        'file-a',
+        'section-a',
+        { revision: sha, model: 'qwen-local' },
+        new AbortController().signal,
+        () => undefined,
+      ),
+    ).rejects.toThrow(/does not match its assessment attempt/i);
   });
 
   test('validates imported snapshots and exact destination/assessment identities', async () => {

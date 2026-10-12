@@ -61,4 +61,12 @@ describe('conversation learner-context API', () => {
     });
     expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).not.toHaveProperty('active_assessment');
   });
+
+  test('rejects a server response whose revision does not match the expected atomic update', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ...empty, revision: 8, include_cv: true }));
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(
+      updateLearnerContext('topic-a', 'conversation-a', { expected_revision: 2, include_cv: true }),
+    ).rejects.toThrow(/unexpected learner-context revision/i);
+  });
 });
