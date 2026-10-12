@@ -86,6 +86,8 @@ class ProfileStore:
                 comfort=comfort,  # type: ignore[arg-type]
                 notes=notes,
                 expected_revision=expected_revision,
+                entry_id=uuid.uuid4().hex,
+                updated_at=datetime.now(UTC).isoformat(),
             )
             write_json(self.proficiency_path, updated)
             return copy.deepcopy(updated)
@@ -96,7 +98,11 @@ class ProfileStore:
         with self._locked():
             state = validate_proficiency(read_json(self.proficiency_path, empty_proficiency()))
             updated = update_manual_proficiency(
-                state, entry_id, updates=updates, expected_revision=expected_revision
+                state,
+                entry_id,
+                updates=updates,
+                expected_revision=expected_revision,
+                updated_at=datetime.now(UTC).isoformat(),
             )
             write_json(self.proficiency_path, updated)
             return copy.deepcopy(updated)

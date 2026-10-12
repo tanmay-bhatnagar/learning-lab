@@ -222,6 +222,8 @@ def test_proficiency_projection_is_compact_scoped_and_does_not_mutate_state():
         comfort="refresher",
         notes="Some experience",
         expected_revision=0,
+        entry_id="3" * 32,
+        updated_at="2026-10-12T00:00:00+00:00",
     )
     with_requirement = {
         **state,
@@ -259,18 +261,23 @@ def test_proficiency_projection_is_compact_scoped_and_does_not_mutate_state():
 def test_add_manual_proficiency_uses_explicit_identity_and_timestamp():
     state = empty_proficiency()
 
+    inputs = {
+        "concept": "Python",
+        "comfort": "new",
+        "notes": "",
+        "expected_revision": 0,
+        "entry_id": "1" * 32,
+        "updated_at": "2026-10-12T00:00:00+00:00",
+    }
     updated = add_manual_proficiency(
         state,
-        concept="Python",
-        comfort="new",
-        notes="",
-        expected_revision=0,
-        entry_id="1" * 32,
-        updated_at="2026-10-12T00:00:00+00:00",
+        **inputs,
     )
+    repeated = add_manual_proficiency(state, **inputs)
 
     assert updated["entries"][0]["id"] == "1" * 32
     assert updated["entries"][0]["updated_at"] == "2026-10-12T00:00:00+00:00"
+    assert repeated == updated
     assert state == empty_proficiency()
 
 
@@ -290,14 +297,19 @@ def test_update_manual_proficiency_uses_explicit_timestamp():
         ],
     }
 
+    inputs = {
+        "updates": {"comfort": "comfortable"},
+        "expected_revision": 1,
+        "updated_at": "2026-10-12T00:00:00+00:00",
+    }
     updated = update_manual_proficiency(
         state,
         "2" * 32,
-        updates={"comfort": "comfortable"},
-        expected_revision=1,
-        updated_at="2026-10-12T00:00:00+00:00",
+        **inputs,
     )
+    repeated = update_manual_proficiency(state, "2" * 32, **inputs)
 
     assert updated["entries"][0]["comfort"] == "comfortable"
     assert updated["entries"][0]["updated_at"] == "2026-10-12T00:00:00+00:00"
+    assert repeated == updated
     assert state["entries"][0]["comfort"] == "new"

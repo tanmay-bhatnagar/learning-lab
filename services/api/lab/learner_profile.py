@@ -207,6 +207,8 @@ def add_manual_proficiency(
     comfort: Comfort,
     notes: str,
     expected_revision: int,
+    entry_id: str,
+    updated_at: str,
 ) -> dict[str, Any]:
     current = validate_proficiency(state)
     _require_revision(current, expected_revision)
@@ -223,12 +225,12 @@ def add_manual_proficiency(
     ):
         raise Conflict("This concept is already in My proficiency.")
     entry = {
-        "id": uuid.uuid4().hex,
+        "id": entry_id,
         "concept": clean_concept,
         "comfort": comfort,
         "notes": clean_notes,
         "source_kind": "user_manual",
-        "updated_at": datetime.now(UTC).isoformat(),
+        "updated_at": updated_at,
     }
     return validate_proficiency(
         {**current, "revision": current["revision"] + 1, "entries": [*current["entries"], entry]}
@@ -241,6 +243,7 @@ def update_manual_proficiency(
     *,
     updates: dict[str, Any],
     expected_revision: int,
+    updated_at: str,
 ) -> dict[str, Any]:
     current = validate_proficiency(state)
     _require_revision(current, expected_revision)
@@ -262,7 +265,7 @@ def update_manual_proficiency(
         for entry in current["entries"]
     ):
         raise Conflict("This concept is already in My proficiency.")
-    changed["updated_at"] = datetime.now(UTC).isoformat()
+    changed["updated_at"] = updated_at
     entries = [changed if entry["id"] == entry_id else entry for entry in current["entries"]]
     return validate_proficiency({**current, "revision": current["revision"] + 1, "entries": entries})
 
