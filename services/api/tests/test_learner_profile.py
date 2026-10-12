@@ -159,12 +159,29 @@ def test_failed_registration_with_orphan_original_does_not_overwrite_on_retry(tm
 
     monkeypatch.setattr(profile_store_module, "write_json", fail_profile_write)
     with pytest.raises(OSError):
-        store.register_cv("Orphan.pdf", original, "text", {"status": "ready"})
+        store.register_cv(".write-Orphan.pdf", original, "text", {"status": "ready"})
     monkeypatch.setattr(profile_store_module, "write_json", write)
 
     with pytest.raises(Conflict):
-        store.register_cv("Orphan.pdf", b"replacement", "new text", {"status": "ready"})
-    assert (tmp_path / "CVs" / "Orphan.pdf").read_bytes() == original
+        store.register_cv(".write-Orphan.pdf", b"replacement", "new text", {"status": "ready"})
+    assert (tmp_path / "CVs" / ".write-Orphan.pdf").read_bytes() == original
+
+
+def test_exclusive_original_publish_race_becomes_domain_conflict(tmp_path, monkeypatch):
+    import lab.profile_store as profile_store_module
+    from lab.storage import write_new_bytes as atomic_write_new_bytes
+
+    store = ProfileStore(tmp_path)
+
+    def create_racing_original(path, data):
+        if Path(path).name == "Race.pdf":
+            Path(path).write_bytes(b"winner")
+        atomic_write_new_bytes(path, data)
+
+    monkeypatch.setattr(profile_store_module, "write_new_bytes", create_racing_original)
+    with pytest.raises(Conflict):
+        store.register_cv("Race.pdf", b"loser", "text", {"status": "ready"})
+    assert (tmp_path / "CVs" / "Race.pdf").read_bytes() == b"winner"
 
 
 def test_concurrent_processes_cannot_register_normalized_name_collision(tmp_path):
