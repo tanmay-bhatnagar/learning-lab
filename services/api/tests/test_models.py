@@ -132,6 +132,41 @@ class ModelTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["keep_alive"], 0)
         self.assertTrue(self.streams[-1].closed)
 
+    async def test_structured_schema_is_sent_as_ollama_format(self):
+        schema = {
+            "type": "object",
+            "properties": {"requirements": {"type": "array", "items": {"type": "string"}}},
+            "required": ["requirements"],
+        }
+        events = [
+            event
+            async for event in self.gateway.stream_chat(
+                [{"role": "user", "content": "Return the requirements."}],
+                "qwen3.5:4b-q8_0",
+                False,
+                generation_lock=self.generation_lock,
+                response_schema=schema,
+            )
+        ]
+        self.assertEqual(events[-1]["type"], "done")
+        self.assertEqual(self.requests[-1][1]["format"], schema)
+        self.assertEqual(self.requests[-1][1]["messages"][0]["content"], "Return the requirements.")
+
+    async def test_structured_schema_stream_errors_stay_visible(self):
+        self.parts = [b'{"error":"schema unsupported"}\n']
+        events = [
+            event
+            async for event in self.gateway.stream_chat(
+                [{"role": "user", "content": "Return JSON."}],
+                "qwen3.5:4b-q8_0",
+                generation_lock=self.generation_lock,
+                response_schema={"type": "object"},
+            )
+        ]
+        self.assertEqual(events[-1], {"type": "error", "message": "schema unsupported"})
+        self.assertFalse(any(event["type"] == "done" for event in events))
+        self.assertEqual(self.requests[-1][1]["format"], {"type": "object"})
+
     async def test_think_only_for_supported_values_and_models(self):
         for name, think, expected in [
             ("deepseek-r1:14b", False, None),
