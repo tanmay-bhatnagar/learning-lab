@@ -311,3 +311,197 @@ def test_update_manual_proficiency_uses_explicit_timestamp():
     assert updated["entries"][0]["updated_at"] == "2026-10-12T00:00:00+00:00"
     assert repeated == updated
     assert state["entries"][0]["comfort"] == "new"
+
+
+def _active_cv(store, filename="Selected CV.pdf", text="Synthetic CV evidence"):
+    record = store.register_cv(filename, filename.encode(), text, {"status": "ready"})
+    profile = store.read_profile()
+    selected = store.select_cv(record["id"], expected_revision=profile["revision"])
+    return selected["cvs"][0]
+
+
+def _model_requirements(assessment_id="assessment-one"):
+    import hashlib
+
+    return [
+        {
+            "requirement_id": "req-" + hashlib.sha256(f"{assessment_id}:0".encode()).hexdigest()[:24],
+            "concept": "Python fundamentals",
+        },
+        {
+            "requirement_id": "req-" + hashlib.sha256(f"{assessment_id}:1".encode()).hexdigest()[:24],
+            "concept": "Probability",
+        },
+    ]
+
+
+def test_server_registers_each_requirement_as_pending_without_copying_manual_comfort(tmp_path):
+    store = ProfileStore(tmp_path)
+    selected_cv = _active_cv(store)
+    manual = store.add_proficiency(
+        concept="Python fundamentals",
+        comfort="comfortable",
+        notes="Self-reported, never inferred from my CV",
+        expected_revision=0,
+    )
+
+    registered = store.register_model_requirements(
+        _model_requirements(),
+        topic_id="topic-one",
+        assessment_id="assessment-one",
+        selected_cv_id=selected_cv["id"],
+        selected_cv_text_sha256=selected_cv["extracted_sha256"],
+    )
+
+    model_rows = [entry for entry in registered["entries"] if entry["source_kind"] == "model_requirement"]
+    assert len(model_rows) == 2
+    assert [(item["requirement_id"], item["concept"]) for item in model_rows] == [
+        (requirement["requirement_id"], requirement["concept"]) for requirement in _model_requirements()
+    ]
+    assert all(item["comfort"] is None and item["notes"] == "" for item in model_rows)
+    assert all(item["topic_id"] == "topic-one" and item["assessment_id"] == "assessment-one" for item in model_rows)
+    assert registered["entries"][0]["id"] == manual["entries"][0]["id"]
+    assert registered["entries"][0]["comfort"] == "comfortable"
+    assert registered["entries"][0]["notes"] == "Self-reported, never inferred from my CV"
+
+
+def test_requirement_registration_is_idempotent_and_never_resets_answer_or_notes(tmp_path):
+    store = ProfileStore(tmp_path)
+    selected_cv = _active_cv(store)
+    requirements = _model_requirements()
+    registered = store.register_model_requirements(
+        requirements,
+        topic_id="topic-one",
+        assessment_id="assessment-one",
+        selected_cv_id=selected_cv["id"],
+        selected_cv_text_sha256=selected_cv["extracted_sha256"],
+    )
+    first = next(item for item in registered["entries"] if item["source_kind"] == "model_requirement")
+    answered = store.save_proficiency_batch(
+        additions=[],
+        updates=[{"id": first["id"], "comfort": "refresher", "notes": "Review examples"}],
+        expected_revision=registered["revision"],
+    )
+
+    repeated = store.register_model_requirements(
+        requirements,
+        topic_id="topic-one",
+        assessment_id="assessment-one",
+        selected_cv_id=selected_cv["id"],
+        selected_cv_text_sha256=selected_cv["extracted_sha256"],
+    )
+
+    assert repeated == answered
+    assert len([item for item in repeated["entries"] if item["source_kind"] == "model_requirement"]) == 2
+    saved = next(item for item in repeated["entries"] if item["id"] == first["id"])
+    assert (saved["comfort"], saved["notes"]) == ("refresher", "Review examples")
+
+
+def test_zero_requirements_do_not_change_proficiency_revision(tmp_path):
+    store = ProfileStore(tmp_path)
+    selected_cv = _active_cv(store)
+    before = store.read_proficiency()
+
+    after = store.register_model_requirements(
+        [],
+        topic_id="topic-one",
+        assessment_id="assessment-empty",
+        selected_cv_id=selected_cv["id"],
+        selected_cv_text_sha256=selected_cv["extracted_sha256"],
+    )
+
+    assert after == before
+
+
+def test_requirement_registration_refuses_changed_active_cv_without_writing(tmp_path):
+    store = ProfileStore(tmp_path)
+    previous_cv = _active_cv(store, "First CV.pdf", "First CV text")
+    next_cv = store.register_cv("Second CV.pdf", b"second", "Second CV text", {"status": "ready"})
+    profile = store.read_profile()
+    store.select_cv(next_cv["id"], expected_revision=profile["revision"])
+    before = store.read_proficiency()
+
+    with pytest.raises(Conflict):
+        store.register_model_requirements(
+            _model_requirements(),
+            topic_id="topic-one",
+            assessment_id="assessment-one",
+            selected_cv_id=previous_cv["id"],
+            selected_cv_text_sha256=previous_cv["extracted_sha256"],
+        )
+
+    assert store.read_proficiency() == before
+
+
+def test_requirement_registration_capacity_failure_does_not_write(tmp_path):
+    from lab.learner_profile import MAX_PROFICIENCY_ENTRIES, PROFICIENCY_VERSION
+    from lab.storage import write_json
+
+    store = ProfileStore(tmp_path)
+    selected_cv = _active_cv(store)
+    entries = [
+        {
+            "id": f"{index:032x}",
+            "concept": f"Existing concept {index}",
+            "comfort": "unsure",
+            "notes": "",
+            "source_kind": "user_manual",
+            "updated_at": "2026-10-13T00:00:00+00:00",
+        }
+        for index in range(MAX_PROFICIENCY_ENTRIES - 1)
+    ]
+    write_json(store.proficiency_path, {"schema_version": PROFICIENCY_VERSION, "revision": 4, "entries": entries})
+    before = store.read_proficiency()
+
+    with pytest.raises(InvalidInput):
+        store.register_model_requirements(
+            _model_requirements(),
+            topic_id="topic-one",
+            assessment_id="assessment-one",
+            selected_cv_id=selected_cv["id"],
+            selected_cv_text_sha256=selected_cv["extracted_sha256"],
+        )
+
+    assert store.read_proficiency() == before
+
+
+def test_requirement_registration_rejects_duplicate_requirement_ids(tmp_path):
+    store = ProfileStore(tmp_path)
+    selected_cv = _active_cv(store)
+    repeated = _model_requirements()[0]
+
+    with pytest.raises(InvalidInput):
+        store.register_model_requirements(
+            [repeated, repeated],
+            topic_id="topic-one",
+            assessment_id="assessment-one",
+            selected_cv_id=selected_cv["id"],
+            selected_cv_text_sha256=selected_cv["extracted_sha256"],
+        )
+
+    assert store.read_proficiency()["entries"] == []
+
+
+def test_same_registration_identity_cannot_change_requirement_concept(tmp_path):
+    store = ProfileStore(tmp_path)
+    selected_cv = _active_cv(store)
+    requirement = _model_requirements()[0]
+    store.register_model_requirements(
+        [requirement],
+        topic_id="topic-one",
+        assessment_id="assessment-one",
+        selected_cv_id=selected_cv["id"],
+        selected_cv_text_sha256=selected_cv["extracted_sha256"],
+    )
+    before = store.read_proficiency()
+
+    with pytest.raises(Conflict):
+        store.register_model_requirements(
+            [{**requirement, "concept": "Different concept"}],
+            topic_id="topic-one",
+            assessment_id="assessment-one",
+            selected_cv_id=selected_cv["id"],
+            selected_cv_text_sha256=selected_cv["extracted_sha256"],
+        )
+
+    assert store.read_proficiency() == before
