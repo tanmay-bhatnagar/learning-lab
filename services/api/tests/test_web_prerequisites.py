@@ -1,0 +1,451 @@
+"""HTTP lifecycle tests for on-demand section prerequisite generation."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+from collections.abc import AsyncIterator
+
+from docling_core.types.doc import DoclingDocument
+from fastapi.testclient import TestClient
+import pytest
+
+from lab.storage import Store, write_json
+from lab.web.app import create_app
+from lab.web.prerequisites import router as prerequisite_router
+
+
+def _model_response() -> str:
+    return json.dumps(
+        {
+            "overview": "This section uses basic algorithms and probability.",
+            "requirements": [
+                {
+                    "concept": "Basic programming",
+                    "reason": "The section describes an algorithm.",
+                    "source_labels": ["S1"],
+                    "cv_background": "not_stated",
+                    "cv_source_labels": [],
+                    "cv_quote": "",
+                },
+                {
+                    "concept": "Probability",
+                    "reason": "The section interprets likelihoods.",
+                    "source_labels": ["S1"],
+                    "cv_background": "not_stated",
+                    "cv_source_labels": [],
+                    "cv_quote": "",
+                },
+            ],
+        }
+    )
+
+
+class PrerequisiteFakeModel:
+    def __init__(self, *, behavior: str = "done", output: str | None = None, on_done=None):
+        self.behavior = behavior
+        self.output = output if output is not None else _model_response()
+        self.on_done = on_done
+        self.requests: list[dict[str, object]] = []
+        self.hold_after_token = False
+        self.token_sent = asyncio.Event()
+        self.allow_done = asyncio.Event()
+        self.stream_closed = False
+
+    async def list_models(self) -> dict[str, object]:
+        return {"models": [{"id": "synthetic-model"}]}
+
+    async def embed_texts(self, texts, model, *, generation_lock):
+        return [[0.0] for _text in texts]
+
+    def stream_chat(
+        self,
+        messages: list[dict],
+        model: str,
+        think: bool | str | None,
+        context_limit: int,
+        context_metadata: dict | None = None,
+        *,
+        generation_lock: asyncio.Lock,
+        response_schema: dict | None = None,
+    ) -> AsyncIterator[dict]:
+        self.requests.append(
+            {
+                "messages": messages,
+                "model": model,
+                "think": think,
+                "context_limit": context_limit,
+                "context_metadata": context_metadata,
+                "generation_lock": generation_lock,
+                "response_schema": response_schema,
+            }
+        )
+
+        async def events() -> AsyncIterator[dict]:
+            try:
+                async with generation_lock:
+                    yield {"type": "thinking", "text": "internal synthetic reasoning"}
+                    yield {"type": "token", "text": self.output}
+                    self.token_sent.set()
+                    if self.hold_after_token:
+                        await self.allow_done.wait()
+                    if self.behavior == "error":
+                        yield {"type": "error", "message": "Synthetic provider failure"}
+                        return
+                    if self.behavior == "eof":
+                        return
+                    if self.on_done is not None:
+                        self.on_done()
+                    yield {"type": "done", "model": model}
+            finally:
+                self.stream_closed = True
+
+        return events()
+
+
+def _prepared(
+    tmp_path,
+    *,
+    model: PrerequisiteFakeModel | None = None,
+    policy: str = "Synthetic full runtime policy.",
+    cv_text: str | None = "Synthetic CV evidence.",
+    cv_status: str = "ready",
+):
+    root = tmp_path / "Learning"
+    policy_path = tmp_path / "runtime-policy.md"
+    policy_path.write_text(policy, encoding="utf-8")
+    gateway = model or PrerequisiteFakeModel()
+    app = create_app(
+        root,
+        tmp_path / "state" / "settings.json",
+        model_backend=gateway,
+        runtime_policy_path=policy_path,
+        profile_root=tmp_path / "profile",
+    )
+    if not any(
+        getattr(route, "path", None) == "/api/topics/{topic}/files/{file_id}/prerequisites" for route in app.routes
+    ):
+        app.include_router(prerequisite_router(app.state.deps))
+    client = TestClient(app)
+    store: Store = app.state.deps.store
+    topic = store.create("Synthetic prerequisite test")["id"]
+    topic_path = store.topic(topic)
+    write_json(topic_path / "topic.json", {"id": topic, "name": "Synthetic", "learning_goal": "TOPIC GOAL"})
+    document = DoclingDocument(name="Synthetic prerequisite paper")
+    heading = document.add_heading("Methods", level=1)
+    document.add_text(label="text", text="Synthetic algorithms describe probability.", parent=heading)
+    (topic_path / "paper.pdf").write_bytes(b"%PDF-1.7 synthetic only")
+    write_json(topic_path / "paper.docling.json", document.export_to_dict())
+    write_json(
+        topic_path / "files.json",
+        [
+            {
+                "id": "paper-1",
+                "name": "Synthetic paper.pdf",
+                "original_name": "paper.pdf",
+                "docling_name": "paper.docling.json",
+                "parser": "docling",
+                "status": "ready",
+            }
+        ],
+    )
+    store.save_session(topic, {"messages": [{"role": "user", "content": "CHAT HISTORY SENTINEL"}]})
+    outline = client.post(f"/api/topics/{topic}/files/paper-1/map").json()["map"]
+    cv = None
+    if cv_text is not None:
+        cv = app.state.deps.profile_store.register_cv(
+            "Synthetic CV.pdf",
+            b"synthetic original",
+            cv_text,
+            {"status": cv_status},
+        )
+        if cv_status == "ready":
+            profile = app.state.deps.profile_store.read_profile()
+            app.state.deps.profile_store.select_cv(cv["id"], expected_revision=profile["revision"])
+    return client, topic, outline, gateway, cv
+
+
+def _generate_url(topic: str, section_id: str) -> str:
+    return f"/api/topics/{topic}/files/paper-1/map/sections/{section_id}/prerequisites"
+
+
+def _events(response) -> list[dict[str, object]]:
+    return [json.loads(line) for line in response.text.splitlines() if line]
+
+
+def _request(outline, *, revision=None):
+    return {
+        "revision": revision or outline["revision"],
+        "model": "synthetic-model",
+        "context_limit": 8192,
+        "think": False,
+        "goal": "Understand this section at a high level",
+    }
+
+
+def test_generation_uses_fresh_full_context_and_only_publishes_on_done(tmp_path):
+    client, topic, outline, model, cv = _prepared(tmp_path)
+    section = outline["sections"][0]
+
+    response = client.post(_generate_url(topic, section["id"]), json=_request(outline))
+
+    assert response.status_code == 200
+    events = _events(response)
+    assert [event["type"] for event in events] == ["started", "progress", "done"]
+    assert "internal synthetic reasoning" not in response.text
+    assert _model_response() not in response.text
+    done = events[-1]
+    assessment = done["assessment"]
+    assert len(assessment["requirements"]) == 2
+    assert all(item["comfort"] is None and item["comfort_status"] == "pending" for item in assessment["requirements"])
+    assert done["proficiency_revision"] == 1
+    call = model.requests[0]
+    messages = call["messages"]
+    assert len(messages) == 2
+    assert messages[0]["content"].count("Synthetic full runtime policy.") == 1
+    assert messages[1]["content"].count("Synthetic CV evidence.") == 1
+    assert "Synthetic algorithms describe probability." in messages[1]["content"]
+    assert "CHAT HISTORY SENTINEL" not in json.dumps(messages)
+    assert "TOPIC GOAL" not in json.dumps(messages)
+    assert call["response_schema"]["properties"]["requirements"]["items"]["properties"]["source_labels"]["items"][
+        "enum"
+    ] == ["S1"]
+    assert call["generation_lock"] is client.app.state.deps.model_generation_lock
+
+
+def test_get_returns_versioned_history_current_selection_and_no_cv_text(tmp_path):
+    client, topic, outline, _model, cv = _prepared(tmp_path)
+    section = outline["sections"][0]
+    client.post(_generate_url(topic, section["id"]), json=_request(outline))
+
+    response = client.get(f"/api/topics/{topic}/files/paper-1/prerequisites?section_id={section['id']}")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["schema_version"] == 1
+    assert payload["map_revision"] == outline["revision"]
+    assert payload["selected_cv"] == {
+        "id": cv["id"],
+        "original_name": "Synthetic CV.pdf",
+        "extracted_sha256": cv["extracted_sha256"],
+    }
+    assert payload["current_assessment"]["assessment_id"] == payload["assessments"][-1]["assessment_id"]
+    assert "Synthetic CV evidence." not in response.text
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "request_patch", "expected_status"),
+    [
+        ({"cv_text": None}, {}, 409),
+        ({"cv_text": " ", "cv_status": "error"}, {}, 409),
+        ({"policy": "  \n"}, {}, 500),
+        ({}, {"revision": "f" * 64}, 409),
+        ({"cv_text": "X" * 12000}, {"context_limit": 1024}, 422),
+    ],
+    ids=["missing-cv", "failed-cv", "missing-policy", "stale-map", "oversized-whole-input"],
+)
+def test_preflight_failures_never_call_model_or_start_attempt(tmp_path, kwargs, request_patch, expected_status):
+    client, topic, outline, model, _cv = _prepared(tmp_path, **kwargs)
+    section = outline["sections"][0]
+    body = {**_request(outline), **request_patch}
+
+    response = client.post(_generate_url(topic, section["id"]), json=body)
+
+    assert response.status_code == expected_status
+    assert model.requests == []
+    state = client.get(f"/api/topics/{topic}/files/paper-1/prerequisites").json()
+    assert state["attempts"] == []
+    assert state["assessments"] == []
+
+
+@pytest.mark.parametrize("behavior", ["error", "eof"], ids=["provider-error", "early-eof"])
+def test_provider_error_or_early_eof_never_publishes_assessment(tmp_path, behavior):
+    model = PrerequisiteFakeModel(behavior=behavior)
+    client, topic, outline, model, _cv = _prepared(tmp_path, model=model)
+    section = outline["sections"][0]
+
+    response = client.post(_generate_url(topic, section["id"]), json=_request(outline))
+
+    events = _events(response)
+    assert events[-1]["type"] == "error"
+    assert events[-1]["attempt"]["status"] == "error"
+    state = client.get(f"/api/topics/{topic}/files/paper-1/prerequisites?section_id={section['id']}").json()
+    assert state["assessments"] == []
+    assert state["current_assessment"] is None
+    assert state["attempts"][-1]["status"] == "error"
+
+
+@pytest.mark.parametrize(
+    "output",
+    [
+        "not-json",
+        json.dumps(
+            {
+                "overview": "Synthetic overview.",
+                "requirements": [
+                    {
+                        "concept": "Programming",
+                        "reason": "The section describes an algorithm.",
+                        "source_labels": ["S1"],
+                        "cv_background": "mentioned",
+                        "cv_source_labels": ["CV1"],
+                        "cv_quote": "a fact absent from the synthetic CV",
+                    }
+                ],
+            }
+        ),
+    ],
+    ids=["malformed-json", "false-cv-quote"],
+)
+def test_invalid_model_output_never_becomes_actionable(tmp_path, output):
+    model = PrerequisiteFakeModel(output=output)
+    client, topic, outline, model, _cv = _prepared(tmp_path, model=model)
+    section = outline["sections"][0]
+
+    response = client.post(_generate_url(topic, section["id"]), json=_request(outline))
+
+    events = _events(response)
+    assert events[-1]["type"] == "error"
+    state = client.get(f"/api/topics/{topic}/files/paper-1/prerequisites?section_id={section['id']}").json()
+    assert state["assessments"] == []
+    assert state["current_assessment"] is None
+    assert model.requests
+
+
+def test_cv_change_during_generation_prevents_registration_and_publication(tmp_path):
+    model = PrerequisiteFakeModel()
+    client, topic, outline, model, _cv = _prepared(tmp_path, model=model)
+    profile_store = client.app.state.deps.profile_store
+    next_cv = profile_store.register_cv(
+        "Next CV.pdf", b"second original", "Changed synthetic background", {"status": "ready"}
+    )
+
+    def change_selection():
+        profile = profile_store.read_profile()
+        profile_store.select_cv(next_cv["id"], expected_revision=profile["revision"])
+
+    model.on_done = change_selection
+    section = outline["sections"][0]
+    response = client.post(_generate_url(topic, section["id"]), json=_request(outline))
+
+    events = _events(response)
+    assert events[-1]["type"] == "error"
+    state = client.get(f"/api/topics/{topic}/files/paper-1/prerequisites?section_id={section['id']}").json()
+    assert state["assessments"] == []
+    assert state["current_assessment"] is None
+    assert profile_store.read_proficiency()["entries"] == []
+
+
+def test_failed_retry_keeps_previous_completed_assessment_current(tmp_path):
+    model = PrerequisiteFakeModel()
+    client, topic, outline, model, _cv = _prepared(tmp_path, model=model)
+    section = outline["sections"][0]
+    first = _events(client.post(_generate_url(topic, section["id"]), json=_request(outline)))[-1]["assessment"]
+    model.behavior = "error"
+
+    failed = _events(client.post(_generate_url(topic, section["id"]), json=_request(outline)))[-1]
+
+    state = client.get(f"/api/topics/{topic}/files/paper-1/prerequisites?section_id={section['id']}").json()
+    assert failed["type"] == "error"
+    assert [item["assessment_id"] for item in state["assessments"]] == [first["assessment_id"]]
+    assert state["current_assessment"]["assessment_id"] == first["assessment_id"]
+
+
+def test_final_result_write_failure_leaves_registered_rows_inactive_and_keeps_old_result(tmp_path, monkeypatch):
+    import lab.web.prerequisites as prerequisite_routes
+
+    model = PrerequisiteFakeModel()
+    client, topic, outline, model, _cv = _prepared(tmp_path, model=model)
+    section = outline["sections"][0]
+    first = _events(client.post(_generate_url(topic, section["id"]), json=_request(outline)))[-1]["assessment"]
+    write_attempt = prerequisite_routes.write_prerequisite_attempt
+
+    def fail_completed_write(*args, assessment=None, **kwargs):
+        if assessment is not None:
+            raise OSError("synthetic final assessment write failure")
+        return write_attempt(*args, assessment=assessment, **kwargs)
+
+    monkeypatch.setattr(prerequisite_routes, "write_prerequisite_attempt", fail_completed_write)
+    failed = _events(client.post(_generate_url(topic, section["id"]), json=_request(outline)))[-1]
+
+    state = client.get(f"/api/topics/{topic}/files/paper-1/prerequisites?section_id={section['id']}").json()
+    profile = client.app.state.deps.profile_store.read_proficiency()
+    assert failed["type"] == "error"
+    assert [item["assessment_id"] for item in state["assessments"]] == [first["assessment_id"]]
+    assert state["current_assessment"]["assessment_id"] == first["assessment_id"]
+    assert len([item for item in profile["entries"] if item["source_kind"] == "model_requirement"]) == 4
+    assert all(item["comfort"] is None for item in profile["entries"])
+
+
+@pytest.mark.parametrize("phase", ["before_stream", "during_stream"])
+def test_cancellation_before_or_during_stream_closes_provider_and_releases_resources(tmp_path, phase):
+    model = PrerequisiteFakeModel()
+    model.hold_after_token = phase == "during_stream"
+    client, topic, outline, model, _cv = _prepared(tmp_path, model=model)
+    deps = client.app.state.deps
+    section = outline["sections"][0]
+    post_route = next(
+        route
+        for route in prerequisite_router(deps).routes
+        if "POST" in route.methods and route.path.endswith("/prerequisites")
+    )
+    body_type = post_route.dependant.body_params[0].type_
+    body = body_type(**_request(outline))
+
+    async def scenario():
+        response = await post_route.endpoint(topic, "paper-1", section["id"], body)
+        if phase == "before_stream":
+            from starlette.requests import ClientDisconnect
+
+            async def receive():
+                return {"type": "http.disconnect"}
+
+            async def send(_message):
+                raise OSError("synthetic disconnect before body")
+
+            with pytest.raises(ClientDisconnect):
+                await response(
+                    {
+                        "type": "http",
+                        "asgi": {"spec_version": "2.4"},
+                        "method": "POST",
+                        "path": "/prerequisites",
+                        "headers": [],
+                    },
+                    receive,
+                    send,
+                )
+            return
+
+        async def receive():
+            await asyncio.Event().wait()
+
+        async def send(_message):
+            return None
+
+        task = asyncio.create_task(
+            response(
+                {
+                    "type": "http",
+                    "asgi": {"spec_version": "2.4"},
+                    "method": "POST",
+                    "path": "/prerequisites",
+                    "headers": [],
+                },
+                receive,
+                send,
+            )
+        )
+        await asyncio.wait_for(model.token_sent.wait(), timeout=1)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    asyncio.run(scenario())
+    state = client.get(f"/api/topics/{topic}/files/paper-1/prerequisites").json()
+    assert state["attempts"][-1]["status"] == "cancelled"
+    assert not deps.locks[topic].locked()
+    assert not deps.model_generation_lock.locked()
+    assert deps.active_prerequisite_attempts == {}
+    if phase == "during_stream":
+        assert model.stream_closed
