@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from fastapi.testclient import TestClient
 
 from lab.web.app import create_app
@@ -284,3 +286,24 @@ def test_profile_parser_failure_and_wrong_identifier_do_not_expose_paths(tmp_pat
     response = client.get("/api/profile/cvs/../../etc/passwd/original")
     assert response.status_code in {400, 404}
     assert "etc/passwd" not in response.text
+
+
+@pytest.mark.parametrize("filename", ["Chosen CV.pdf", "Résumé learner.pdf"])
+def test_original_download_preserves_chosen_filename_in_response(tmp_path, filename):
+    from urllib.parse import unquote
+
+    client = TestClient(
+        create_app(
+            tmp_path / "Learning",
+            tmp_path / "settings.json",
+            profile_root=tmp_path / "Profile",
+            profile_parser=lambda data, _name, parser: parsed_cv(data, "Chosen CV.pdf", parser),
+        )
+    )
+    uploaded = client.post(
+        "/api/profile/cvs", files={"file": ("source.pdf", PDF, "application/pdf")}, data={"original_name": filename}
+    ).json()
+    response = client.get(f"/api/profile/cvs/{uploaded['id']}/original")
+    assert response.content == PDF
+    header = response.headers["content-disposition"]
+    assert unquote(header.split("filename*=UTF-8''", 1)[1]) == filename
