@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from fastapi.testclient import TestClient
 
 from lab.web.app import create_app
@@ -139,3 +141,252 @@ def test_my_proficiency_remains_usable_when_cv_storage_is_corrupt(tmp_path):
     )
     assert created.status_code == 201
     assert client.get("/api/profile/proficiency").json()["entries"][0]["concept"] == "Statistics"
+
+
+def test_proficiency_batch_saves_multiple_manual_rows_with_one_revision(tmp_path):
+    client = TestClient(
+        create_app(
+            tmp_path / "Learning",
+            tmp_path / "state/settings.json",
+            profile_root=tmp_path / "Profile",
+        )
+    )
+    response = client.put(
+        "/api/profile/proficiency",
+        json={
+            "expected_revision": 0,
+            "additions": [
+                {"concept": "Python basics", "comfort": "refresher", "notes": "Brief refresh."},
+                {"concept": "Regression", "comfort": "new", "notes": ""},
+            ],
+            "updates": [],
+        },
+    )
+
+    assert response.status_code == 200
+    saved = response.json()
+    assert saved["revision"] == 1
+    assert [entry["concept"] for entry in saved["entries"]] == ["Python basics", "Regression"]
+    assert all(entry["source_kind"] == "user_manual" for entry in saved["entries"])
+    reopened = TestClient(
+        create_app(
+            tmp_path / "Learning",
+            tmp_path / "state/settings.json",
+            profile_root=tmp_path / "Profile",
+        )
+    )
+    assert reopened.get("/api/profile/proficiency").json() == saved
+
+
+def test_invalid_later_batch_row_leaves_saved_state_byte_identical(tmp_path):
+    profile_root = tmp_path / "Profile"
+    client = TestClient(
+        create_app(
+            tmp_path / "Learning",
+            tmp_path / "state/settings.json",
+            profile_root=profile_root,
+        )
+    )
+    existing = client.post(
+        "/api/profile/proficiency/entries",
+        json={"expected_revision": 0, "concept": "Python", "comfort": "new", "notes": "Original."},
+    ).json()["entries"][0]
+    state_file = profile_root / "proficiency.json"
+    original_bytes = state_file.read_bytes()
+
+    response = client.put(
+        "/api/profile/proficiency",
+        json={
+            "expected_revision": 1,
+            "updates": [{"id": existing["id"], "comfort": "comfortable", "notes": "Changed."}],
+            "additions": [
+                {"concept": "Statistics", "comfort": "new", "notes": ""},
+                {"concept": " statistics ", "comfort": "refresher", "notes": "Duplicate."},
+            ],
+        },
+    )
+
+    assert response.status_code == 409
+    assert state_file.read_bytes() == original_bytes
+
+
+def test_stale_or_forged_batch_updates_leave_profile_file_unchanged(tmp_path):
+    profile_root = tmp_path / "Profile"
+    client = TestClient(
+        create_app(
+            tmp_path / "Learning",
+            tmp_path / "state/settings.json",
+            profile_root=profile_root,
+        )
+    )
+    client.post(
+        "/api/profile/proficiency/entries",
+        json={"expected_revision": 0, "concept": "Python", "comfort": "new", "notes": ""},
+    )
+    state_file = profile_root / "proficiency.json"
+    original_bytes = state_file.read_bytes()
+
+    stale = client.put(
+        "/api/profile/proficiency",
+        json={
+            "expected_revision": 0,
+            "updates": [],
+            "additions": [{"concept": "Statistics", "comfort": "new", "notes": ""}],
+        },
+    )
+    forged = client.put(
+        "/api/profile/proficiency",
+        json={
+            "expected_revision": 1,
+            "updates": [],
+            "additions": [
+                {
+                    "concept": "Statistics",
+                    "comfort": "new",
+                    "notes": "",
+                    "source_kind": "model_requirement",
+                    "topic_id": "topic-forged",
+                }
+            ],
+        },
+    )
+
+    assert stale.status_code == 409
+    assert forged.status_code == 422
+    assert state_file.read_bytes() == original_bytes
+
+
+def test_model_requirement_batch_answer_projects_only_active_assessment_and_includes_notes(tmp_path):
+    profile_root = tmp_path / "Profile"
+    profile_root.mkdir()
+    state_file = profile_root / "proficiency.json"
+    entries = [
+        {
+            "id": f"{index:032x}",
+            "concept": concept,
+            "comfort": None,
+            "notes": "",
+            "source_kind": "model_requirement",
+            "topic_id": topic,
+            "assessment_id": assessment,
+            "requirement_id": f"requirement-{index}",
+        }
+        for index, (concept, topic, assessment) in enumerate(
+            [
+                ("Regression methods", "topic-a", "assessment-a"),
+                ("Bayesian methods", "topic-a", "assessment-b"),
+                ("Data visualization", "topic-b", "assessment-a"),
+            ],
+            start=1,
+        )
+    ]
+    state_file.write_text(
+        json.dumps({"schema_version": 1, "revision": 3, "entries": entries}),
+        encoding="utf-8",
+    )
+    client = TestClient(
+        create_app(
+            tmp_path / "Learning",
+            tmp_path / "state/settings.json",
+            profile_root=profile_root,
+        )
+    )
+
+    saved = client.put(
+        "/api/profile/proficiency",
+        json={
+            "expected_revision": 3,
+            "updates": [{"id": entries[0]["id"], "comfort": "unsure", "notes": "Explain notation."}],
+            "additions": [],
+        },
+    )
+
+    assert saved.status_code == 200
+    from lab.learner_profile import proficiency_context
+
+    context = proficiency_context(saved.json(), topic_id="topic-a", active_assessment_id="assessment-a")
+    assert "Regression methods: unsure — Explain notation." in context
+    assert "Bayesian methods" not in context
+    assert "Data visualization" not in context
+
+
+def test_empty_proficiency_batch_is_a_noop(tmp_path):
+    client = TestClient(
+        create_app(
+            tmp_path / "Learning",
+            tmp_path / "state/settings.json",
+            profile_root=tmp_path / "Profile",
+        )
+    )
+
+    response = client.put(
+        "/api/profile/proficiency",
+        json={"expected_revision": 0, "updates": [], "additions": []},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"schema_version": 1, "revision": 0, "entries": []}
+
+
+def test_proficiency_capacity_is_five_hundred_and_refuses_overflow_without_write(tmp_path):
+    profile_root = tmp_path / "Profile"
+    profile_root.mkdir()
+    entries = [
+        {
+            "id": f"{index:032x}",
+            "concept": f"Topic {index}",
+            "comfort": "unsure",
+            "notes": "",
+            "source_kind": "user_manual",
+        }
+        for index in range(1, 501)
+    ]
+    state_file = profile_root / "proficiency.json"
+    state_file.write_text(
+        json.dumps({"schema_version": 1, "revision": 12, "entries": entries}),
+        encoding="utf-8",
+    )
+    original_bytes = state_file.read_bytes()
+    client = TestClient(
+        create_app(
+            tmp_path / "Learning",
+            tmp_path / "state/settings.json",
+            profile_root=profile_root,
+        )
+    )
+
+    response = client.put(
+        "/api/profile/proficiency",
+        json={
+            "expected_revision": 12,
+            "updates": [],
+            "additions": [{"concept": "Overflow", "comfort": "new", "notes": ""}],
+        },
+    )
+
+    assert response.status_code == 400
+    assert state_file.read_bytes() == original_bytes
+
+
+def test_empty_proficiency_batch_transform_is_repeatable_with_explicit_metadata():
+    from lab.learner_profile import apply_proficiency_batch, empty_proficiency
+
+    state = empty_proficiency()
+    before = json.loads(json.dumps(state))
+    kwargs = {
+        "additions": [
+            {"concept": "Python", "comfort": "new", "notes": ""},
+            {"concept": "Statistics", "comfort": "refresher", "notes": "Review."},
+        ],
+        "updates": [],
+        "expected_revision": 0,
+        "entry_ids": ["a" * 32, "b" * 32],
+        "updated_at": "2026-10-12T00:00:00+00:00",
+    }
+
+    first = apply_proficiency_batch(state, **kwargs)
+    second = apply_proficiency_batch(state, **kwargs)
+
+    assert first == second
+    assert first["revision"] == 1
+    assert state == before
