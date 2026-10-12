@@ -190,6 +190,7 @@ class OllamaGateway:
                     }
                     if response_schema is not None:
                         payload["format"] = response_schema
+                        payload["options"]["temperature"] = 0
                     if thinking["type"] == "toggle" and type(think) is bool:
                         payload["think"] = think
                     elif thinking["type"] == "levels" and think in thinking["levels"]:
