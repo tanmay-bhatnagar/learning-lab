@@ -7,6 +7,7 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
+from lab.storage import write_json
 from lab.web.app import create_app
 from lab.web.conversation_profile import router as learner_context_router
 from lab.web.prerequisite_imports import router as prerequisite_import_router
@@ -30,6 +31,50 @@ def _app(tmp_path, model=None):
 
 def _learner_context_url(topic: str, conversation: str = "default") -> str:
     return f"/api/topics/{topic}/conversations/{conversation}/learner-context"
+
+
+def _focused_context_chat(tmp_path):
+    from tests.test_web_prerequisites import _events, _prepared, _request
+
+    client, topic, outline, model, _cv = _prepared(tmp_path)
+    app = client.app
+    conversation = client.post(f"/api/topics/{topic}/conversations", json={"title": "Focused learner context"}).json()[
+        "id"
+    ]
+    for route_path, route_factory in (
+        (
+            "/api/topics/{topic}/conversations/{conversation_id}/learner-context",
+            learner_context_router,
+        ),
+        (
+            "/api/topics/{topic}/conversations/{conversation_id}/prerequisite-imports",
+            prerequisite_import_router,
+        ),
+    ):
+        if not any(getattr(route, "path", None) == route_path for route in app.routes):
+            app.include_router(route_factory(app.state.deps))
+    if not any(getattr(route, "path", None) == "/api/topics/{topic}/chat" for route in app.routes):
+        from lab.web.chat import router as chat_router
+
+        app.include_router(chat_router(app.state.deps))
+    section = outline["sections"][0]
+    generated = client.post(
+        f"/api/topics/{topic}/files/paper-1/map/sections/{section['id']}/prerequisites",
+        json=_request(outline),
+    )
+    assessment = _events(generated)[-1]["assessment"]
+    imported = client.post(
+        f"/api/topics/{topic}/conversations/{conversation}/prerequisite-imports",
+        json={
+            "file_id": "paper-1",
+            "assessment_id": assessment["assessment_id"],
+            "revision": outline["revision"],
+            "section_id": section["id"],
+            "expected_revision": 0,
+        },
+    )
+    assert imported.status_code == 200
+    return client, app, topic, conversation, assessment, model
 
 
 def test_preferences_are_versioned_and_cv_inclusion_is_explicit(tmp_path):
@@ -305,6 +350,13 @@ def test_chat_uses_only_selected_historical_assessment_and_latest_answers_after_
         ],
         expected_revision=proficiency["revision"],
     )
+    unrelated = app.state.deps.profile_store.read_proficiency()
+    unrelated_row = next(
+        entry for entry in unrelated["entries"] if entry.get("assessment_id") == second_assessment["assessment_id"]
+    )
+    unrelated_row["requirement_id"] = "req-" + ("f" * 24)
+    unrelated_row["concept"] = "SECOND-ONLY forged assessment concept"
+    write_json(app.state.deps.profile_store.proficiency_path, unrelated)
     profile = app.state.deps.profile_store.read_profile()
     app.state.deps.profile_store.revoke_cv(cv["id"], expected_revision=profile["revision"])
 
@@ -323,3 +375,36 @@ def test_chat_uses_only_selected_historical_assessment_and_latest_answers_after_
     assert "pending" in prompt
     assert "SECOND-ONLY" not in prompt
     assert "Synthetic CV evidence." not in prompt
+
+
+@pytest.mark.parametrize(
+    "damage",
+    ["unknown_requirement", "changed_concept", "missing_requirement", "duplicate_requirement"],
+)
+def test_corrupt_selected_assessment_proficiency_links_block_chat_before_save(tmp_path, damage):
+    client, app, topic, conversation, assessment, model = _focused_context_chat(tmp_path)
+    profile = app.state.deps.profile_store.read_proficiency()
+    selected = [entry for entry in profile["entries"] if entry.get("assessment_id") == assessment["assessment_id"]]
+    assert len(selected) == len(assessment["requirements"])
+    first = selected[0]
+    if damage == "unknown_requirement":
+        first["requirement_id"] = "req-" + ("e" * 24)
+    elif damage == "changed_concept":
+        first["concept"] = "Forged concept with a valid requirement ID"
+    elif damage == "missing_requirement":
+        profile["entries"] = [entry for entry in profile["entries"] if entry["id"] != first["id"]]
+    else:
+        profile["entries"].append({**first, "id": "d" * 32})
+    write_json(app.state.deps.profile_store.proficiency_path, profile)
+    before = client.get(f"/api/topics/{topic}/conversations/{conversation}/messages").content
+    calls_before = len(model.requests)
+
+    response = client.post(
+        f"/api/topics/{topic}/conversations/{conversation}/chat",
+        json={"message": "Do not use corrupt familiarity", "file_ids": [], "model": "synthetic-model"},
+    )
+
+    assert response.status_code == 500
+    assert "proficiency" in response.json()["detail"].lower() or "requirement" in response.json()["detail"].lower()
+    assert client.get(f"/api/topics/{topic}/conversations/{conversation}/messages").content == before
+    assert len(model.requests) == calls_before
