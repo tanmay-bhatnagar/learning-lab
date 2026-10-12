@@ -40,7 +40,7 @@ Files land in `data/external/modelweights/tokenizers/bert-base-uncased/`. If Hug
 
 The model selector reads from Ollama. Model changes apply to the next message. Indexed files are searched with SQLite FTS5 and, when the embedding model is installed, local embeddings plus reciprocal-rank fusion. The app uses a 32,768-token context limit; once full, the oldest input is omitted from the model request while the saved conversation remains intact. There is no compaction yet.
 
-Section summaries use the same selected Ollama model with a fresh request containing the runtime policy and complete section source. They do not include main-chat history, the learning goal or retrieved snippets. Oversized sections fail visibly rather than being truncated. Stop or failed regeneration preserves the last completed result; imported snapshots remain in ordinary saved chat history. Source labels identify supplied material, not proof that every generated claim is correct. See the [implementation and module study path](docs/2026_10_05_document_map_implementation.md).
+Section summaries use the same selected Ollama model with a fresh request containing the runtime policy and complete section source. They do not include main-chat history, the learning goal or retrieved snippets. Oversized sections fail visibly rather than being truncated. Stop or failed regeneration preserves the last completed result; imported snapshots remain in ordinary saved chat history. Source labels identify supplied material, not proof that every generated claim is correct. See the [implementation and module study path](docs/reports/document-map/2026_10_05_document_map_implementation.md).
 
 ## Development instructions
 

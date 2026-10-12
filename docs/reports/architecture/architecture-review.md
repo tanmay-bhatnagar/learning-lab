@@ -1,6 +1,6 @@
 # Architecture conformance review — 1 October 2026
 
-Scope: the whole Code repository at `dev` `fa52c07` (clean tree), measured against [engineering conventions](../../docs/engineering.md), the contracts in [architecture](../../docs/architecture.md), and the [review checklist](../../.agents/skills/review/references/checklist.md). Procedure: the research skill (trace code, cite evidence, separate confirmed facts from unverified concerns), with implementation slices in the design-skill format. Read-only: no application code was changed. Every source, test, script, CI and agent-configuration file was read.
+Scope: the whole Code repository at `dev` `fa52c07` (clean tree), measured against [engineering conventions](../../engineering.md), the contracts in [architecture](../../architecture.md), and the [review checklist](../../../.agents/skills/review/references/checklist.md). Procedure: the research skill (trace code, cite evidence, separate confirmed facts from unverified concerns), with implementation slices in the design-skill format. Read-only: no application code was changed. Every source, test, script, CI and agent-configuration file was read.
 
 ## 1. Verdict
 
@@ -282,7 +282,7 @@ Decided by Tanmay on 1 October 2026:
 | FE-2: hooks own effects | `src/hooks/*`, `App.tsx`, `main.tsx` | `App` holds no `fetch`, `localStorage` or `window` calls; refs remain only for DOM and `AbortController`. |
 | FE-3: components | `src/components/*` | Each component has one responsibility; shared `VisualAssets` replaces the two duplicates; `main.tsx` holds `createRoot` only. |
 | FE-4: boundary validation | `src/api/client.ts`, `types.ts` | Responses and stream events are validated; statuses are unions shared by the domain rules. |
-| Exit | — | FE-0 tests unchanged and passing; `make build`; usage-skill browser run of [flows](../../.agents/skills/usage/references/flows.md). |
+| Exit | — | FE-0 tests unchanged and passing; `make build`; usage-skill browser run of [flows](../../../.agents/skills/usage/references/flows.md). |
 
 ### Phase 4 — backend track (runs in parallel with Phase 3; disjoint paths)
 

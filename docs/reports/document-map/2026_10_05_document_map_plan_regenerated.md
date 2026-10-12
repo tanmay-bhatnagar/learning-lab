@@ -43,7 +43,7 @@ Text, serialized tables, available formula text and captions are the first summa
 
 **Question:** Can we build complete sections from existing retrieval chunks or must we use native document structure?
 
-**Evidence and learning — research:** Native Docling JSON is already persisted by [parse_pipeline.py](../services/api/lab/parse_pipeline.py). Stored chunks keep heading strings, text and location metadata but drop native occurrence references in [chunking.py](../services/api/lab/chunking.py). Research rechecked these paths during regeneration. Earlier synthetic experiments showed traversal depth is not semantic heading level. Repeated heading titles can describe distinct occurrences; string grouping cannot establish complete boundaries. [Native representation reference](https://docling-project.github.io/docling/concepts/docling_document/).
+**Evidence and learning — research:** Native Docling JSON is already persisted by [parse_pipeline.py](../../../services/api/lab/parse_pipeline.py). Stored chunks keep heading strings, text and location metadata but drop native occurrence references in [chunking.py](../../../services/api/lab/chunking.py). Research rechecked these paths during regeneration. Earlier synthetic experiments showed traversal depth is not semantic heading level. Repeated heading titles can describe distinct occurrences; string grouping cannot establish complete boundaries. [Native representation reference](https://docling-project.github.io/docling/concepts/docling_document/).
 
 **Alternatives actually considered:** Retrieval chunks/Markdown are convenient but lose identity and structure. Native ordered source references preserve those properties but require serialization and accounting. A model-generated outline costs inference and introduces inferred boundaries.
 
@@ -59,7 +59,7 @@ Text, serialized tables, available formula text and captions are the first summa
 
 **Question:** Can the first release show the nested tree in the mockup?
 
-**Evidence and learning — research:** Regeneration rechecked that [docling_pipeline.py](../services/api/lab/docling_pipeline.py) leaves hierarchy enrichment disabled. The earlier installed inspection reported Docling 2.127.0/core 2.98.0. Historical isolated public-paper artifacts had all headings at level 1: Whisper 52, Janus 20, CAVIAR 46. Historical numbering-only deep-copy experiments produced nesting, demonstrating capability but not accuracy. These versions/counts/experiments were not freshly rerun. [Heading-level documentation](https://docling-project.github.io/docling/usage/heading_levels/).
+**Evidence and learning — research:** Regeneration rechecked that [docling_pipeline.py](../../../services/api/lab/docling_pipeline.py) leaves hierarchy enrichment disabled. The earlier installed inspection reported Docling 2.127.0/core 2.98.0. Historical isolated public-paper artifacts had all headings at level 1: Whisper 52, Janus 20, CAVIAR 46. Historical numbering-only deep-copy experiments produced nesting, demonstrating capability but not accuracy. These versions/counts/experiments were not freshly rerun. [Heading-level documentation](https://docling-project.github.io/docling/usage/heading_levels/).
 
 **Alternatives actually considered:** Use saved levels honestly; enrich existing JSON from numbering/bookmarks; change ingestion to infer hierarchy, including font style.
 
@@ -91,7 +91,7 @@ Text, serialized tables, available formula text and captions are the first summa
 
 **Question:** What does a requested section summary cover, and what happens if that source does not fit?
 
-**Evidence and learning — research:** Rechecked [chat_prompt.py](../services/api/lab/chat_prompt.py), [context.py](../services/api/lab/context.py) and [models.py](../services/api/lab/models.py). Chat planning intentionally trims history/evidence. The gateway can accept precomputed context metadata and bypass that trimming. Counts remain conservatively UTF-8-byte-based, with configured context ceiling 32768 and output reserve at most 2048. Existing retrieval evaluation simulates generation and supplies no summary-quality result.
+**Evidence and learning — research:** Rechecked [chat_prompt.py](../../../services/api/lab/chat_prompt.py), [context.py](../../../services/api/lab/context.py) and [models.py](../../../services/api/lab/models.py). Chat planning intentionally trims history/evidence. The gateway can accept precomputed context metadata and bypass that trimming. Counts remain conservatively UTF-8-byte-based, with configured context ceiling 32768 and output reserve at most 2048. Existing retrieval evaluation simulates generation and supplies no summary-quality result.
 
 **Alternatives actually considered:** Reuse top-k retrieval or chat trimming; supply complete source in one bounded request; split source into multiple generation passes and combine results.
 
@@ -107,7 +107,7 @@ Text, serialized tables, available formula text and captions are the first summa
 
 **Question:** How can summaries reuse the local model without carrying or erasing the main conversation's context?
 
-**Evidence and learning — research:** Narrow rechecks of [models.py](../services/api/lab/models.py), [chat_session.py](../services/api/lab/chat_session.py), [web/deps.py](../services/api/lab/web/deps.py) and the budget path confirmed explicit message arrays, the shared inference lock and `keep_alive: 0`. Saved history is projected into each subsequent chat prompt. Research refreshed [Ollama's chat API](https://docs.ollama.com/api/chat), which documents messages and unloading. Design reused that evidence.
+**Evidence and learning — research:** Narrow rechecks of [models.py](../../../services/api/lab/models.py), [chat_session.py](../../../services/api/lab/chat_session.py), [web/deps.py](../../../services/api/lab/web/deps.py) and the budget path confirmed explicit message arrays, the shared inference lock and `keep_alive: 0`. Saved history is projected into each subsequent chat prompt. Research refreshed [Ollama's chat API](https://docs.ollama.com/api/chat), which documents messages and unloading. Design reused that evidence.
 
 **Alternatives actually discussed:** A separate model was explicitly rejected by Tanmay. Fresh requests to the selected model satisfy the requirement. A short keep-alive could reduce reload latency; durable background jobs could outlive browser requests but expand lifecycle infrastructure.
 
@@ -141,7 +141,7 @@ Keep last successful summary separate from latest attempt. Record attempt/revisi
 
 **Question:** Where does a saved summary go when Default and named conversations coexist, and how should it be represented?
 
-**Evidence and learning:** Tanmay's Add to main chat decision superseded the initial Ask about this section deferral. Current [storage.py](../services/api/lab/storage.py) supports independent conversations; [chat_session.py](../services/api/lab/chat_session.py) projects saved history. Existing retrieval metadata describes supplied evidence rather than imported generated summaries. Design proposed destination and representation details; research identified their compatibility/validation needs.
+**Evidence and learning:** Tanmay's Add to main chat decision superseded the initial Ask about this section deferral. Current [storage.py](../../../services/api/lab/storage.py) supports independent conversations; [chat_session.py](../../../services/api/lab/chat_session.py) projects saved history. Existing retrieval metadata describes supplied evidence rather than imported generated summaries. Design proposed destination and representation details; research identified their compatibility/validation needs.
 
 **Alternatives actually considered:** Always send to Default versus the currently selected existing conversation; import as an assistant reply versus a user-initiated generated-context entry. Side/section-specific chat is outside the agreed scope.
 

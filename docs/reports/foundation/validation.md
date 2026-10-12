@@ -25,9 +25,9 @@ This build is the local app/ingestion foundation. Full R1 retrieval, LangGraph l
 
 ## 3 October 2026 updates
 
-The multi-conversation increment and its repairs are recorded in [resume validation](2026_10_03_resume_validation.md). Per-query diagnostic trace logging is implemented and independently reviewed; its contract, final automated gates, real-model checks, and coverage limits are recorded in [query traces](query_traces.md). The separate [retrieval evaluation suite](../evals/retrieval/README.md) is implemented; it evaluates registered public PDFs in isolated workspaces with simulated generation.
+The multi-conversation increment and its repairs are recorded in [resume validation](../conversations/2026_10_03_resume_validation.md). Per-query diagnostic trace logging is implemented and independently reviewed; its contract, final automated gates, real-model checks, and coverage limits are recorded in [query traces](../../query_traces.md). The separate [retrieval evaluation suite](../../../evals/retrieval/README.md) is implemented; it evaluates registered public PDFs in isolated workspaces with simulated generation.
 
-The three-paper developer baseline and final automated gates are recorded in [retrieval eval validation](retrieval_eval_validation.md). Scores remain descriptive; answer quality is unassessed.
+The three-paper developer baseline and final automated gates are recorded in [retrieval eval validation](../retrieval-evaluation/retrieval_eval_validation.md). Scores remain descriptive; answer quality is unassessed.
 
 ## 5 October 2026 — checkpoint policy and local commit baseline
 

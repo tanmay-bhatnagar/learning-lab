@@ -2,7 +2,7 @@
 
 Each gold set references one of the three existing public PDFs registered in `docs/eval_pdf_selection.json`, by exact path and SHA-256. Tanmay reduced the original five-paper selection to its first three; no redraw was made. Build and verify one PDF at a time. Whisper is the default manifest; choose another completed gold set with `--manifest`.
 
-The source-backed gold sets are `whisper.v1.json`, `janus.v1.json`, and `caviar.v1.json`. Harness regressions are in `services/api/tests/test_retrieval_eval.py`. See [validation](../../docs/retrieval_eval_validation.md) for the recorded real-paper baselines and coverage limits.
+The source-backed gold sets are `whisper.v1.json`, `janus.v1.json`, and `caviar.v1.json`. Harness regressions are in `services/api/tests/test_retrieval_eval.py`. See [validation](../../docs/reports/retrieval-evaluation/retrieval_eval_validation.md) for the recorded real-paper baselines and coverage limits.
 
 Run one manifest at a time from the Code repository. The default keyword baseline is:
 
