@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { App } from '../src/App';
 import { installFakeApi, pdfFile, type StreamScript } from './fakeApi';
 import { MAX_PDF_BYTES } from '../src/uploads';
+import type { Profile, ProfileCv, ProficiencyState } from '../src/api/profile';
 
 beforeEach(() => {
   window.localStorage.clear();
@@ -52,7 +53,276 @@ function uploadThroughInput(files: File[]) {
   fireEvent.change(input, { target: { files: list } });
 }
 
+function installSharedProfileApi(options: { uploadStatus?: 'ready' | 'error'; pauseProfileSave?: boolean } = {}) {
+  const base = installFakeApi();
+  const baseFetch = base.fetch;
+  const requests: Array<{ path: string; method: string; body?: unknown }> = [];
+  let profile: Profile = { schema_version: 1, revision: 0, active_cv_id: null, cvs: [] };
+  let proficiency: ProficiencyState = {
+    schema_version: 1,
+    revision: 3,
+    entries: [
+      {
+        id: 'a'.repeat(32),
+        concept: 'Python',
+        comfort: 'refresher',
+        notes: 'Synthetic manual entry.',
+        source_kind: 'user_manual',
+      },
+      {
+        id: 'b'.repeat(32),
+        concept: 'Statistics',
+        comfort: null,
+        notes: '',
+        source_kind: 'model_requirement',
+        topic_id: 'synthetic-topic',
+        assessment_id: 'synthetic-assessment',
+        requirement_id: 'statistics',
+      },
+    ],
+  };
+  let uploadStatus = options.uploadStatus ?? 'ready';
+  let pauseProfileSave = options.pauseProfileSave ?? false;
+  let pauseCvUpload = false;
+  let releaseProfileSave: (() => void) | null = null;
+  let releaseCvUpload: (() => void) | null = null;
+  const cvId = 'c'.repeat(32);
+
+  const jsonResponse = (body: unknown, status = 200) =>
+    new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+  const failedCv = (originalName: string): ProfileCv => ({
+    id: cvId,
+    original_name: originalName,
+    status: 'error',
+    revoked: false,
+    parser: 'docling',
+    parser_version: 'synthetic-parser',
+    original_sha256: '1'.repeat(64),
+    extracted_sha256: null,
+    native_document_sha256: null,
+    extraction_diagnostics: { status: 'error', findings: ['No text was extracted.'] },
+    created_at: '2026-10-13T00:00:00Z',
+  });
+
+  const fetchWithProfile = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    const { pathname } = new URL(url, 'http://test.local');
+    const method = (init?.method ?? 'GET').toUpperCase();
+    const body = init?.body;
+    const apiPath = pathname.replace(/^\/api/, '') || '/';
+    if (!apiPath.startsWith('/profile')) return baseFetch(input, init);
+    const requestBody = body instanceof FormData ? body : typeof body === 'string' ? JSON.parse(body) : undefined;
+    requests.push({ path: apiPath, method, body: requestBody });
+
+    if (apiPath === '/profile' && method === 'GET') return jsonResponse(profile);
+    if (apiPath === '/profile/proficiency' && method === 'GET') return jsonResponse(proficiency);
+    if (apiPath === '/profile/proficiency' && method === 'PUT') {
+      if (pauseProfileSave) {
+        pauseProfileSave = false;
+        await new Promise<void>((resolve) => {
+          releaseProfileSave = resolve;
+        });
+      }
+      const payload = requestBody as {
+        additions: Array<{ concept: string; comfort: 'comfortable' | 'refresher' | 'new' | 'unsure'; notes: string }>;
+        updates: Array<{
+          id: string;
+          concept?: string;
+          comfort?: 'comfortable' | 'refresher' | 'new' | 'unsure' | null;
+          notes?: string;
+        }>;
+      };
+      const additions = payload.additions.map((entry) => ({
+        ...entry,
+        id: 'd'.repeat(32),
+        source_kind: 'user_manual' as const,
+      }));
+      const updates = proficiency.entries.map((entry) => {
+        const update = payload.updates.find((candidate) => candidate.id === entry.id);
+        return update ? { ...entry, ...update } : entry;
+      });
+      proficiency = { ...proficiency, revision: proficiency.revision + 1, entries: [...updates, ...additions] };
+      return jsonResponse(proficiency);
+    }
+    if (apiPath === '/profile/cvs' && method === 'POST') {
+      if (pauseCvUpload) {
+        pauseCvUpload = false;
+        await new Promise<void>((resolve) => {
+          releaseCvUpload = resolve;
+        });
+      }
+      const form = requestBody as FormData;
+      const originalName = String(form.get('original_name'));
+      const cv: ProfileCv =
+        uploadStatus === 'error'
+          ? failedCv(originalName)
+          : {
+              ...failedCv(originalName),
+              status: 'ready',
+              extracted_sha256: '2'.repeat(64),
+              extraction_diagnostics: { status: 'ready', findings: [], note: 'Synthetic text extraction.' },
+            };
+      profile = { ...profile, revision: profile.revision + 1, cvs: [...profile.cvs, cv] };
+      return jsonResponse({ ...cv, revision: profile.revision }, 201);
+    }
+    if (apiPath === `/profile/cvs/${cvId}/text` && method === 'GET') {
+      return jsonResponse({
+        id: cvId,
+        original_name: profile.cvs[0]?.original_name ?? 'CV.pdf',
+        parser: 'docling',
+        parser_version: 'synthetic-parser',
+        text: 'Synthetic full CV text.',
+      });
+    }
+    return jsonResponse({ detail: `Unhandled profile route ${method} ${apiPath}` }, 404);
+  };
+  vi.stubGlobal('fetch', fetchWithProfile);
+
+  return {
+    requests,
+    setUploadStatus(status: 'ready' | 'error') {
+      uploadStatus = status;
+    },
+    pauseNextProfileSave() {
+      pauseProfileSave = true;
+    },
+    releaseProfileSave() {
+      releaseProfileSave?.();
+      releaseProfileSave = null;
+    },
+    pauseNextCvUpload() {
+      pauseCvUpload = true;
+    },
+    releaseCvUpload() {
+      const release = releaseCvUpload;
+      releaseCvUpload = null;
+      release?.();
+    },
+  };
+}
+
 describe('App characterization', () => {
+  test('opens My proficiency without a topic, saves a manual skill, and reloads authoritative state', async () => {
+    const profileApi = installSharedProfileApi();
+    const user = userEvent.setup();
+    const view = render(<App />);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'My proficiency' })).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: 'My proficiency' }));
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'My proficiency' })).toBeInTheDocument());
+
+    const manualSection = screen.getByRole('region', { name: 'Your skills and concepts' });
+    expect(within(manualSection).getByRole('group', { name: 'Python' })).toBeInTheDocument();
+    expect(within(manualSection).queryByText('Statistics')).not.toBeInTheDocument();
+    await user.type(screen.getByRole('textbox', { name: 'Add a skill or concept' }), 'Probability');
+    await user.click(screen.getByRole('button', { name: 'Add skill' }));
+    const probability = screen.getByRole('group', { name: 'Probability' });
+    await user.selectOptions(within(probability).getByLabelText('Your comfort with Probability'), 'refresher');
+    await user.click(screen.getByRole('button', { name: 'Save proficiency' }));
+    await waitFor(() => expect(screen.getByRole('group', { name: 'Probability' })).toBeInTheDocument());
+    expect(
+      profileApi.requests.find((request) => request.path === '/profile/proficiency' && request.method === 'PUT'),
+    ).toMatchObject({
+      body: {
+        expected_revision: 3,
+        additions: [{ concept: 'Probability', comfort: 'refresher', notes: '' }],
+        updates: [],
+      },
+    });
+
+    view.unmount();
+    render(<App />);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'My proficiency' })).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: 'My proficiency' }));
+    await waitFor(() => expect(screen.getByRole('group', { name: 'Probability' })).toBeInTheDocument());
+    expect(
+      profileApi.requests.filter((request) => request.path === '/profile/proficiency' && request.method === 'GET'),
+    ).toHaveLength(2);
+  });
+
+  test('uploads the exact renamed shared CV and leaves extraction failures visible and unselectable', async () => {
+    const profileApi = installSharedProfileApi({ uploadStatus: 'error' });
+    const user = userEvent.setup();
+    render(<App />);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'My proficiency' })).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: 'My proficiency' }));
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'My proficiency' })).toBeInTheDocument());
+
+    const file = pdfFile('original-resume.pdf');
+    fireEvent.change(screen.getByLabelText('Upload your CV'), { target: { files: [file] } });
+    const filename = screen.getByRole('textbox', { name: 'CV filename' });
+    await user.clear(filename);
+    await user.type(filename, 'Research Profile.pdf');
+    await user.click(screen.getByRole('button', { name: 'Upload CV' }));
+
+    await waitFor(() => expect(screen.getByText(/No text was extracted/)).toBeInTheDocument());
+    const upload = profileApi.requests.find((request) => request.path === '/profile/cvs' && request.method === 'POST');
+    expect((upload?.body as FormData).get('original_name')).toBe('Research Profile.pdf');
+    expect((upload?.body as FormData).get('file')).toBe(file);
+    expect(screen.getByRole('button', { name: 'Research Profile.pdf' })).toBeDisabled();
+    expect(screen.getByRole('link', { name: 'Download original CV' })).toHaveAttribute(
+      'href',
+      `/api/profile/cvs/${'c'.repeat(32)}/original`,
+    );
+    expect(screen.getByText(/not available until conversation preferences are connected/i)).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'Always include CV in this conversation' })).toBeDisabled();
+  });
+
+  test('a shared proficiency save blocks chat, PDF upload, and settings saves through activity', async () => {
+    const profileApi = installSharedProfileApi({ pauseProfileSave: true });
+    const user = userEvent.setup();
+    render(<App />);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'My proficiency' })).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: 'My proficiency' }));
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'My proficiency' })).toBeInTheDocument());
+
+    await user.type(screen.getByRole('textbox', { name: 'Add a skill or concept' }), 'Probability');
+    await user.click(screen.getByRole('button', { name: 'Add skill' }));
+    await user.selectOptions(screen.getByLabelText('Your comfort with Probability'), 'new');
+    await user.click(screen.getByRole('button', { name: 'Save proficiency' }));
+    await waitFor(() =>
+      expect(
+        profileApi.requests.some((request) => request.path === '/profile/proficiency' && request.method === 'PUT'),
+      ).toBe(true),
+    );
+
+    try {
+      await user.click(screen.getByRole('button', { name: 'Conversations' }));
+      expect(screen.getByRole('textbox', { name: 'Message' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Add PDF' })).toBeDisabled();
+      await user.click(screen.getByRole('button', { name: 'Settings' }));
+      expect(screen.getByRole('button', { name: 'Save settings' })).toBeDisabled();
+    } finally {
+      profileApi.releaseProfileSave();
+    }
+  });
+
+  test('a shared CV upload blocks other activities until conversion finishes', async () => {
+    const profileApi = installSharedProfileApi();
+    profileApi.pauseNextCvUpload();
+    const user = userEvent.setup();
+    render(<App />);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'My proficiency' })).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: 'My proficiency' }));
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'My proficiency' })).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText('Upload your CV'), { target: { files: [pdfFile('resume.pdf')] } });
+    await user.click(screen.getByRole('button', { name: 'Upload CV' }));
+    await waitFor(() =>
+      expect(profileApi.requests.some((request) => request.path === '/profile/cvs' && request.method === 'POST')).toBe(
+        true,
+      ),
+    );
+
+    try {
+      await user.click(screen.getByRole('button', { name: 'Conversations' }));
+      expect(screen.getByRole('textbox', { name: 'Message' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Add PDF' })).toBeDisabled();
+      await user.click(screen.getByRole('button', { name: 'Settings' }));
+      expect(screen.getByRole('button', { name: 'Save settings' })).toBeDisabled();
+    } finally {
+      profileApi.releaseCvUpload();
+    }
+  });
+
   test('preflight chat rejection preserves the draft and removes the optimistic turn', async () => {
     installFakeApi({ chatStatus: 422 });
     const user = userEvent.setup();
