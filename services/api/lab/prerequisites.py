@@ -67,8 +67,8 @@ def build_prerequisite_plan(
     if goal is not None and not isinstance(goal, str):
         raise InvalidInput("The learning goal must be text.")
     visible_goal = goal.strip() if isinstance(goal, str) else ""
-    if len(visible_goal) > 500 or any(ord(char) < 32 and char not in "\n\t" for char in visible_goal):
-        raise InvalidInput("The learning goal must be at most 500 printable characters.")
+    if len(visible_goal) > 2000 or any(ord(char) < 32 and char not in "\n\t" for char in visible_goal):
+        raise InvalidInput("The learning goal must be at most 2000 printable characters.")
     if not visible_goal:
         visible_goal = f"Understand the selected section: {section.get('title', 'Untitled section')}"
 
