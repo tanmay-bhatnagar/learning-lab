@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 from collections.abc import AsyncIterator
 
@@ -181,6 +182,51 @@ def _request(outline, *, revision=None):
         "think": False,
         "goal": "Understand this section at a high level",
     }
+
+
+def _seed_model_requirement(profile_store, cv, topic, assessment_id, concept="Synthetic pending concept"):
+    requirement_id = "req-" + hashlib.sha256(f"{assessment_id}:0".encode()).hexdigest()[:24]
+    return profile_store.register_model_requirements(
+        [{"requirement_id": requirement_id, "concept": concept}],
+        topic_id=topic,
+        assessment_id=assessment_id,
+        selected_cv_id=cv["id"],
+        selected_cv_text_sha256=cv["extracted_sha256"],
+    )
+
+
+def _write_generating_attempt(store, topic, outline, section, cv):
+    from lab.prerequisite_store import write_prerequisite_attempt
+
+    attempt_id = "a" * 32
+    assessment_id = "b" * 32
+    write_prerequisite_attempt(
+        store,
+        topic,
+        "paper-1",
+        {
+            "id": attempt_id,
+            "assessment_id": assessment_id,
+            "topic_id": topic,
+            "file_id": "paper-1",
+            "map_revision": outline["revision"],
+            "section_id": section["id"],
+            "status": "generating",
+            "started_at": "2026-10-13T00:00:00+00:00",
+            "finished_at": None,
+            "provenance": {
+                "prompt_version": "test-v1",
+                "source_sha256": "c" * 64,
+                "runtime_policy_sha256": "d" * 64,
+                "cv_id": cv["id"],
+                "cv_text_sha256": cv["extracted_sha256"],
+                "goal": "test goal",
+                "model": "synthetic-model",
+            },
+            "diagnostic": None,
+        },
+    )
+    return assessment_id
 
 
 def test_generation_uses_fresh_full_context_and_only_publishes_on_done(tmp_path):
@@ -398,6 +444,90 @@ def test_ambiguous_completed_write_is_recognized_as_published_success(tmp_path, 
     assert state["attempts"][-1]["status"] == "completed"
     assert state["current_assessment"] is not None
     assert len(client.app.state.deps.profile_store.read_proficiency()["entries"]) == 2
+
+
+def test_idle_get_marks_orphaned_generation_interrupted_and_discards_only_unpublished_rows(tmp_path):
+    client, topic, outline, _model, cv = _prepared(tmp_path)
+    section = outline["sections"][0]
+    deps = client.app.state.deps
+    assessment_id = _write_generating_attempt(deps.store, topic, outline, section, cv)
+    _seed_model_requirement(deps.profile_store, cv, topic, assessment_id)
+
+    response = client.get(f"/api/topics/{topic}/files/paper-1/prerequisites")
+
+    assert response.status_code == 200
+    assert response.json()["attempts"][-1]["status"] == "interrupted"
+    assert response.json()["assessments"] == []
+    assert deps.profile_store.read_proficiency()["entries"] == []
+
+
+def test_unreadable_prerequisite_state_keeps_unpublished_profile_rows_safe(tmp_path):
+    client, topic, outline, _model, cv = _prepared(tmp_path)
+    assessment_id = "c" * 32
+    _seed_model_requirement(client.app.state.deps.profile_store, cv, topic, assessment_id)
+    path = client.app.state.deps.store.file_path(topic, "paper-1.prerequisites.json")
+    path.write_text("{broken", encoding="utf-8")
+
+    response = client.get(f"/api/topics/{topic}/files/paper-1/prerequisites")
+
+    assert response.status_code == 500
+    assert len(client.app.state.deps.profile_store.read_proficiency()["entries"]) == 1
+
+
+def test_failure_cleanup_preserves_answered_and_noted_rows_written_during_attempt(tmp_path, monkeypatch):
+    import lab.web.prerequisites as prerequisite_routes
+
+    client, topic, outline, model, _cv = _prepared(tmp_path)
+    response = json.loads(_model_response())
+    response["requirements"].append(
+        {
+            "concept": "Statistics",
+            "reason": "The section interprets likelihoods.",
+            "source_labels": ["S1"],
+            "cv_background": "not_stated",
+            "cv_source_labels": [],
+            "cv_quote": "",
+        }
+    )
+    model.output = json.dumps(response)
+    deps = client.app.state.deps
+    section = outline["sections"][0]
+    deps.profile_store.add_proficiency(
+        concept="Manual Python",
+        comfort="refresher",
+        notes="Keep my own note",
+        expected_revision=0,
+    )
+    write_attempt = prerequisite_routes.write_prerequisite_attempt
+
+    def edit_rows_then_fail(*args, assessment=None, **kwargs):
+        if assessment is not None:
+            profile = deps.profile_store.read_proficiency()
+            generated = [
+                entry for entry in profile["entries"] if entry.get("assessment_id") == assessment["assessment_id"]
+            ]
+            deps.profile_store.save_proficiency_batch(
+                additions=[],
+                updates=[
+                    {"id": generated[0]["id"], "comfort": "comfortable"},
+                    {"id": generated[1]["id"], "notes": "Learner added this"},
+                ],
+                expected_revision=profile["revision"],
+            )
+            raise OSError("synthetic unpublished assessment write failure")
+        return write_attempt(*args, assessment=assessment, **kwargs)
+
+    monkeypatch.setattr(prerequisite_routes, "write_prerequisite_attempt", edit_rows_then_fail)
+    events = _events(client.post(_generate_url(topic, section["id"]), json=_request(outline)))
+    profile = deps.profile_store.read_proficiency()
+    rows = [entry for entry in profile["entries"] if entry["source_kind"] == "model_requirement"]
+
+    assert events[-1]["type"] == "error"
+    assert len(rows) == 2
+    assert {entry["comfort"] for entry in rows} == {None, "comfortable"}
+    assert {entry["notes"] for entry in rows} == {"", "Learner added this"}
+    manual = [entry for entry in profile["entries"] if entry["source_kind"] == "user_manual"]
+    assert len(manual) == 1 and manual[0]["notes"] == "Keep my own note"
 
 
 @pytest.mark.parametrize("phase", ["before_stream", "during_stream"])
