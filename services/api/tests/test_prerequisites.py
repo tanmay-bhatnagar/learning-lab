@@ -302,6 +302,19 @@ def test_zero_requirements_is_a_valid_model_answer():
     assert validated["requirements"] == []
 
 
+def test_whitespace_only_cv_quote_is_not_evidence():
+    response = _model_response()
+    response["requirements"][0]["cv_quote"] = " "
+
+    with pytest.raises(InvalidInput):
+        validate_prerequisite_response(
+            response,
+            sources=_plan()["sources"],
+            cv_text=CV_TEXT,
+            assessment_id="assessment-1",
+        )
+
+
 @pytest.mark.parametrize(
     "response",
     [
