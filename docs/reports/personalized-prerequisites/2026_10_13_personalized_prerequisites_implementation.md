@@ -1,0 +1,17 @@
+# Personalized prerequisites — implementation continuation
+
+Date: 13 October 2026. Separate dated continuation of the [12 October implementation decisions](2026_10_12_personalized_prerequisites_implementation.md), preserving the original research/design reports and consolidated plan. User confirms limits reset and continuation; original full implementation/test/end-to-end/remote-push authorization remains active. No new designer pass; coordinator implements the existing plan and records technical discoveries.
+
+## Pending answers and atomic save
+
+Atomic batch checkpoint276b412 passed47 focused profile tests with one validated revision/write, independent CV/proficiency persistence and active-assessment notes. Root found explicit null reset was rejected in the model-requirement branch although pending is a valid state. Red39d11ca → repair6a0a3a1:39 focused tests, lint/format/engineering pass. Model requirements can explicitly return to unanswered; manual proficiency still requires one of the four self-report choices. This is branch-specific validation rather than treating every missing answer as Not sure. No extra inference or silent reassessment occurs.
+
+## Complete CV and learner context protection
+
+Coder3 owns only pure context/chat-prompt modules and focused tests; coder owns profile/prerequisites/API, coder2 frontend, rootGit/docs and testerread-only. Red e2404bf defines retention distinct from existing atomic evidence semantics: atomic citations may be removed whole, while current learner state, complete CV and full latest question are protected. Ordinary attachments can be dropped/shortened, so they cannot implement Always include CV. Placing CV in the system message would conflate untrusted evidence with trusted policy. Choose separate untrusted user-context messages with required retention and whole-minimum refusal; source labels explicitly authorize registered shared learner data without implying broad outside-topic filesystem access.
+
+Root corrected red fixtures before implementation: genuine oversized history is needed to test trimming, and citation alignment needs a window large enough for existing system policy. Empty requested CV uses domainInvalidInput; the low-level budget function's ValueError is still normalized by the prompt boundary. These are stronger valid scenarios, not weakened checks. Current policy/system/question/learner/CV minimum must fit or fail before the caller saves a turn; no silent CV omission or truncation. API preference persistence and per-request latest state remain integration tests after pure retention passes.
+
+## Remaining work
+
+Versioned prerequisite attempts/completed records; request-bound local-model generation and cancellation; per-requirement profile registration; main-conversation handoff and active focus; conversation CV preference plus latest compact state each turn; frontend hooks/composition, independent review and isolated real-model/browser end-to-end checks. Final selected-model quality remains open: the earlier complete prompt exposed inconsistent CV evidence; explicit field rules improved candidate output but a zero-item reproduction result was questionable. Keep invalid outputs non-actionable and verify the final committed prompt with representative synthetic scenarios before readiness. Completed remote milestone7f261a9; later checkpoints remain local until passing milestone checks. No personal CV/topic is used in development.
