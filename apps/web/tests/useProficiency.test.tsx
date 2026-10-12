@@ -54,11 +54,6 @@ const populatedProficiency: ProficiencyState = {
 
 afterEach(() => vi.restoreAllMocks());
 
-function installEmptyProfileAndProficiency() {
-  vi.spyOn(profileApi, 'getProfile').mockResolvedValue(emptyProfile);
-  vi.spyOn(profileApi, 'getProficiency').mockResolvedValue(emptyProficiency);
-}
-
 function deferred<T>() {
   let resolve!: (value: T) => void;
   let reject!: (reason: unknown) => void;
@@ -218,7 +213,7 @@ describe('useProficiency', () => {
     vi.spyOn(profileApi, 'getProficiency').mockResolvedValue(emptyProficiency);
     const textRequest = vi
       .spyOn(profileApi, 'getCvText')
-      .mockImplementation((id, signal) => (id === cvOneId ? firstText.promise : Promise.resolve(secondCvText)));
+      .mockImplementation((id) => (id === cvOneId ? firstText.promise : Promise.resolve(secondCvText)));
     vi.spyOn(profileApi, 'selectCv').mockResolvedValue(profileTwo);
     const { result } = renderHook(() => useProficiency('docling'));
     await waitFor(() => expect(textRequest).toHaveBeenCalledWith(cvOneId, expect.any(AbortSignal)));
@@ -258,7 +253,9 @@ describe('useProficiency', () => {
       kind: 'manual',
     };
 
-    await expect(result.current.saveProficiency([draft])).rejects.toThrow(/changed; reload/i);
+    await act(async () => {
+      await expect(result.current.saveProficiency([draft])).rejects.toThrow(/changed; reload/i);
+    });
     expect(result.current.proficiencyError).toMatch(/changed; reload/i);
     expect(result.current.proficiency).toEqual(populatedProficiency);
   });

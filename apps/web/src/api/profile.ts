@@ -138,6 +138,16 @@ export type ProficiencyUpdateInput = {
   expected_revision: number;
 };
 
+export type ProficiencyBatchInput = ProfileRevisionInput & {
+  additions: Array<{ concept: string; comfort: z.infer<typeof comfortSchema>; notes: string }>;
+  updates: Array<{
+    id: string;
+    concept?: string;
+    comfort?: z.infer<typeof comfortSchema> | null;
+    notes?: string;
+  }>;
+};
+
 const profileRequest = (signal?: AbortSignal): RequestInit => (signal ? { signal } : {});
 
 export function getProfile(signal?: AbortSignal): Promise<Profile> {
@@ -146,6 +156,13 @@ export function getProfile(signal?: AbortSignal): Promise<Profile> {
 
 export function getProficiency(signal?: AbortSignal): Promise<ProficiencyState> {
   return api('/profile/proficiency', proficiencySchema, profileRequest(signal));
+}
+
+export function saveProficiencyBatch(input: ProficiencyBatchInput, signal?: AbortSignal): Promise<ProficiencyState> {
+  return api('/profile/proficiency', proficiencySchema, {
+    ...json(input, 'PUT'),
+    ...profileRequest(signal),
+  });
 }
 
 export function uploadCv(
