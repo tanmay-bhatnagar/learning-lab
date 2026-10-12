@@ -13,6 +13,7 @@ from lab.learner_profile import (
     empty_proficiency,
     filename_collision_key,
     proficiency_context,
+    update_manual_proficiency,
     validate_cv_filename,
 )
 from lab.profile_store import ProfileStore
@@ -253,3 +254,50 @@ def test_proficiency_projection_is_compact_scoped_and_does_not_mutate_state():
     assert "topic-one" not in projection
     assert with_requirement["entries"][1]["comfort"] is None
     assert original == empty_proficiency()
+
+
+def test_add_manual_proficiency_uses_explicit_identity_and_timestamp():
+    state = empty_proficiency()
+
+    updated = add_manual_proficiency(
+        state,
+        concept="Python",
+        comfort="new",
+        notes="",
+        expected_revision=0,
+        entry_id="1" * 32,
+        updated_at="2026-10-12T00:00:00+00:00",
+    )
+
+    assert updated["entries"][0]["id"] == "1" * 32
+    assert updated["entries"][0]["updated_at"] == "2026-10-12T00:00:00+00:00"
+    assert state == empty_proficiency()
+
+
+def test_update_manual_proficiency_uses_explicit_timestamp():
+    state = {
+        **empty_proficiency(),
+        "revision": 1,
+        "entries": [
+            {
+                "id": "2" * 32,
+                "concept": "Python",
+                "comfort": "new",
+                "notes": "",
+                "source_kind": "user_manual",
+                "updated_at": "2026-10-11T00:00:00+00:00",
+            }
+        ],
+    }
+
+    updated = update_manual_proficiency(
+        state,
+        "2" * 32,
+        updates={"comfort": "comfortable"},
+        expected_revision=1,
+        updated_at="2026-10-12T00:00:00+00:00",
+    )
+
+    assert updated["entries"][0]["comfort"] == "comfortable"
+    assert updated["entries"][0]["updated_at"] == "2026-10-12T00:00:00+00:00"
+    assert state["entries"][0]["comfort"] == "new"
