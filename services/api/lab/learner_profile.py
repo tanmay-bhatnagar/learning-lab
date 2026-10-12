@@ -341,7 +341,7 @@ def apply_proficiency_batch(
         changed = {**entry, **fields, "updated_at": updated_at}
         changed["notes"] = _clean_notes(changed.get("notes", ""))
         if "comfort" in fields:
-            if fields["comfort"] not in {"comfortable", "refresher", "new", "unsure"}:
+            if fields["comfort"] not in {None, "comfortable", "refresher", "new", "unsure"}:
                 raise InvalidInput("Choose Comfortable, Needs a refresher, New to me, or Not sure.")
         entries = [changed if item["id"] == entry["id"] else item for item in next_state["entries"]]
         next_state = validate_proficiency({**next_state, "revision": next_state["revision"] + 1, "entries": entries})
