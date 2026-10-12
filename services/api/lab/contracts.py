@@ -59,6 +59,7 @@ class Message(TypedDict, total=False):
     incomplete: bool
     retrieval: dict[str, object]
     summary_import: dict[str, object]
+    prerequisite_import: dict[str, object]
 
 
 class Session(TypedDict, total=False):
