@@ -19,8 +19,12 @@ def _prepared(tmp_path, monkeypatch):
     write_json(
         store.topic(topic) / "files.json", [{"id": "synthetic-paper", "name": "synthetic.pdf", "status": "ready"}]
     )
-    attempt = {**_attempt(status="completed", finished_at="2026-10-13T10:01:00+00:00"), "topic_id": topic}
-    assessment = {**_assessment(), "topic_id": topic}
+    attempt = {
+        **_attempt(status="completed", finished_at="2026-10-12T10:01:00+00:00"),
+        "topic_id": topic,
+        "started_at": "2026-10-12T10:00:00+00:00",
+    }
+    assessment = {**_assessment(), "topic_id": topic, "finished_at": attempt["finished_at"]}
     write_prerequisite_attempt(
         store, topic, "synthetic-paper", {**attempt, "status": "generating", "finished_at": None}
     )

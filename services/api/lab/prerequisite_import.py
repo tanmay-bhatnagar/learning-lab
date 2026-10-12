@@ -101,7 +101,12 @@ def build_prerequisite_import(
         )
     except ValidationError as exc:
         raise InvalidInput("The completed prerequisite snapshot metadata is invalid.") from exc
-    return {"role": "user", "content": content, "prerequisite_import": metadata.model_dump(mode="json")}
+    message = {"role": "user", "content": content, "prerequisite_import": metadata.model_dump(mode="json")}
+    try:
+        validated_prerequisite_imports({"messages": [message]}, conversation_id)
+    except CorruptData as exc:
+        raise InvalidInput("The completed prerequisite snapshot is inconsistent.") from exc
+    return message
 
 
 def validated_prerequisite_imports(session: Session, conversation_id: str) -> list[Message]:
