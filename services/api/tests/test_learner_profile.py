@@ -249,9 +249,7 @@ def test_proficiency_projection_is_compact_scoped_and_does_not_mutate_state():
     )
 
     assert projection == (
-        "My proficiency (self-reported):\n"
-        "- Python basics: refresher — Some experience\n"
-        "- Probability: pending"
+        "My proficiency (self-reported):\n- Python basics: refresher — Some experience\n- Probability: pending"
     )
     assert "topic-one" not in projection
     assert with_requirement["entries"][1]["comfort"] is None

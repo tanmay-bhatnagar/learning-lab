@@ -5,8 +5,6 @@ from __future__ import annotations
 import copy
 import re
 import unicodedata
-import uuid
-from datetime import UTC, datetime
 from typing import Any, Literal
 
 from lab.errors import Conflict, CorruptData, InvalidInput, NotFound
@@ -70,6 +68,8 @@ def validate_profile(value: object) -> dict[str, Any]:
         if not isinstance(candidate, dict):
             raise CorruptData("Invalid CV record in learner profile; restore a compatible profile backup.")
         record = copy.deepcopy(candidate)
+        record.setdefault("parser", "unknown")
+        record.setdefault("parser_version", "unknown")
         cv_id = record.get("id")
         original_name = record.get("original_name")
         status = record.get("status")
@@ -188,9 +188,9 @@ def validate_proficiency(value: object) -> dict[str, Any]:
                 raise CorruptData("Duplicate manual proficiency concept; restore a compatible backup.")
             manual_labels.add(label)
         else:
-            if (
-                comfort not in {None, "comfortable", "refresher", "new", "unsure"}
-                or not all(isinstance(entry.get(key), str) and entry[key] for key in ("topic_id", "assessment_id", "requirement_id"))
+            if comfort not in {None, "comfortable", "refresher", "new", "unsure"} or not all(
+                isinstance(entry.get(key), str) and entry[key]
+                for key in ("topic_id", "assessment_id", "requirement_id")
             ):
                 raise CorruptData("Invalid model requirement provenance; restore a compatible backup.")
         if clean_concept != concept or clean_notes != notes:

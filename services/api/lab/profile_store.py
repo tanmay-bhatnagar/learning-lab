@@ -75,9 +75,7 @@ class ProfileStore:
         with self._locked():
             return validate_proficiency(read_json(self.proficiency_path, empty_proficiency()))
 
-    def add_proficiency(
-        self, *, concept: str, comfort: str, notes: str, expected_revision: int
-    ) -> dict[str, Any]:
+    def add_proficiency(self, *, concept: str, comfort: str, notes: str, expected_revision: int) -> dict[str, Any]:
         with self._locked():
             state = validate_proficiency(read_json(self.proficiency_path, empty_proficiency()))
             updated = add_manual_proficiency(
@@ -92,9 +90,7 @@ class ProfileStore:
             write_json(self.proficiency_path, updated)
             return copy.deepcopy(updated)
 
-    def update_proficiency(
-        self, entry_id: str, *, updates: dict[str, Any], expected_revision: int
-    ) -> dict[str, Any]:
+    def update_proficiency(self, entry_id: str, *, updates: dict[str, Any], expected_revision: int) -> dict[str, Any]:
         with self._locked():
             state = validate_proficiency(read_json(self.proficiency_path, empty_proficiency()))
             updated = update_manual_proficiency(

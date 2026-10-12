@@ -284,4 +284,3 @@ def test_profile_parser_failure_and_wrong_identifier_do_not_expose_paths(tmp_pat
     response = client.get("/api/profile/cvs/../../etc/passwd/original")
     assert response.status_code in {400, 404}
     assert "etc/passwd" not in response.text
-

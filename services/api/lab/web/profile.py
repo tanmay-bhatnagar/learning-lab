@@ -67,11 +67,11 @@ def router(deps: AppDeps) -> APIRouter:
             try:
                 parsed = await run_in_threadpool(deps.profile_parser, raw, name, parser)
                 canonical_text, native_document, parser_version, diagnostics = _validated_parse(parsed, parser)
-            except Exception as exc:  # noqa: BLE001 - persist the original as an ineligible CV record
+            except ValueError as exc:
                 canonical_text = ""
                 native_document = None
                 parser_version = "unknown"
-                diagnostics = {"status": "error", "findings": [f"CV conversion failed ({type(exc).__name__})."]}
+                diagnostics = {"status": "error", "findings": [str(exc)]}
             record = await run_in_threadpool(
                 deps.profile_store.register_cv,
                 name,
@@ -131,11 +131,7 @@ def router(deps: AppDeps) -> APIRouter:
 
     @routes.patch("/api/profile/proficiency/entries/{entry_id}")
     def update_proficiency(entry_id: str, body: ProficiencyUpdateInput):
-        updates = {
-            key: getattr(body, key)
-            for key in ("concept", "comfort", "notes")
-            if key in body.model_fields_set
-        }
+        updates = {key: getattr(body, key) for key in ("concept", "comfort", "notes") if key in body.model_fields_set}
         return deps.profile_store.update_proficiency(
             entry_id, updates=updates, expected_revision=body.expected_revision
         )
@@ -171,7 +167,11 @@ def _validated_parse(parsed: object, parser: str) -> tuple[str, dict[str, Any] |
     if result_parser != parser:
         raise ValueError("CV parser identity did not match the requested parser")
     if not canonical_text.strip():
-        diagnostics = {**diagnostics, "status": "error", "findings": [*diagnostics.get("findings", []), "No CV text was extracted."]}
+        diagnostics = {
+            **diagnostics,
+            "status": "error",
+            "findings": [*diagnostics.get("findings", []), "No CV text was extracted."],
+        }
     elif diagnostics.get("status") == "ready" and "note" not in diagnostics:
         diagnostics = {
             **diagnostics,
