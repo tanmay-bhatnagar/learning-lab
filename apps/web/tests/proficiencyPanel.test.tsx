@@ -45,6 +45,28 @@ describe('My proficiency panel', () => {
     ]);
   });
 
+  test('reconciles a saved manual draft with the server-assigned entry ID', async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn();
+    const view = render(<MyProficiencyPanel {...baseProps} onSave={onSave} />);
+    await user.type(screen.getByRole('textbox', { name: 'Add a skill or concept' }), 'Basic Python');
+    await user.click(screen.getByRole('button', { name: 'Add skill' }));
+    const draft = screen.getByRole('group', { name: 'Basic Python' });
+    await user.selectOptions(within(draft).getByLabelText('Your comfort with Basic Python'), 'new');
+    await user.click(screen.getByRole('button', { name: 'Save proficiency' }));
+
+    view.rerender(
+      <MyProficiencyPanel
+        {...baseProps}
+        entries={[{ id: 'server-entry-1', concept: 'Basic Python', comfort: 'new', note: '', kind: 'manual' }]}
+        onSave={onSave}
+      />,
+    );
+
+    expect(screen.getAllByRole('group', { name: 'Basic Python' })).toHaveLength(1);
+    expect(screen.getByLabelText('Your comfort with Basic Python')).toHaveValue('new');
+  });
+
   test('asks independently about every model requirement and keeps its recommendation distinct from self-report', async () => {
     const user = userEvent.setup();
     const onSave = vi.fn();
@@ -124,6 +146,24 @@ describe('My proficiency panel', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Could not save proficiency.');
     expect(within(skill).getByLabelText('Your comfort with Linear algebra')).toHaveValue('refresher');
+  });
+
+  test('prevents a second proficiency save while the first save is pending', async () => {
+    let finishSave: (() => void) | undefined;
+    const onSave = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finishSave = resolve;
+        }),
+    );
+    render(<MyProficiencyPanel {...baseProps} onSave={onSave} />);
+    const saveButton = screen.getByRole('button', { name: 'Save proficiency' });
+
+    fireEvent.click(saveButton);
+    fireEvent.click(saveButton);
+
+    expect(onSave).toHaveBeenCalledTimes(1);
+    finishSave?.();
   });
 
   test('keeps the selected file and editable name visible when duplicate-name upload fails', async () => {
