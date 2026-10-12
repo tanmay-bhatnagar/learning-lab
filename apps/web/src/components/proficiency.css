@@ -1,0 +1,191 @@
+.my-proficiency-panel {
+  display: grid;
+  gap: 24px;
+  max-width: 880px;
+  padding: 24px;
+  overflow: auto;
+}
+
+.proficiency-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.proficiency-header p:last-child,
+.proficiency-section > p:last-of-type {
+  margin-bottom: 0;
+}
+
+.proficiency-section {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid #e0e5da;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.proficiency-section h3,
+.proficiency-card h4,
+.proficiency-cv-preview h4 {
+  margin: 0;
+  color: #344f32;
+  font-family: Manrope, sans-serif;
+}
+
+.proficiency-section h3 {
+  font-size: 16px;
+}
+
+.proficiency-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid #e7ebe2;
+  border-radius: 10px;
+  background: #fbfcf9;
+}
+
+.proficiency-card-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.proficiency-card-heading p {
+  margin: 5px 0 0;
+}
+
+.proficiency-field {
+  display: grid;
+  gap: 6px;
+  color: #596552;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.proficiency-field input,
+.proficiency-field select,
+.proficiency-field textarea {
+  width: 100%;
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid #dce2d6;
+  border-radius: 7px;
+  background: #fff;
+  color: #293c30;
+}
+
+.proficiency-field textarea {
+  resize: vertical;
+}
+
+.proficiency-question {
+  margin: 4px 0 -4px;
+  color: #344f32;
+  font-weight: 700;
+}
+
+.proficiency-source,
+.proficiency-self-report {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #e9efe3;
+  color: #4b6544;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.proficiency-add-row,
+.proficiency-cv-upload {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+}
+
+.proficiency-cv-upload {
+  grid-template-columns: repeat(2, minmax(180px, 1fr)) auto;
+}
+
+.proficiency-cv-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.proficiency-cv-list li {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid #e7ebe2;
+  border-radius: 8px;
+}
+
+.proficiency-cv-list li.selected {
+  border-color: #9bb18a;
+  background: #f5f8f1;
+}
+
+.proficiency-cv-preview pre {
+  max-height: 260px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 12px;
+  border: 1px solid #e7ebe2;
+  border-radius: 8px;
+  background: #f8faf6;
+  font:
+    12px/1.6 ui-monospace,
+    SFMono-Regular,
+    Consolas,
+    monospace;
+}
+
+.proficiency-warning,
+.proficiency-error {
+  padding: 12px;
+  border-radius: 8px;
+  color: #7a3e20;
+  background: #fbf0e9;
+}
+
+.proficiency-warning ul {
+  margin-bottom: 0;
+}
+
+.proficiency-cv-toggle {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-weight: 700;
+}
+
+.proficiency-cv-toggle input {
+  accent-color: #527247;
+}
+
+@media (max-width: 640px) {
+  .my-proficiency-panel {
+    padding: 16px;
+  }
+
+  .proficiency-add-row,
+  .proficiency-cv-upload {
+    grid-template-columns: 1fr;
+  }
+
+  .proficiency-card-heading {
+    flex-direction: column;
+  }
+}

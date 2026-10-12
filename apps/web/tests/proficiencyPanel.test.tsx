@@ -48,19 +48,24 @@ describe('My proficiency panel', () => {
   test('asks independently about every model requirement and keeps its recommendation distinct from self-report', async () => {
     const user = userEvent.setup();
     const onSave = vi.fn();
-    render(
+    const view = render(
       <MyProficiencyPanel
         {...baseProps}
         requirements={[
           { id: 'python', concept: 'Python', rationale: 'Needed to run the examples.', sourceLabel: 'CV and paper' },
-          { id: 'statistics', concept: 'Statistics', rationale: 'Needed to interpret the results.', sourceLabel: 'Paper' },
+          {
+            id: 'statistics',
+            concept: 'Statistics',
+            rationale: 'Needed to interpret the results.',
+            sourceLabel: 'Paper',
+          },
         ]}
         onSave={onSave}
       />,
     );
 
-    expect(screen.getByText('Model suggestion')).toBeInTheDocument();
-    expect(screen.getByText('User self-report')).toBeInTheDocument();
+    expect(screen.getAllByText('Model suggestion')).toHaveLength(2);
+    expect(screen.getAllByText('User self-report')).toHaveLength(2);
     const python = screen.getByRole('group', { name: 'Python' });
     const statistics = screen.getByRole('group', { name: 'Statistics' });
     expect(within(python).getByText('Are you already comfortable with Python?')).toBeInTheDocument();
@@ -70,6 +75,24 @@ describe('My proficiency panel', () => {
     await user.selectOptions(within(python).getByLabelText('Your comfort with Python'), 'unsure');
     expect(within(statistics).getByLabelText('Your comfort with Statistics')).toHaveValue('');
     expect(onSave).not.toHaveBeenCalled();
+
+    view.rerender(
+      <MyProficiencyPanel
+        {...baseProps}
+        requirements={[
+          { id: 'python', concept: 'Python', rationale: 'Updated evidence.', sourceLabel: 'Paper' },
+          {
+            id: 'statistics',
+            concept: 'Statistics',
+            rationale: 'Needed to interpret the results.',
+            sourceLabel: 'Paper',
+          },
+          { id: 'algebra', concept: 'Algebra', rationale: 'Needed for the notation.', sourceLabel: 'Paper' },
+        ]}
+      />,
+    );
+    expect(screen.getByLabelText('Your comfort with Python')).toHaveValue('unsure');
+    expect(screen.getByLabelText('Your comfort with Algebra')).toHaveValue('');
   });
 
   test('uses the exact edited CV filename and waits for explicit upload submission', async () => {
@@ -85,6 +108,22 @@ describe('My proficiency panel', () => {
     expect(onUploadCv).not.toHaveBeenCalled();
     await user.click(screen.getByRole('button', { name: 'Upload CV' }));
     await waitFor(() => expect(onUploadCv).toHaveBeenCalledWith(file, 'Research CV.pdf'));
+  });
+
+  test('keeps manual answers visible and reports a proficiency save failure', async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn(async () => {
+      throw new Error('Could not save proficiency.');
+    });
+    render(<MyProficiencyPanel {...baseProps} onSave={onSave} />);
+    await user.type(screen.getByRole('textbox', { name: 'Add a skill or concept' }), 'Linear algebra');
+    await user.click(screen.getByRole('button', { name: 'Add skill' }));
+    const skill = screen.getByRole('group', { name: 'Linear algebra' });
+    await user.selectOptions(within(skill).getByLabelText('Your comfort with Linear algebra'), 'refresher');
+    await user.click(screen.getByRole('button', { name: 'Save proficiency' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not save proficiency.');
+    expect(within(skill).getByLabelText('Your comfort with Linear algebra')).toHaveValue('refresher');
   });
 
   test('keeps the selected file and editable name visible when duplicate-name upload fails', async () => {
@@ -124,7 +163,9 @@ describe('My proficiency panel', () => {
     );
 
     expect(screen.getByText('Synthetic extracted CV text.')).toBeInTheDocument();
-    expect(screen.getByText('Complete extracted text is included on every applicable turn and uses more context.')).toBeInTheDocument();
+    expect(
+      screen.getByText('Complete extracted text is included on every applicable turn and uses more context.'),
+    ).toBeInTheDocument();
     await user.click(screen.getByRole('checkbox', { name: 'Always include CV in this conversation' }));
     expect(onIncludeCvChange).toHaveBeenCalledWith(true);
   });
