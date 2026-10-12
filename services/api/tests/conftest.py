@@ -8,6 +8,7 @@ def isolated_runtime_policy(tmp_path_factory):
     policy_path.write_text("Synthetic test runtime policy.", encoding="utf-8")
     with pytest.MonkeyPatch.context() as isolated_env:
         isolated_env.setenv("LEARNING_LAB_POLICY_PATH", str(policy_path))
+        isolated_env.setenv("LEARNING_LAB_PROFILE_ROOT", str(tmp_path_factory.mktemp("profile")))
         yield
 
 

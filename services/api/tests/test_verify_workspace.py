@@ -38,12 +38,14 @@ def test_isolated_environment_overrides_personal_paths(monkeypatch, tmp_path):
     monkeypatch.setenv("LEARNING_LAB_ROOT", "/personal/topics")
     monkeypatch.setenv("LEARNING_LAB_STATE_ROOT", "/personal/state")
     monkeypatch.setenv("LEARNING_LAB_SETTINGS", "/personal/settings.json")
+    monkeypatch.setenv("LEARNING_LAB_PROFILE_ROOT", "/personal/Profile")
 
     env = verify.isolated_environment(os.environ, tmp_path / "run", "http://127.0.0.1:8123")
 
     assert Path(env["LEARNING_LAB_ROOT"]).is_relative_to(tmp_path)
     assert Path(env["LEARNING_LAB_STATE_ROOT"]).is_relative_to(tmp_path)
     assert Path(env["LEARNING_LAB_SETTINGS"]).is_relative_to(tmp_path)
+    assert Path(env["LEARNING_LAB_PROFILE_ROOT"]) == (tmp_path / "run" / "Profile").resolve()
     assert Path(env["LEARNING_LAB_POLICY_PATH"]) == (tmp_path / "run" / "runtime-policy.md").resolve()
     assert env["LEARNING_LAB_API_URL"] == "http://127.0.0.1:8123"
 
