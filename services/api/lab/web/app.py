@@ -20,10 +20,13 @@ from lab.profile_parse import parse_profile_pdf
 from lab.web import (
     chat,
     conversations,
+    conversation_profile,
     document_map_summaries,
     document_maps,
     files,
     profile,
+    prerequisites,
+    prerequisite_imports,
     settings,
     summary_imports,
     topics,
@@ -94,6 +97,9 @@ def create_app(
 
     app.include_router(settings.router(deps))
     app.include_router(profile.router(deps))
+    app.include_router(conversation_profile.router(deps))
+    app.include_router(prerequisites.router(deps))
+    app.include_router(prerequisite_imports.router(deps))
     app.include_router(topics.router(deps))
     app.include_router(files.router(deps))
     app.include_router(document_maps.router(deps))
