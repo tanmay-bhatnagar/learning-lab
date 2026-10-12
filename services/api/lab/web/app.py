@@ -13,6 +13,7 @@ from lab.config import AppConfig, load_config
 from lab.contracts import ModelGateway
 from lab.errors import DomainError
 from lab.models import OllamaGateway
+from lab.profile_store import ProfileStore
 from lab.storage import Store
 from lab.web import chat, conversations, document_map_summaries, document_maps, files, settings, summary_imports, topics
 from lab.web.deps import AppDeps, ParserFn, RetrieverFn, StructuredParserFn
@@ -38,9 +39,11 @@ def create_app(
         runtime_policy_path=runtime_policy_path,
     )
     store = Store(loaded.learning_root, loaded.settings_path)
+    profile_store = ProfileStore(loaded.profile_root)
     gateway = model_backend or OllamaGateway(loaded.ollama_base_url)
     deps = AppDeps(
         store=store,
+        profile_store=profile_store,
         config=loaded,
         model_backend=gateway,
         structured_parser=structured_parser,

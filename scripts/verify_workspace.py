@@ -26,6 +26,7 @@ def isolated_environment(inherited_env: Mapping[str, str], run_dir: Path, api_ur
     """Isolate writable data while directing Docling to the explicit local artifact path."""
     run_dir = Path(run_dir).resolve()
     data_root = run_dir / "Learning"
+    profile_root = run_dir / "Profile"
     state_root = run_dir / "state"
     env = dict(inherited_env)
     for key in tuple(env):
@@ -34,6 +35,7 @@ def isolated_environment(inherited_env: Mapping[str, str], run_dir: Path, api_ur
     return {
         **env,
         "LEARNING_LAB_ROOT": str(data_root),
+        "LEARNING_LAB_PROFILE_ROOT": str(profile_root),
         "LEARNING_LAB_STATE_ROOT": str(state_root),
         "LEARNING_LAB_SETTINGS": str(state_root / "settings.json"),
         "LEARNING_LAB_POLICY_PATH": str(run_dir / "runtime-policy.md"),

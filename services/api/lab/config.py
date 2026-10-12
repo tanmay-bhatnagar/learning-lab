@@ -9,6 +9,7 @@ from typing import Any
 
 CODE_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_LEARNING_ROOT = CODE_ROOT.parent / "Learning"
+DEFAULT_PROFILE_ROOT = CODE_ROOT.parent / "Profile"
 DEFAULT_STATE_ROOT = CODE_ROOT / ".local"
 DEFAULT_SETTINGS_NAME = "settings.json"
 DEFAULT_MAX_UPLOAD_BYTES = 25 * 1024 * 1024
@@ -31,6 +32,7 @@ def _optional_path(value: str | None) -> Path | None:
 @dataclass(frozen=True, slots=True)
 class AppConfig:
     learning_root: Path
+    profile_root: Path
     state_root: Path
     settings_path: Path
     max_upload_bytes: int
@@ -43,6 +45,7 @@ class AppConfig:
 def load_config(
     *,
     learning_root: Path | None = None,
+    profile_root: Path | None = None,
     settings_path: Path | None = None,
     max_upload_bytes: int | None = None,
     ollama_base_url: str | None = None,
@@ -74,6 +77,13 @@ def load_config(
             if learning_root is not None
             else os.environ.get("LEARNING_LAB_ROOT", str(DEFAULT_LEARNING_ROOT))
         ).expanduser(),
+        profile_root=Path(
+            profile_root
+            if profile_root is not None
+            else os.environ.get("LEARNING_LAB_PROFILE_ROOT", str(DEFAULT_PROFILE_ROOT))
+        )
+        .expanduser()
+        .resolve(),
         state_root=state_root,
         settings_path=Path(
             settings_path
