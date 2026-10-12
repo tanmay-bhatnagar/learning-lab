@@ -21,6 +21,7 @@ from lab.learner_profile import (
     empty_profile,
     empty_proficiency,
     filename_collision_key,
+    register_model_requirements_state,
     revoke_cv_record,
     select_cv_record,
     update_manual_proficiency,
@@ -120,6 +121,40 @@ class ProfileStore:
                 expected_revision=expected_revision,
                 entry_ids=[uuid.uuid4().hex for _ in additions],
                 updated_at=datetime.now(UTC).isoformat(),
+            )
+            if updated != state:
+                write_json(self.proficiency_path, updated)
+            return copy.deepcopy(updated)
+
+    def register_model_requirements(
+        self,
+        requirements: list[dict[str, Any]],
+        *,
+        topic_id: str,
+        assessment_id: str,
+        selected_cv_id: str,
+        selected_cv_text_sha256: str,
+    ) -> dict[str, Any]:
+        """Atomically register a generated assessment's pending requirements against the still-selected CV."""
+        if not isinstance(requirements, list):
+            raise InvalidInput("Prerequisite requirements must be a list.")
+        with self._locked():
+            profile = self._read_unlocked()
+            if profile["active_cv_id"] != selected_cv_id:
+                raise Conflict("The selected CV changed while prerequisites were being generated; retry.")
+            cv = self._find_record(profile, selected_cv_id)
+            if cv["status"] != "ready" or cv["revoked"] or cv["extracted_sha256"] != selected_cv_text_sha256:
+                raise Conflict("The selected CV version changed while prerequisites were being generated; retry.")
+            state = validate_proficiency(read_json(self.proficiency_path, empty_proficiency()))
+            entry_ids = [uuid.uuid4().hex for _ in requirements]
+            updated = register_model_requirements_state(
+                state,
+                requirements,
+                topic_id=topic_id,
+                assessment_id=assessment_id,
+                entry_ids=entry_ids,
+                updated_at=datetime.now(UTC).isoformat(),
+                expected_revision=state["revision"],
             )
             if updated != state:
                 write_json(self.proficiency_path, updated)

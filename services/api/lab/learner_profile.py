@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import re
 import unicodedata
 from typing import Any, Literal
@@ -14,6 +15,7 @@ PROFICIENCY_VERSION = 1
 MAX_PROFICIENCY_ENTRIES = 500
 Comfort = Literal["comfortable", "refresher", "new", "unsure"]
 _CV_ID = re.compile(r"^[a-f0-9]{32}$")
+_REQUIREMENT_ID = re.compile(r"^req-[a-f0-9]{24}$")
 _WINDOWS_RESERVED = {
     "con",
     "prn",
@@ -347,6 +349,101 @@ def apply_proficiency_batch(
         next_state = validate_proficiency({**next_state, "revision": next_state["revision"] + 1, "entries": entries})
 
     return validate_proficiency({**next_state, "revision": current["revision"] + 1})
+
+
+def register_model_requirements_state(
+    state: dict[str, Any],
+    requirements: list[dict[str, Any]],
+    *,
+    topic_id: str,
+    assessment_id: str,
+    entry_ids: list[str],
+    updated_at: str,
+    expected_revision: int,
+) -> dict[str, Any]:
+    """Register app-validated requirements as pending entries without changing prior learner answers."""
+    current = validate_proficiency(state)
+    _require_revision(current, expected_revision)
+    if (
+        not isinstance(topic_id, str)
+        or not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,79}", topic_id)
+        or not isinstance(assessment_id, str)
+        or not assessment_id
+        or len(assessment_id) > 100
+        or any(ord(char) < 32 for char in assessment_id)
+    ):
+        raise InvalidInput("Prerequisite registration identity is invalid.")
+    if not isinstance(requirements, list) or not isinstance(entry_ids, list) or len(requirements) != len(entry_ids):
+        raise InvalidInput("Prerequisite requirements and server entry identities do not match.")
+    if not isinstance(updated_at, str) or not updated_at or len(updated_at) > 100:
+        raise InvalidInput("A valid proficiency update timestamp is required.")
+
+    requirement_ids: list[str] = []
+    clean_requirements: list[dict[str, str]] = []
+    for index, requirement in enumerate(requirements):
+        if not isinstance(requirement, dict) or not {"requirement_id", "concept"}.issubset(requirement):
+            raise InvalidInput("Prerequisite registration requires validated concept identities.")
+        requirement_id = requirement["requirement_id"]
+        expected_id = "req-" + hashlib.sha256(f"{assessment_id}:{index}".encode("utf-8")).hexdigest()[:24]
+        if (
+            not isinstance(requirement_id, str)
+            or not _REQUIREMENT_ID.fullmatch(requirement_id)
+            or requirement_id != expected_id
+        ):
+            raise InvalidInput("Prerequisite requirement identity is invalid or out of order.")
+        requirement_ids.append(requirement_id)
+        clean_requirements.append({"requirement_id": requirement_id, "concept": _clean_concept(requirement["concept"])})
+    if len(requirement_ids) != len(set(requirement_ids)):
+        raise InvalidInput("Prerequisite registration contains duplicate requirement identities.")
+    if len(entry_ids) != len(set(entry_ids)) or any(
+        not isinstance(entry_id, str) or not _CV_ID.fullmatch(entry_id) for entry_id in entry_ids
+    ):
+        raise InvalidInput("Server-generated proficiency entry identities are invalid.")
+
+    existing: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for entry in current["entries"]:
+        if entry["source_kind"] != "model_requirement":
+            continue
+        key = (entry["topic_id"], entry["assessment_id"], entry["requirement_id"])
+        if key in existing:
+            raise CorruptData("Duplicate model requirement identity in My proficiency; restore a backup.")
+        existing[key] = entry
+
+    additions = []
+    for requirement, entry_id in zip(clean_requirements, entry_ids, strict=True):
+        key = (topic_id, assessment_id, requirement["requirement_id"])
+        prior = existing.get(key)
+        if prior is not None:
+            if prior["concept"] != requirement["concept"]:
+                raise Conflict("A registered assessment requirement cannot change its concept.")
+            continue
+        if entry_id in {entry["id"] for entry in current["entries"]}:
+            raise Conflict("Server-generated proficiency entry identity is already in use.")
+        additions.append(
+            {
+                "id": entry_id,
+                "concept": requirement["concept"],
+                "comfort": None,
+                "notes": "",
+                "source_kind": "model_requirement",
+                "topic_id": topic_id,
+                "assessment_id": assessment_id,
+                "requirement_id": requirement["requirement_id"],
+                "updated_at": updated_at,
+            }
+        )
+
+    if len(current["entries"]) + len(additions) > MAX_PROFICIENCY_ENTRIES:
+        raise InvalidInput(f"My proficiency supports up to {MAX_PROFICIENCY_ENTRIES} entries.")
+    if not additions:
+        return current
+    return validate_proficiency(
+        {
+            **current,
+            "revision": current["revision"] + 1,
+            "entries": [*current["entries"], *additions],
+        }
+    )
 
 
 def proficiency_context(

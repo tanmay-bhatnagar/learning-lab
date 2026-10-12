@@ -15,6 +15,7 @@ from lab.learner_profile import (
     proficiency_context,
     update_manual_proficiency,
     validate_cv_filename,
+    register_model_requirements_state,
 )
 from lab.profile_store import ProfileStore
 
@@ -327,10 +328,14 @@ def _model_requirements(assessment_id="assessment-one"):
         {
             "requirement_id": "req-" + hashlib.sha256(f"{assessment_id}:0".encode()).hexdigest()[:24],
             "concept": "Python fundamentals",
+            "comfort": "comfortable",
+            "notes": "Model text cannot answer the learner's question.",
         },
         {
             "requirement_id": "req-" + hashlib.sha256(f"{assessment_id}:1".encode()).hexdigest()[:24],
             "concept": "Probability",
+            "comfort": "comfortable",
+            "notes": "Model text cannot answer the learner's question.",
         },
     ]
 
@@ -505,3 +510,26 @@ def test_same_registration_identity_cannot_change_requirement_concept(tmp_path):
         )
 
     assert store.read_proficiency() == before
+
+
+def test_pure_registration_uses_explicit_identity_and_time_without_mutating_inputs():
+    state = empty_proficiency()
+    requirements = _model_requirements("assessment-pure")
+    original_requirements = [dict(requirement) for requirement in requirements]
+    inputs = {
+        "topic_id": "topic-one",
+        "assessment_id": "assessment-pure",
+        "entry_ids": ["8" * 32, "9" * 32],
+        "updated_at": "2026-10-13T00:00:00+00:00",
+        "expected_revision": 0,
+    }
+
+    updated = register_model_requirements_state(state, requirements, **inputs)
+    repeated = register_model_requirements_state(state, requirements, **inputs)
+
+    assert updated == repeated
+    assert [entry["id"] for entry in updated["entries"]] == inputs["entry_ids"]
+    assert all(entry["comfort"] is None and entry["notes"] == "" for entry in updated["entries"])
+    assert all(entry["updated_at"] == inputs["updated_at"] for entry in updated["entries"])
+    assert state == empty_proficiency()
+    assert requirements == original_requirements
