@@ -422,3 +422,15 @@ def test_invalid_or_unsupported_model_output_is_rejected(response):
             cv_text=CV_TEXT,
             assessment_id="assessment-1",
         )
+
+
+def test_existing_topic_goal_length_is_supported_without_truncation():
+    goal = "Learn the method. " * 60
+    plan = build_prerequisite_plan(
+        _map_record(), "section-root", selected_cv=_cv_record(), cv_text=CV_TEXT,
+        runtime_policy="Complete runtime policy.", goal=goal, model="local-model",
+        context_limit=8192, think=False, assessment_id="assessment-1",
+        attempt_id="attempt-1", started_at="2026-10-13T00:00:00+00:00",
+    )
+    assert plan["provenance"]["goal"] == goal.strip()
+    assert goal.strip() in plan["messages"][1]["content"]
