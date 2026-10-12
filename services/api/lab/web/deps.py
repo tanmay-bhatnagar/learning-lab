@@ -15,6 +15,7 @@ from lab.profile_store import ProfileStore
 
 ParserFn = Callable[[bytes, str], str]
 StructuredParserFn = Callable[..., tuple[dict[str, object], list[IndexedChunk]]]
+ProfileParserFn = Callable[[bytes, str, str], dict[str, object]]
 RetrieverFn = Callable[..., Awaitable[dict[str, object]]]
 
 
@@ -30,6 +31,7 @@ class ActiveSummary:
 class AppDeps:
     store: Store
     profile_store: ProfileStore
+    profile_parser: ProfileParserFn
     config: AppConfig
     model_backend: ModelGateway
     model_generation_lock: asyncio.Lock = field(default_factory=asyncio.Lock)

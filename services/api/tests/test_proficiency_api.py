@@ -104,3 +104,38 @@ def test_manual_proficiency_updates_never_invoke_learning_model(tmp_path):
         json={"expected_revision": 0, "concept": "Probability", "comfort": "unsure", "notes": ""},
     )
     assert response.status_code == 201
+
+
+def test_my_proficiency_remains_usable_when_cv_storage_is_corrupt(tmp_path):
+    def parsed_cv(data: bytes, filename: str, parser: str):
+        return {
+            "canonical_text": "synthetic CV text",
+            "native_document": None,
+            "parser": parser,
+            "parser_version": "test",
+            "diagnostics": {"status": "ready", "findings": []},
+        }
+
+    profile_root = tmp_path / "Profile"
+    client = TestClient(
+        create_app(
+            tmp_path / "Learning",
+            tmp_path / "state/settings.json",
+            profile_root=profile_root,
+            profile_parser=parsed_cv,
+        )
+    )
+    uploaded = client.post(
+        "/api/profile/cvs",
+        files={"file": ("cv.pdf", b"%PDF-1.7\nsynthetic", "application/pdf")},
+        data={"original_name": "CV.pdf", "parser": "docling"},
+    )
+    assert uploaded.status_code == 201
+    (profile_root / "CVs" / "CV.pdf").write_bytes(b"changed")
+
+    created = client.post(
+        "/api/profile/proficiency/entries",
+        json={"expected_revision": 0, "concept": "Statistics", "comfort": "new", "notes": ""},
+    )
+    assert created.status_code == 201
+    assert client.get("/api/profile/proficiency").json()["entries"][0]["concept"] == "Statistics"

@@ -8,7 +8,13 @@ from pathlib import Path
 import pytest
 
 from lab.errors import Conflict, CorruptData, Forbidden, InvalidInput
-from lab.learner_profile import filename_collision_key, validate_cv_filename
+from lab.learner_profile import (
+    add_manual_proficiency,
+    empty_proficiency,
+    filename_collision_key,
+    proficiency_context,
+    validate_cv_filename,
+)
 from lab.profile_store import ProfileStore
 
 
@@ -205,3 +211,45 @@ def test_concurrent_processes_cannot_register_normalized_name_collision(tmp_path
     assert sorted(outcome for outcome, _ in outcomes) == ["conflict", "ready"]
     stored = next(path.read_bytes() for path in (tmp_path / "CVs").iterdir() if path.name != ".records")
     assert stored in {b"first", b"second"}
+
+
+def test_proficiency_projection_is_compact_scoped_and_does_not_mutate_state():
+    original = empty_proficiency()
+    state = add_manual_proficiency(
+        original,
+        concept="Python basics",
+        comfort="refresher",
+        notes="Some experience",
+        expected_revision=0,
+    )
+    with_requirement = {
+        **state,
+        "entries": [
+            *state["entries"],
+            {
+                "id": "a" * 32,
+                "concept": "Probability",
+                "comfort": None,
+                "notes": "",
+                "source_kind": "model_requirement",
+                "topic_id": "topic-one",
+                "assessment_id": "assessment-one",
+                "requirement_id": "requirement-one",
+            },
+        ],
+    }
+
+    projection = proficiency_context(
+        with_requirement,
+        topic_id="topic-one",
+        active_assessment_id="assessment-one",
+    )
+
+    assert projection == (
+        "My proficiency (self-reported):\n"
+        "- Python basics: refresher — Some experience\n"
+        "- Probability: pending"
+    )
+    assert "topic-one" not in projection
+    assert with_requirement["entries"][1]["comfort"] is None
+    assert original == empty_proficiency()

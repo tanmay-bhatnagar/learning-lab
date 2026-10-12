@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from functools import partial
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,8 +16,19 @@ from lab.errors import DomainError
 from lab.models import OllamaGateway
 from lab.profile_store import ProfileStore
 from lab.storage import Store
-from lab.web import chat, conversations, document_map_summaries, document_maps, files, settings, summary_imports, topics
-from lab.web.deps import AppDeps, ParserFn, RetrieverFn, StructuredParserFn
+from lab.profile_parse import parse_profile_pdf
+from lab.web import (
+    chat,
+    conversations,
+    document_map_summaries,
+    document_maps,
+    files,
+    profile,
+    settings,
+    summary_imports,
+    topics,
+)
+from lab.web.deps import AppDeps, ParserFn, ProfileParserFn, RetrieverFn, StructuredParserFn
 from lab.web.middleware import UploadBodyLimit, browser_boundary_middleware
 
 
@@ -30,6 +42,8 @@ def create_app(
     parser_map: dict[str, ParserFn] | None = None,
     config: AppConfig | None = None,
     runtime_policy_path: Path | None = None,
+    profile_root: Path | None = None,
+    profile_parser: ProfileParserFn | None = None,
 ) -> FastAPI:
     """Build the Learning Lab API; explicit arguments override environment defaults."""
     loaded = config or load_config(
@@ -37,13 +51,20 @@ def create_app(
         settings_path=Path(settings_path) if settings_path is not None else None,
         max_upload_bytes=max_upload_bytes,
         runtime_policy_path=runtime_policy_path,
+        profile_root=profile_root,
     )
     store = Store(loaded.learning_root, loaded.settings_path)
     profile_store = ProfileStore(loaded.profile_root)
+    selected_profile_parser = profile_parser or partial(
+        parse_profile_pdf,
+        parser_map=parser_map,
+        artifacts_path=loaded.docling_artifacts_path,
+    )
     gateway = model_backend or OllamaGateway(loaded.ollama_base_url)
     deps = AppDeps(
         store=store,
         profile_store=profile_store,
+        profile_parser=selected_profile_parser,
         config=loaded,
         model_backend=gateway,
         structured_parser=structured_parser,
@@ -72,6 +93,7 @@ def create_app(
     app.middleware("http")(browser_boundary_middleware(origins, limit))
 
     app.include_router(settings.router(deps))
+    app.include_router(profile.router(deps))
     app.include_router(topics.router(deps))
     app.include_router(files.router(deps))
     app.include_router(document_maps.router(deps))

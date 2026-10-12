@@ -5,11 +5,16 @@ from __future__ import annotations
 import copy
 import re
 import unicodedata
-from typing import Any
+import uuid
+from datetime import UTC, datetime
+from typing import Any, Literal
 
-from lab.errors import Conflict, CorruptData, InvalidInput
+from lab.errors import Conflict, CorruptData, InvalidInput, NotFound
 
 PROFILE_VERSION = 1
+PROFICIENCY_VERSION = 1
+MAX_PROFICIENCY_ENTRIES = 50
+Comfort = Literal["comfortable", "refresher", "new", "unsure"]
 _CV_ID = re.compile(r"^[a-f0-9]{32}$")
 _WINDOWS_RESERVED = {
     "con",
@@ -132,3 +137,178 @@ def revoke_cv_record(profile: dict[str, Any], cv_id: str, expected_revision: int
 def _require_revision(profile: dict[str, Any], expected_revision: int) -> None:
     if type(expected_revision) is not int or expected_revision != profile["revision"]:
         raise Conflict("Learner profile changed; reload it before saving this update.")
+
+
+def empty_proficiency() -> dict[str, Any]:
+    return {"schema_version": PROFICIENCY_VERSION, "revision": 0, "entries": []}
+
+
+def validate_proficiency(value: object) -> dict[str, Any]:
+    if not isinstance(value, dict) or value.get("schema_version") != PROFICIENCY_VERSION:
+        raise CorruptData("Unsupported or invalid My proficiency data; restore a compatible backup.")
+    revision = value.get("revision")
+    entries = value.get("entries")
+    if type(revision) is not int or revision < 0 or not isinstance(entries, list):
+        raise CorruptData("Invalid My proficiency data; restore a compatible backup.")
+    if len(entries) > MAX_PROFICIENCY_ENTRIES:
+        raise CorruptData("My proficiency exceeds its supported entry limit; restore a compatible backup.")
+    normalized: list[dict[str, Any]] = []
+    ids: set[str] = set()
+    manual_labels: set[str] = set()
+    for candidate in entries:
+        if not isinstance(candidate, dict):
+            raise CorruptData("Invalid proficiency entry; restore a compatible backup.")
+        entry = copy.deepcopy(candidate)
+        entry_id = entry.get("id")
+        concept = entry.get("concept")
+        comfort = entry.get("comfort")
+        notes = entry.get("notes", "")
+        source_kind = entry.get("source_kind")
+        if (
+            not isinstance(entry_id, str)
+            or not _CV_ID.fullmatch(entry_id)
+            or entry_id in ids
+            or not isinstance(concept, str)
+            or not isinstance(notes, str)
+            or source_kind not in {"user_manual", "model_requirement"}
+        ):
+            raise CorruptData("Invalid proficiency entry; restore a compatible backup.")
+        try:
+            clean_concept = _clean_concept(concept)
+            clean_notes = _clean_notes(notes)
+        except InvalidInput:
+            raise CorruptData("Invalid proficiency entry text; restore a compatible backup.") from None
+        if source_kind == "user_manual":
+            if comfort not in {"comfortable", "refresher", "new", "unsure"}:
+                raise CorruptData("Invalid manual proficiency level; restore a compatible backup.")
+            if any(key in entry for key in ("topic_id", "assessment_id", "requirement_id")):
+                raise CorruptData("Manual proficiency cannot carry model assessment identity.")
+            label = proficiency_label_key(clean_concept)
+            if label in manual_labels:
+                raise CorruptData("Duplicate manual proficiency concept; restore a compatible backup.")
+            manual_labels.add(label)
+        else:
+            if (
+                comfort not in {None, "comfortable", "refresher", "new", "unsure"}
+                or not all(isinstance(entry.get(key), str) and entry[key] for key in ("topic_id", "assessment_id", "requirement_id"))
+            ):
+                raise CorruptData("Invalid model requirement provenance; restore a compatible backup.")
+        if clean_concept != concept or clean_notes != notes:
+            raise CorruptData("Proficiency entry is not in canonical form; restore a compatible backup.")
+        ids.add(entry_id)
+        normalized.append(entry)
+    return {"schema_version": PROFICIENCY_VERSION, "revision": revision, "entries": normalized}
+
+
+def add_manual_proficiency(
+    state: dict[str, Any],
+    *,
+    concept: str,
+    comfort: Comfort,
+    notes: str,
+    expected_revision: int,
+) -> dict[str, Any]:
+    current = validate_proficiency(state)
+    _require_revision(current, expected_revision)
+    if len(current["entries"]) >= MAX_PROFICIENCY_ENTRIES:
+        raise InvalidInput(f"My proficiency supports up to {MAX_PROFICIENCY_ENTRIES} entries.")
+    clean_concept = _clean_concept(concept)
+    clean_notes = _clean_notes(notes)
+    if comfort not in {"comfortable", "refresher", "new", "unsure"}:
+        raise InvalidInput("Choose Comfortable, Needs a refresher, New to me, or Not sure.")
+    label = proficiency_label_key(clean_concept)
+    if any(
+        entry["source_kind"] == "user_manual" and proficiency_label_key(entry["concept"]) == label
+        for entry in current["entries"]
+    ):
+        raise Conflict("This concept is already in My proficiency.")
+    entry = {
+        "id": uuid.uuid4().hex,
+        "concept": clean_concept,
+        "comfort": comfort,
+        "notes": clean_notes,
+        "source_kind": "user_manual",
+        "updated_at": datetime.now(UTC).isoformat(),
+    }
+    return validate_proficiency(
+        {**current, "revision": current["revision"] + 1, "entries": [*current["entries"], entry]}
+    )
+
+
+def update_manual_proficiency(
+    state: dict[str, Any],
+    entry_id: str,
+    *,
+    updates: dict[str, Any],
+    expected_revision: int,
+) -> dict[str, Any]:
+    current = validate_proficiency(state)
+    _require_revision(current, expected_revision)
+    if not updates or set(updates) - {"concept", "comfort", "notes"}:
+        raise InvalidInput("Update at least one concept, proficiency or note field.")
+    selected = next((entry for entry in current["entries"] if entry["id"] == entry_id), None)
+    if selected is None or selected["source_kind"] != "user_manual":
+        raise NotFound("Manual proficiency entry not found.")
+    changed = {**selected, **updates}
+    changed["concept"] = _clean_concept(changed["concept"])
+    changed["notes"] = _clean_notes(changed.get("notes", ""))
+    if changed["comfort"] not in {"comfortable", "refresher", "new", "unsure"}:
+        raise InvalidInput("Choose Comfortable, Needs a refresher, New to me, or Not sure.")
+    key = proficiency_label_key(changed["concept"])
+    if any(
+        entry["id"] != entry_id
+        and entry["source_kind"] == "user_manual"
+        and proficiency_label_key(entry["concept"]) == key
+        for entry in current["entries"]
+    ):
+        raise Conflict("This concept is already in My proficiency.")
+    changed["updated_at"] = datetime.now(UTC).isoformat()
+    entries = [changed if entry["id"] == entry_id else entry for entry in current["entries"]]
+    return validate_proficiency({**current, "revision": current["revision"] + 1, "entries": entries})
+
+
+def proficiency_context(
+    state: dict[str, Any], *, topic_id: str | None = None, active_assessment_id: str | None = None
+) -> str:
+    """Format a compact current self-report; never serialize storage metadata into chat."""
+    current = validate_proficiency(state)
+    if not current["entries"]:
+        return ""
+    lines = ["My proficiency (self-reported):"]
+    for entry in current["entries"]:
+        if entry["source_kind"] == "user_manual":
+            line = f"- {entry['concept']}: {entry['comfort']}"
+            if entry["notes"]:
+                line += f" — {entry['notes']}"
+            lines.append(line)
+        elif (
+            topic_id is not None
+            and active_assessment_id is not None
+            and entry["topic_id"] == topic_id
+            and entry["assessment_id"] == active_assessment_id
+        ):
+            response = entry["comfort"] or "pending"
+            lines.append(f"- {entry['concept']}: {response}")
+    return "\n".join(lines)
+
+
+def proficiency_label_key(concept: str) -> str:
+    return " ".join(unicodedata.normalize("NFC", _clean_concept(concept)).casefold().split())
+
+
+def _clean_concept(concept: str) -> str:
+    if not isinstance(concept, str):
+        raise InvalidInput("Concept must be text.")
+    value = concept.strip()
+    if not value or len(value) > 160 or any(ord(char) < 32 for char in value):
+        raise InvalidInput("Concept must contain 1–160 printable characters.")
+    return value
+
+
+def _clean_notes(notes: str) -> str:
+    if not isinstance(notes, str):
+        raise InvalidInput("Proficiency notes must be text.")
+    value = notes.strip()
+    if len(value) > 240 or any(ord(char) < 32 and char not in "\n\t" for char in value):
+        raise InvalidInput("Proficiency notes must be at most 240 printable characters.")
+    return value

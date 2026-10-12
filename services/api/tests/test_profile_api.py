@@ -95,6 +95,50 @@ def test_profile_cv_duplicate_name_and_revision_checked_select_revoke(tmp_path):
     assert client.get(f"/api/profile/cvs/{cv['id']}/text").status_code == 409
 
 
+def test_duplicate_upload_is_rejected_before_parser_runs(tmp_path):
+    calls = []
+
+    def parser(data: bytes, filename: str, selected_parser: str):
+        calls.append((filename, selected_parser))
+        return parsed_cv(data, "Chosen CV.pdf", selected_parser)
+
+    client = TestClient(
+        create_app(
+            tmp_path / "Learning",
+            tmp_path / "state/settings.json",
+            profile_root=tmp_path / "Profile",
+            profile_parser=parser,
+        )
+    )
+    upload = {
+        "files": {"file": ("upload.pdf", PDF, "application/pdf")},
+        "data": {"original_name": "Chosen CV.pdf", "parser": "docling"},
+    }
+    assert client.post("/api/profile/cvs", **upload).status_code == 201
+    assert client.post("/api/profile/cvs", **upload).status_code == 409
+    assert calls == [("Chosen CV.pdf", "docling")]
+
+
+def test_selection_rejects_tampered_extraction(tmp_path):
+    client = TestClient(
+        create_app(
+            tmp_path / "Learning",
+            tmp_path / "state/settings.json",
+            profile_root=tmp_path / "Profile",
+            profile_parser=parsed_cv,
+        )
+    )
+    cv = client.post(
+        "/api/profile/cvs",
+        files={"file": ("upload.pdf", PDF, "application/pdf")},
+        data={"original_name": "Chosen CV.pdf", "parser": "docling"},
+    ).json()
+    (tmp_path / "Profile" / "CVs" / ".records" / cv["id"] / "extracted.txt").write_text("tampered")
+    selected = client.post(f"/api/profile/cvs/{cv['id']}/select", json={"expected_revision": 1})
+    assert selected.status_code == 500
+    assert client.get("/api/profile").status_code == 500
+
+
 def test_profile_parser_failure_preserves_original_but_never_selects(tmp_path):
     def fail_parser(_data: bytes, _filename: str, _parser: str):
         raise ValueError("synthetic parser failure")
@@ -148,6 +192,30 @@ def test_profile_upload_rejects_path_name_non_pdf_and_oversized_bytes(tmp_path):
         data={"original_name": "Chosen CV.pdf", "parser": "docling"},
     )
     assert oversized.status_code == 413
+
+
+def test_unsupported_parser_is_rejected_without_invoking_parser(tmp_path):
+    calls = []
+
+    def parser(*args):
+        calls.append(args)
+        raise AssertionError("unsupported parser must be rejected before invocation")
+
+    client = TestClient(
+        create_app(
+            tmp_path / "Learning",
+            tmp_path / "state/settings.json",
+            profile_root=tmp_path / "Profile",
+            profile_parser=parser,
+        )
+    )
+    response = client.post(
+        "/api/profile/cvs",
+        files={"file": ("upload.pdf", PDF, "application/pdf")},
+        data={"original_name": "Chosen CV.pdf", "parser": "other"},
+    )
+    assert response.status_code == 422
+    assert calls == []
 
 
 def test_profile_parser_failure_and_wrong_identifier_do_not_expose_paths(tmp_path):
