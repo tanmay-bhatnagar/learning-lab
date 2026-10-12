@@ -239,6 +239,21 @@ describe('App characterization', () => {
     ).toHaveLength(2);
   });
 
+  test('closes the mobile sidebar when opening My proficiency', async () => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390, writable: true });
+    installFakeApi();
+    const user = userEvent.setup();
+    render(<App />);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'My proficiency' })).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: 'Show sidebar' }));
+    expect(document.querySelector('.app')).not.toHaveClass('collapsed');
+
+    await user.click(screen.getByRole('button', { name: 'My proficiency' }));
+
+    expect(document.querySelector('.app')).toHaveClass('collapsed');
+  });
+
   test('uploads the exact renamed shared CV and leaves extraction failures visible and unselectable', async () => {
     const profileApi = installSharedProfileApi({ uploadStatus: 'error' });
     const user = userEvent.setup();
@@ -263,7 +278,7 @@ describe('App characterization', () => {
       'href',
       `/api/profile/cvs/${'c'.repeat(32)}/original`,
     );
-    expect(screen.getByText(/not available until conversation preferences are connected/i)).toBeInTheDocument();
+    expect(screen.getByText(/choose a topic and conversation/i)).toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: 'Always include CV in this conversation' })).toBeDisabled();
   });
 
