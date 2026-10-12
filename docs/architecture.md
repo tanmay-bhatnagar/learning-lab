@@ -1,6 +1,6 @@
 # Architecture and ownership
 
-Current state on `dev` as of 5 October 2026. See the [interactive R1 map](../references/R1/system-map.html) for the system and its planned blocks, and the [R1 snapshot](../references/R1/README.md) for validation and remaining work.
+Current state on `dev` as of 13 October 2026. See the [interactive R1 map](../references/R1/system-map.html) for the system and its planned blocks, and the [R1 snapshot](../references/R1/README.md) for validation and remaining work.
 
 ## Runtime path
 
@@ -8,7 +8,7 @@ Current state on `dev` as of 5 October 2026. See the [interactive R1 map](../ref
 
 A PDF upload follows a separate path: `browser → topic API → parser → bounded chunks and assets → topic SQLite index`. Selected MarkItDown and AnyDoc files use their Markdown as an unindexed chat attachment. Docling is the default structured parser.
 
-The API app owns one model-generation lock shared by embedding, chat and section-summary generation, keeping local model use serialized for bounded memory. Parsed artifact writes are atomic per file; the complete set of derived files is not transactional, and a failed parse can leave partial derived artifacts.
+The API app owns one model-generation lock shared by embedding, chat, section-summary and prerequisite generation, keeping local model use serialized for bounded memory. Parsed artifact writes are atomic per file; the complete set of derived files is not transactional, and a failed parse can leave partial derived artifacts.
 
 | Location | Owns |
 | --- | --- |
@@ -63,3 +63,9 @@ An explicit Document Map request reconstructs saved Docling source without retri
 - Stored-format changes require a compatibility decision. Future model tools, hardware access and web research require separate validation and authorization.
 
 Coding conventions and validation gates live in [engineering.md](engineering.md).
+
+## Shared learner profile modules
+
+`learner_profile.py` owns pure versioned CV/proficiency transformations; `profile_store.py` owns duplicate-safe shared originals, integrity checks and revision-locked atomic writes; `profile_parse.py` reuses normal parsing adapters for canonical complete extraction. Shared CVs live under configured `../Profile/`, independent of study topics and retrieval indexes. `prerequisites.py` owns fresh whole-input planning/schema/validation; `prerequisite_store.py` owns topic-local immutable attempts/assessments; `web/prerequisites.py` owns request lifecycle, shared generation lock and publication ordering. These remain separate from document-map native reconstruction and summaries.
+
+`conversation_profile.py` stores per-existing-conversation opt-in/focus preferences; `learner_context.py` reloads and deterministically projects latest saved proficiency for each chat. `prerequisite_import.py` constructs immutable historical snapshots; `web/prerequisite_imports.py` explicitly adds them to an existing main conversation and activates focus, without inference. Whole canonical CV text is optional and protected in chat; it is required only for new personalized generation. Current profile context is loaded separately from historical messages and never silently inferred from CV degrees/omissions or casual chat. See [API contracts](API.md#shared-cv-my-proficiency-and-prerequisites) and the [module study walkthrough](proficiency.md). Frontend helper/page modules are composed incrementally; final browser integration and verification are recorded in dated reports.
