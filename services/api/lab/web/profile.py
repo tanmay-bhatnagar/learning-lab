@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any, Literal
+from urllib.parse import quote
 
 from fastapi import APIRouter, File, Form, UploadFile
 from fastapi.responses import Response
@@ -123,11 +124,11 @@ def router(deps: AppDeps) -> APIRouter:
 
     @routes.get("/api/profile/cvs/{cv_id}/original")
     def cv_original(cv_id: str):
-        _cv_record(deps, cv_id)
+        record = _cv_record(deps, cv_id)
         return Response(
             deps.profile_store.read_original(cv_id),
             media_type="application/pdf",
-            headers={"Content-Disposition": f'inline; filename="{cv_id}.pdf"'},
+            headers={"Content-Disposition": "inline; filename*=UTF-8''" + quote(record["original_name"], safe="")},
         )
 
     @routes.post("/api/profile/cvs/{cv_id}/select")
