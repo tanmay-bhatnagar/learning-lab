@@ -364,7 +364,7 @@ describe('useProficiency', () => {
       refreshOne = result.current.refreshProficiency();
       refreshTwo = result.current.refreshProficiency();
     });
-    expect(getState.mock.calls[2]?.[0]?.aborted).toBe(true);
+    expect(getState.mock.calls[1]?.[0]?.aborted).toBe(true);
 
     const latest: ProficiencyState = {
       schema_version: 1,
@@ -372,7 +372,7 @@ describe('useProficiency', () => {
       entries: [populatedProficiency.entries[1]],
     };
     await act(async () => newerRefresh.resolve(latest));
-    await act(async () => olderRefresh.resolve(populatedProficiency));
+    await act(async () => olderRefresh.reject(new DOMException('Request aborted.', 'AbortError')));
     await Promise.all([refreshOne, refreshTwo]);
 
     expect(result.current.proficiency).toEqual(latest);

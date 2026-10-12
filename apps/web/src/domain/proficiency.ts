@@ -17,17 +17,46 @@ export type RequirementView = {
   sourceLabel: string;
 };
 
-export type ProficiencyEntryView = ProficiencyDraft & {
-  kind: 'manual';
+export type ProficiencyEntryView = ProficiencyDraft;
+
+type StoredProficiencyEntryCommon = {
+  id: string;
+  concept: string;
+  notes?: string | null;
 };
+
+export type StoredProficiencyEntryView =
+  | (StoredProficiencyEntryCommon & {
+      comfort: ComfortLevel;
+      source_kind: 'user_manual';
+    })
+  | (StoredProficiencyEntryCommon & {
+      comfort: ComfortLevel | null;
+      source_kind: 'model_requirement';
+      topic_id: string;
+      assessment_id: string;
+      requirement_id: string;
+    });
 
 export type CvView = {
   id: string;
   originalName: string;
+  originalUrl: string;
   status: 'ready' | 'processing' | 'error' | 'revoked';
   extractedText: string;
   extractionDiagnostics: string[];
 };
+
+export function adaptProficiencyEntries(entries: StoredProficiencyEntryView[]): ProficiencyEntryView[] {
+  return entries.map((entry) => ({
+    id: entry.id,
+    concept: entry.concept,
+    comfort: entry.comfort ?? '',
+    note: entry.notes ?? '',
+    kind: entry.source_kind === 'user_manual' ? 'manual' : 'requirement',
+    ...(entry.source_kind === 'model_requirement' ? { requirementId: entry.requirement_id } : {}),
+  }));
+}
 
 export function createRequirementDraft(
   requirement: RequirementView,
@@ -47,7 +76,10 @@ export function createRequirementDraft(
 export function hasDuplicateConcept(concept: string, drafts: ProficiencyDraft[]): boolean {
   const normalized = concept.trim().normalize('NFKC').toLocaleLowerCase();
   return (
-    !!normalized && drafts.some((draft) => draft.concept.trim().normalize('NFKC').toLocaleLowerCase() === normalized)
+    !!normalized &&
+    drafts.some(
+      (draft) => draft.kind === 'manual' && draft.concept.trim().normalize('NFKC').toLocaleLowerCase() === normalized,
+    )
   );
 }
 

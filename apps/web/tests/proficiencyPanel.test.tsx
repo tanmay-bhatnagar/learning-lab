@@ -151,9 +151,25 @@ describe('My proficiency panel', () => {
     ]);
     expect(entries.filter((entry) => entry.kind === 'manual')).toHaveLength(1);
     expect(hasDuplicateConcept('Python', entries)).toBe(true);
+    render(
+      <MyProficiencyPanel
+        {...baseProps}
+        requirements={[{ id: 'python', concept: 'Python', rationale: 'Runs examples.', sourceLabel: 'Assessment' }]}
+        entries={entries}
+      />,
+    );
+    expect(screen.getAllByRole('group', { name: 'Python' })).toHaveLength(2);
+    expect(
+      within(screen.getByRole('region', { name: 'Suggested requirements' })).getByLabelText('Your comfort with Python'),
+    ).toHaveValue('refresher');
+    expect(
+      within(screen.getByRole('region', { name: 'Your skills and concepts' })).getByLabelText(
+        'Your comfort with Python',
+      ),
+    ).toHaveValue('new');
   });
 
-  test('model requirement names do not count as duplicate manual skills', () => {
+  test('model requirement names do not count as duplicate manual skills', async () => {
     const requirements = adaptProficiencyEntries([
       {
         id: 'requirement-python',
@@ -168,6 +184,17 @@ describe('My proficiency panel', () => {
     ]);
 
     expect(hasDuplicateConcept('Python', requirements)).toBe(false);
+    const user = userEvent.setup();
+    render(
+      <MyProficiencyPanel
+        {...baseProps}
+        requirements={[{ id: 'python', concept: 'Python', rationale: 'Runs examples.', sourceLabel: 'Assessment' }]}
+      />,
+    );
+    await user.type(screen.getByRole('textbox', { name: 'Add a skill or concept' }), 'Python');
+    await user.click(screen.getByRole('button', { name: 'Add skill' }));
+    expect(screen.getAllByRole('group', { name: 'Python' })).toHaveLength(2);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   test('uses the exact edited CV filename and waits for explicit upload submission', async () => {
@@ -244,6 +271,7 @@ describe('My proficiency panel', () => {
           {
             id: 'cv-1',
             originalName: 'Research CV.pdf',
+            originalUrl: '/api/profile/cvs/cv-1/original',
             status: 'ready',
             extractedText: 'Synthetic extracted CV text.',
             extractionDiagnostics: [],
@@ -273,6 +301,7 @@ describe('My proficiency panel', () => {
           {
             id: 'cv-1',
             originalName: 'Revoked CV.pdf',
+            originalUrl: '/api/profile/cvs/cv-1/original',
             status: 'revoked',
             extractedText: '',
             extractionDiagnostics: [],

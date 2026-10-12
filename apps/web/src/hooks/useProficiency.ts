@@ -24,6 +24,7 @@ type UseProficiencyResult = {
   profileError: string | null;
   proficiencyError: string | null;
   cvError: string | null;
+  refreshProficiency: () => Promise<void>;
   uploadCv: (file: File, originalName: string) => Promise<void>;
   selectCv: (cvId: string) => Promise<void>;
   revokeCv: (cvId: string) => Promise<void>;
@@ -106,6 +107,7 @@ export function useProficiency(parser: Parser): UseProficiencyResult {
   const previewController = useRef<AbortController | null>(null);
   const profileLoadController = useRef<AbortController | null>(null);
   const proficiencyLoadController = useRef<AbortController | null>(null);
+  const proficiencyRefreshController = useRef<AbortController | null>(null);
   const cvMutationController = useRef<AbortController | null>(null);
   const cvMutationRevision = useRef(0);
   const previewRevision = useRef(0);
@@ -188,10 +190,31 @@ export function useProficiency(parser: Parser): UseProficiencyResult {
       mountedRef.current = false;
       profileController.abort();
       proficiencyController.abort();
+      proficiencyRefreshController.current?.abort();
       previewController.current?.abort();
       cvMutationController.current?.abort();
     };
   }, [adoptProfile, adoptProficiency, loadCvPreview]);
+
+  const refreshProficiency = useCallback(async () => {
+    proficiencyLoadController.current?.abort();
+    proficiencyRefreshController.current?.abort();
+    const controller = new AbortController();
+    proficiencyRefreshController.current = controller;
+    setProficiencyError(null);
+    try {
+      const latest = await getProficiency(controller.signal);
+      if (mountedRef.current && !controller.signal.aborted && proficiencyRefreshController.current === controller) {
+        adoptProficiency(latest);
+      }
+    } catch (error) {
+      if (controller.signal.aborted || proficiencyRefreshController.current !== controller) return;
+      if (mountedRef.current) setProficiencyError(errorMessage(error, 'Could not refresh My proficiency.'));
+      throw error;
+    } finally {
+      if (proficiencyRefreshController.current === controller) proficiencyRefreshController.current = null;
+    }
+  }, [adoptProficiency]);
 
   const refreshProfile = useCallback(
     async (signal: AbortSignal) => {
@@ -330,6 +353,7 @@ export function useProficiency(parser: Parser): UseProficiencyResult {
     profileError,
     proficiencyError,
     cvError: cvOperationError ?? cvPreviewError,
+    refreshProficiency,
     uploadCv,
     selectCv,
     revokeCv,

@@ -331,11 +331,24 @@ export function MyProficiencyPanel({
                   type="button"
                   className="text-button"
                   onClick={() => onSelectCv(cv.id)}
-                  disabled={busy || cv.status === 'revoked'}
+                  disabled={busy || cv.status !== 'ready'}
                 >
                   {cv.originalName}
                 </button>
                 <span className="muted">{cv.status}</span>
+                {cv.status === 'error' && cv.extractionDiagnostics.length > 0 && (
+                  <div className="proficiency-warning">
+                    <strong>Extraction failed</strong>
+                    <ul>
+                      {cv.extractionDiagnostics.map((diagnostic) => (
+                        <li key={diagnostic}>{diagnostic}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                <a className="text-button" href={cv.originalUrl} download={cv.originalName}>
+                  Download original CV
+                </a>
                 {cv.status !== 'revoked' && (
                   <button type="button" className="text-button" onClick={() => onRevokeCv(cv.id)} disabled={busy}>
                     Stop future use
