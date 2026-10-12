@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from fastapi.testclient import TestClient
 
 from lab.web.app import create_app
@@ -162,6 +164,58 @@ def test_profile_parser_failure_preserves_original_but_never_selects(tmp_path):
     assert client.get(f"/api/profile/cvs/{cv['id']}/original").content == PDF
     assert client.post(f"/api/profile/cvs/{cv['id']}/select", json={"expected_revision": 1}).status_code == 409
     assert client.get("/api/profile").json()["active_cv_id"] is None
+
+
+def test_unexpected_parser_programming_error_is_not_saved_as_failed_cv(tmp_path):
+    def broken_parser(_data: bytes, _filename: str, _parser: str):
+        raise TypeError("synthetic parser programming error")
+
+    client = TestClient(
+        create_app(
+            tmp_path / "Learning",
+            tmp_path / "state/settings.json",
+            profile_root=tmp_path / "Profile",
+            profile_parser=broken_parser,
+        ),
+        raise_server_exceptions=False,
+    )
+    response = client.post(
+        "/api/profile/cvs",
+        files={"file": ("upload.pdf", PDF, "application/pdf")},
+        data={"original_name": "Broken CV.pdf", "parser": "docling"},
+    )
+
+    assert response.status_code == 500
+    assert client.get("/api/profile").json()["cvs"] == []
+
+
+def test_legacy_v1_cv_without_parser_metadata_remains_previewable(tmp_path):
+    profile_root = tmp_path / "Profile"
+    client = TestClient(
+        create_app(
+            tmp_path / "Learning",
+            tmp_path / "state/settings.json",
+            profile_root=profile_root,
+            profile_parser=parsed_cv,
+        )
+    )
+    uploaded = client.post(
+        "/api/profile/cvs",
+        files={"file": ("upload.pdf", PDF, "application/pdf")},
+        data={"original_name": "Chosen CV.pdf", "parser": "docling"},
+    ).json()
+    metadata_path = profile_root / "profile.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata["cvs"][0].pop("parser")
+    metadata["cvs"][0].pop("parser_version")
+    metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+    preview = client.get(f"/api/profile/cvs/{uploaded['id']}/text")
+
+    assert preview.status_code == 200
+    assert preview.json()["parser"] == "unknown"
+    assert preview.json()["parser_version"] == "unknown"
+    assert preview.json()["text"] == COMPLETE_TEXT
 
 
 def test_profile_upload_rejects_path_name_non_pdf_and_oversized_bytes(tmp_path):
