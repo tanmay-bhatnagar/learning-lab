@@ -11,7 +11,7 @@ from lab.errors import Conflict, CorruptData, InvalidInput, NotFound
 
 PROFILE_VERSION = 1
 PROFICIENCY_VERSION = 1
-MAX_PROFICIENCY_ENTRIES = 50
+MAX_PROFICIENCY_ENTRIES = 500
 Comfort = Literal["comfortable", "refresher", "new", "unsure"]
 _CV_ID = re.compile(r"^[a-f0-9]{32}$")
 _WINDOWS_RESERVED = {
@@ -270,15 +270,105 @@ def update_manual_proficiency(
     return validate_proficiency({**current, "revision": current["revision"] + 1, "entries": entries})
 
 
+def apply_proficiency_batch(
+    state: dict[str, Any],
+    *,
+    additions: list[dict[str, Any]],
+    updates: list[dict[str, Any]],
+    expected_revision: int,
+    entry_ids: list[str],
+    updated_at: str,
+) -> dict[str, Any]:
+    """Validate and apply a full manual/model self-report batch as one revision."""
+    current = validate_proficiency(state)
+    _require_revision(current, expected_revision)
+    if not isinstance(additions, list) or not isinstance(updates, list):
+        raise InvalidInput("My proficiency additions and updates must be lists.")
+    if (
+        not isinstance(entry_ids, list)
+        or len(entry_ids) != len(additions)
+        or any(not isinstance(entry_id, str) for entry_id in entry_ids)
+        or len(set(entry_ids)) != len(entry_ids)
+    ):
+        raise InvalidInput("Server-generated proficiency entry identities do not match the additions.")
+    if not additions and not updates:
+        return current
+    if len(current["entries"]) + len(additions) > MAX_PROFICIENCY_ENTRIES:
+        raise InvalidInput(f"My proficiency supports up to {MAX_PROFICIENCY_ENTRIES} entries.")
+    if not isinstance(updated_at, str) or not updated_at:
+        raise InvalidInput("A valid proficiency update timestamp is required.")
+
+    next_state = current
+    for entry_id, addition in zip(entry_ids, additions, strict=True):
+        if not isinstance(addition, dict) or set(addition) != {"concept", "comfort", "notes"}:
+            raise InvalidInput("Manual proficiency additions cannot set source identity or assessment fields.")
+        next_state = add_manual_proficiency(
+            next_state,
+            concept=addition["concept"],
+            comfort=addition["comfort"],
+            notes=addition["notes"],
+            expected_revision=next_state["revision"],
+            entry_id=entry_id,
+            updated_at=updated_at,
+        )
+
+    if not all(isinstance(update, dict) for update in updates):
+        raise InvalidInput("My proficiency updates must be objects.")
+    update_ids = [update.get("id") for update in updates]
+    if any(not isinstance(entry_id, str) or not entry_id for entry_id in update_ids) or len(update_ids) != len(
+        set(update_ids)
+    ):
+        raise InvalidInput("Each proficiency entry can be updated only once per save.")
+
+    for update in updates:
+        if set(update) - {"id", "concept", "comfort", "notes"} or not set(update) & {"concept", "comfort", "notes"}:
+            raise InvalidInput("A proficiency update has unsupported or empty fields.")
+        entry = next((item for item in next_state["entries"] if item["id"] == update["id"]), None)
+        if entry is None:
+            raise NotFound("Proficiency entry not found.")
+        fields = {key: value for key, value in update.items() if key != "id"}
+        if entry["source_kind"] == "user_manual":
+            next_state = update_manual_proficiency(
+                next_state,
+                entry["id"],
+                updates=fields,
+                expected_revision=next_state["revision"],
+                updated_at=updated_at,
+            )
+            continue
+        if set(fields) - {"comfort", "notes"}:
+            raise InvalidInput("Model-proposed requirement text and source identity cannot be edited.")
+        changed = {**entry, **fields, "updated_at": updated_at}
+        changed["notes"] = _clean_notes(changed.get("notes", ""))
+        if "comfort" in fields:
+            if fields["comfort"] not in {"comfortable", "refresher", "new", "unsure"}:
+                raise InvalidInput("Choose Comfortable, Needs a refresher, New to me, or Not sure.")
+        entries = [changed if item["id"] == entry["id"] else item for item in next_state["entries"]]
+        next_state = validate_proficiency({**next_state, "revision": next_state["revision"] + 1, "entries": entries})
+
+    return validate_proficiency({**next_state, "revision": current["revision"] + 1})
+
+
 def proficiency_context(
     state: dict[str, Any], *, topic_id: str | None = None, active_assessment_id: str | None = None
 ) -> str:
     """Format a compact current self-report; never serialize storage metadata into chat."""
     current = validate_proficiency(state)
-    if not current["entries"]:
+    relevant = [
+        entry
+        for entry in current["entries"]
+        if entry["source_kind"] == "user_manual"
+        or (
+            topic_id is not None
+            and active_assessment_id is not None
+            and entry["topic_id"] == topic_id
+            and entry["assessment_id"] == active_assessment_id
+        )
+    ]
+    if not relevant:
         return ""
     lines = ["My proficiency (self-reported):"]
-    for entry in current["entries"]:
+    for entry in relevant:
         if entry["source_kind"] == "user_manual":
             line = f"- {entry['concept']}: {entry['comfort']}"
             if entry["notes"]:
@@ -291,7 +381,10 @@ def proficiency_context(
             and entry["assessment_id"] == active_assessment_id
         ):
             response = entry["comfort"] or "pending"
-            lines.append(f"- {entry['concept']}: {response}")
+            line = f"- {entry['concept']}: {response}"
+            if entry["notes"]:
+                line += f" — {entry['notes']}"
+            lines.append(line)
     return "\n".join(lines)
 
 

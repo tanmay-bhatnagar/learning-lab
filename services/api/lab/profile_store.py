@@ -17,6 +17,7 @@ from lab.errors import Conflict, CorruptData, Forbidden, InvalidInput, NotFound
 from lab.learner_profile import (
     add_cv_record,
     add_manual_proficiency,
+    apply_proficiency_batch,
     empty_profile,
     empty_proficiency,
     filename_collision_key,
@@ -101,6 +102,27 @@ class ProfileStore:
                 updated_at=datetime.now(UTC).isoformat(),
             )
             write_json(self.proficiency_path, updated)
+            return copy.deepcopy(updated)
+
+    def save_proficiency_batch(
+        self,
+        *,
+        additions: list[dict[str, Any]],
+        updates: list[dict[str, Any]],
+        expected_revision: int,
+    ) -> dict[str, Any]:
+        with self._locked():
+            state = validate_proficiency(read_json(self.proficiency_path, empty_proficiency()))
+            updated = apply_proficiency_batch(
+                state,
+                additions=additions,
+                updates=updates,
+                expected_revision=expected_revision,
+                entry_ids=[uuid.uuid4().hex for _ in additions],
+                updated_at=datetime.now(UTC).isoformat(),
+            )
+            if updated != state:
+                write_json(self.proficiency_path, updated)
             return copy.deepcopy(updated)
 
     def register_cv(

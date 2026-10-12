@@ -32,6 +32,28 @@ class ProficiencyUpdateInput(ProfileRevisionInput):
     notes: str | None = None
 
 
+class ProficiencyBatchAddition(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    concept: str
+    comfort: Literal["comfortable", "refresher", "new", "unsure"]
+    notes: str = ""
+
+
+class ProficiencyBatchUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    concept: str | None = None
+    comfort: Literal["comfortable", "refresher", "new", "unsure"] | None = None
+    notes: str | None = None
+
+
+class ProficiencyBatchInput(ProfileRevisionInput):
+    additions: list[ProficiencyBatchAddition] = Field(default_factory=list, max_length=500)
+    updates: list[ProficiencyBatchUpdate] = Field(default_factory=list, max_length=500)
+
+
 def router(deps: AppDeps) -> APIRouter:
     routes = APIRouter()
     limit = deps.config.max_upload_bytes
@@ -119,6 +141,17 @@ def router(deps: AppDeps) -> APIRouter:
     @routes.get("/api/profile/proficiency")
     def get_proficiency():
         return deps.profile_store.read_proficiency()
+
+    @routes.put("/api/profile/proficiency")
+    def save_proficiency_batch(body: ProficiencyBatchInput):
+        return deps.profile_store.save_proficiency_batch(
+            additions=[entry.model_dump() for entry in body.additions],
+            updates=[
+                {key: getattr(entry, key) for key in entry.model_fields_set if key != "id"} | {"id": entry.id}
+                for entry in body.updates
+            ],
+            expected_revision=body.expected_revision,
+        )
 
     @routes.post("/api/profile/proficiency/entries", status_code=201)
     def add_proficiency(body: ProficiencyCreateInput):
