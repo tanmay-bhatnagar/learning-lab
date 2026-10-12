@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 
+import pytest
 from fastapi.testclient import TestClient
 
 from lab.web.app import create_app
@@ -308,6 +309,56 @@ def test_model_requirement_batch_answer_projects_only_active_assessment_and_incl
     assert "Regression methods: unsure — Explain notation." in context
     assert "Bayesian methods" not in context
     assert "Data visualization" not in context
+
+
+@pytest.mark.parametrize("starting_comfort", ["comfortable", None])
+def test_batch_can_explicitly_clear_model_requirement_comfort_to_pending(tmp_path, starting_comfort):
+    profile_root = tmp_path / "Profile"
+    profile_root.mkdir()
+    requirement_id = "a" * 32
+    state_file = profile_root / "proficiency.json"
+    state_file.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "revision": 1,
+                "entries": [
+                    {
+                        "id": requirement_id,
+                        "concept": "Regression",
+                        "comfort": starting_comfort,
+                        "notes": "",
+                        "source_kind": "model_requirement",
+                        "topic_id": "topic-a",
+                        "assessment_id": "assessment-a",
+                        "requirement_id": "requirement-a",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    client = TestClient(
+        create_app(
+            tmp_path / "Learning",
+            tmp_path / "state/settings.json",
+            profile_root=profile_root,
+        )
+    )
+
+    response = client.put(
+        "/api/profile/proficiency",
+        json={
+            "expected_revision": 1,
+            "updates": [{"id": requirement_id, "comfort": None, "notes": "Revisit later."}],
+            "additions": [],
+        },
+    )
+
+    assert response.status_code == 200
+    updated = response.json()["entries"][0]
+    assert updated["comfort"] is None
+    assert updated["notes"] == "Revisit later."
 
 
 def test_empty_proficiency_batch_is_a_noop(tmp_path):
