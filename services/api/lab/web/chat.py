@@ -15,6 +15,7 @@ from lab.chat_prompt import build_chat_prompt
 from lab.contracts import Session
 from lab.chat_session import append_assistant_message, append_user_message, history_messages, with_session_context
 from lab.errors import Conflict, DomainError
+from lab.learner_context import load_learner_context
 from lab.query_traces import (
     duration,
     finalize as finalize_trace,
@@ -30,6 +31,7 @@ from lab.retrieval import evidence_messages, search
 from lab.runtime_policy import load_runtime_policy
 from lab.storage import read_bytes, read_json
 from lab.summary_import import validated_summary_imports
+from lab.prerequisite_import import validated_prerequisite_imports
 from lab.web.deps import AppDeps
 from lab.web.locks import acquire_topic_lock, topic_lock
 from lab.web.middleware import FinalizedStreamingResponse
@@ -47,6 +49,7 @@ def router(deps: AppDeps) -> APIRouter:
         async with topic_lock(deps.locks, topic):
             session = deps.store.session(topic)
             validated_summary_imports(session, "default")
+            validated_prerequisite_imports(session, "default")
             return session
 
     @routes.get("/api/topics/{topic}/conversations/{conversation_id}/messages")
@@ -54,6 +57,7 @@ def router(deps: AppDeps) -> APIRouter:
         async with topic_lock(deps.locks, topic):
             session = deps.store.session(topic, conversation_id)
             validated_summary_imports(session, conversation_id)
+            validated_prerequisite_imports(session, conversation_id)
             return session
 
     @routes.post("/api/topics/{topic}/chat")
@@ -161,6 +165,13 @@ def router(deps: AppDeps) -> APIRouter:
             runtime_policy = load_runtime_policy(deps.config.runtime_policy_path)
             session = deps.store.session(topic, conversation_id)
             validated_summary_imports(session, conversation_id)
+            validated_prerequisite_imports(session, conversation_id)
+            learner_context = load_learner_context(
+                deps.store,
+                deps.profile_store,
+                topic,
+                conversation_id,
+            )
             attachments: list[dict[str, object]] = []
             selected_records = []
             for file_id in dict.fromkeys(body.file_ids):
@@ -238,6 +249,7 @@ def router(deps: AppDeps) -> APIRouter:
                 runtime_policy=runtime_policy,
                 context_limit=body.context_limit,
                 retrieval_record=retrieval_record,
+                **learner_context,
             )
             session = append_user_message(session, body.message, body.file_ids)
             save(session)

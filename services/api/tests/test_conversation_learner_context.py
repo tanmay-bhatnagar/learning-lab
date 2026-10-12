@@ -8,16 +8,24 @@ import pytest
 from fastapi.testclient import TestClient
 
 from lab.web.app import create_app
+from lab.web.conversation_profile import router as learner_context_router
+from lab.web.prerequisite_imports import router as prerequisite_import_router
 from tests.fakes import FakeModel
 
 
 def _app(tmp_path, model=None):
-    return create_app(
+    app = create_app(
         tmp_path / "Learning",
         tmp_path / "state" / "settings.json",
         model_backend=model or FakeModel(),
         profile_root=tmp_path / "profile",
     )
+    if not any(
+        getattr(route, "path", None) == "/api/topics/{topic}/conversations/{conversation_id}/learner-context"
+        for route in app.routes
+    ):
+        app.include_router(learner_context_router(app.state.deps))
+    return app
 
 
 def _learner_context_url(topic: str, conversation: str = "default") -> str:
@@ -51,12 +59,16 @@ def test_preferences_are_versioned_and_cv_inclusion_is_explicit(tmp_path):
     assert saved.status_code == 200
     assert saved.json() == {**default.json(), "revision": 1, "include_cv": True}
     assert client.get(_learner_context_url(topic)).json() == default.json()
+    stale = client.patch(_learner_context_url(topic, conversation), json={"expected_revision": 0, "include_cv": False})
+    assert stale.status_code == 409
+    assert client.get(_learner_context_url(topic, conversation)).json() == saved.json()
 
 
 @pytest.mark.parametrize(
     "payload",
     [
         {"expected_revision": True, "include_cv": False},
+        {"expected_revision": -1, "include_cv": False},
         {"expected_revision": 0, "include_cv": 1},
         {"expected_revision": 0, "include_cv": False, "active_assessment": {}},
         {"expected_revision": 0},
@@ -131,3 +143,183 @@ def test_manual_proficiency_is_reloaded_for_each_default_and_named_chat(tmp_path
 
     assert response.status_code == 200
     assert "refresher" in json.dumps(model.calls[-1])
+
+
+def test_complete_cv_text_is_added_once_to_every_request_only_when_enabled(tmp_path):
+    model = FakeModel()
+    app = _app(tmp_path, model)
+    client = TestClient(app)
+    topic = client.post("/api/topics", json={"name": "Synthetic full CV context"}).json()["id"]
+    cv = app.state.deps.profile_store.register_cv(
+        "First CV.pdf",
+        b"first synthetic original",
+        "FIRST-CV-LITERAL-SENTINEL full canonical text",
+        {"status": "ready"},
+    )
+    app.state.deps.profile_store.select_cv(cv["id"], expected_revision=1)
+    url = _learner_context_url(topic)
+
+    disabled = client.post(
+        f"/api/topics/{topic}/chat", json={"message": "First question", "file_ids": [], "model": "fake"}
+    )
+    assert disabled.status_code == 200
+    assert "FIRST-CV-LITERAL-SENTINEL" not in json.dumps(model.calls[-1])
+    assert client.patch(url, json={"expected_revision": 0, "include_cv": True}).status_code == 200
+
+    first = client.post(
+        f"/api/topics/{topic}/chat", json={"message": "Second question", "file_ids": [], "model": "fake"}
+    )
+    assert first.status_code == 200
+    assert json.dumps(model.calls[-1]).count("FIRST-CV-LITERAL-SENTINEL full canonical text") == 1
+
+    replacement = app.state.deps.profile_store.register_cv(
+        "Replacement CV.pdf",
+        b"replacement synthetic original",
+        "REPLACEMENT-CV-LITERAL-SENTINEL latest full text",
+        {"status": "ready"},
+    )
+    profile = app.state.deps.profile_store.read_profile()
+    app.state.deps.profile_store.select_cv(replacement["id"], expected_revision=profile["revision"])
+    latest = client.post(
+        f"/api/topics/{topic}/chat", json={"message": "Third question", "file_ids": [], "model": "fake"}
+    )
+
+    assert latest.status_code == 200
+    assert json.dumps(model.calls[-1]).count("REPLACEMENT-CV-LITERAL-SENTINEL latest full text") == 1
+    assert "FIRST-CV-LITERAL-SENTINEL" not in json.dumps(model.calls[-1])
+
+
+def test_cv_off_chat_does_not_read_or_block_on_corrupt_cv_text(tmp_path):
+    model = FakeModel()
+    app = _app(tmp_path, model)
+    client = TestClient(app)
+    topic = client.post("/api/topics", json={"name": "Synthetic CV opt out"}).json()["id"]
+    cv = app.state.deps.profile_store.register_cv(
+        "Corruptible CV.pdf", b"synthetic original", "Integrity protected text", {"status": "ready"}
+    )
+    text_path = app.state.deps.profile_store._text_path(cv["id"])
+    text_path.write_text("tampered after registration", encoding="utf-8")
+
+    response = client.post(
+        f"/api/topics/{topic}/chat", json={"message": "Chat without CV", "file_ids": [], "model": "fake"}
+    )
+
+    assert response.status_code == 200
+    assert "Integrity protected text" not in json.dumps(model.calls[-1])
+
+
+def test_protected_cv_budget_failure_happens_before_user_turn_is_saved(tmp_path):
+    model = FakeModel()
+    app = _app(tmp_path, model)
+    client = TestClient(app)
+    topic = client.post("/api/topics", json={"name": "Synthetic oversized CV"}).json()["id"]
+    cv = app.state.deps.profile_store.register_cv(
+        "Large CV.pdf", b"synthetic original", "UNIQUE-CV-TEXT " + ("career detail " * 12000), {"status": "ready"}
+    )
+    app.state.deps.profile_store.select_cv(cv["id"], expected_revision=1)
+    assert (
+        client.patch(_learner_context_url(topic), json={"expected_revision": 0, "include_cv": True}).status_code == 200
+    )
+    before = client.get(f"/api/topics/{topic}/messages").content
+
+    response = client.post(
+        f"/api/topics/{topic}/chat",
+        json={"message": "This must not persist", "file_ids": [], "model": "fake", "context_limit": 1024},
+    )
+
+    assert response.status_code == 422
+    assert client.get(f"/api/topics/{topic}/messages").content == before
+    assert model.calls == []
+
+
+def test_chat_uses_only_selected_historical_assessment_and_latest_answers_after_cv_revoke(tmp_path):
+    from tests.test_web_prerequisites import _events, _prepared, _request
+
+    client, topic, outline, model, cv = _prepared(tmp_path)
+    app = client.app
+    conversation = client.post(f"/api/topics/{topic}/conversations", json={"title": "Focused learning"}).json()["id"]
+    if not any(
+        getattr(route, "path", None) == "/api/topics/{topic}/conversations/{conversation_id}/learner-context"
+        for route in app.routes
+    ):
+        app.include_router(learner_context_router(app.state.deps))
+    if not any(
+        getattr(route, "path", None) == "/api/topics/{topic}/conversations/{conversation_id}/prerequisite-imports"
+        for route in app.routes
+    ):
+        app.include_router(prerequisite_import_router(app.state.deps))
+    if not any(getattr(route, "path", None) == "/api/topics/{topic}/chat" for route in app.routes):
+        from lab.web.chat import router as chat_router
+
+        app.include_router(chat_router(app.state.deps))
+    section = outline["sections"][0]
+    generated = client.post(
+        f"/api/topics/{topic}/files/paper-1/map/sections/{section['id']}/prerequisites",
+        json=_request(outline),
+    )
+    first_assessment = _events(generated)[-1]["assessment"]
+    model.output = json.dumps(
+        {
+            "overview": "SECOND-ONLY assessment overview.",
+            "requirements": [
+                {
+                    "concept": "SECOND-ONLY concept",
+                    "reason": "This belongs to a different completed assessment.",
+                    "source_labels": ["S1"],
+                    "cv_background": "not_stated",
+                    "cv_source_labels": [],
+                    "cv_quote": "",
+                }
+            ],
+        }
+    )
+    second = client.post(
+        f"/api/topics/{topic}/files/paper-1/map/sections/{section['id']}/prerequisites",
+        json=_request(outline),
+    )
+    second_assessment = _events(second)[-1]["assessment"]
+    assert second_assessment["assessment_id"] != first_assessment["assessment_id"]
+    imported = client.post(
+        f"/api/topics/{topic}/conversations/{conversation}/prerequisite-imports",
+        json={
+            "file_id": "paper-1",
+            "assessment_id": first_assessment["assessment_id"],
+            "revision": outline["revision"],
+            "section_id": section["id"],
+            "expected_revision": 0,
+        },
+    )
+    assert imported.status_code == 200
+    proficiency = app.state.deps.profile_store.read_proficiency()
+    first_requirement = next(
+        entry for entry in proficiency["entries"] if entry.get("assessment_id") == first_assessment["assessment_id"]
+    )
+    app.state.deps.profile_store.save_proficiency_batch(
+        additions=[],
+        updates=[
+            {
+                "id": first_requirement["id"],
+                "comfort": "comfortable",
+                "notes": "LATEST-ANSWER-SENTINEL",
+            }
+        ],
+        expected_revision=proficiency["revision"],
+    )
+    profile = app.state.deps.profile_store.read_profile()
+    app.state.deps.profile_store.revoke_cv(cv["id"], expected_revision=profile["revision"])
+
+    response = client.post(
+        f"/api/topics/{topic}/conversations/{conversation}/chat",
+        json={"message": "Teach me this", "file_ids": [], "model": "synthetic-model"},
+    )
+
+    assert response.status_code == 200
+    messages = model.requests[-1]["messages"]
+    prompt = json.dumps(messages)
+    assert "Understand this section at a high level" in prompt
+    assert "This section uses basic algorithms and probability." in prompt
+    assert "Basic programming" in prompt
+    assert "LATEST-ANSWER-SENTINEL" in prompt
+    assert "pending" in prompt
+    assert "SECOND-ONLY" not in prompt
+    assert "Synthetic CV evidence." not in prompt
