@@ -209,4 +209,33 @@ describe('My proficiency panel', () => {
     await user.click(screen.getByRole('checkbox', { name: 'Always include CV in this conversation' }));
     expect(onIncludeCvChange).toHaveBeenCalledWith(true);
   });
+
+  test('allows disabling always-include after the selected CV becomes unavailable', async () => {
+    const user = userEvent.setup();
+    const onIncludeCvChange = vi.fn();
+    render(
+      <MyProficiencyPanel
+        {...baseProps}
+        cvs={[
+          {
+            id: 'cv-1',
+            originalName: 'Revoked CV.pdf',
+            status: 'revoked',
+            extractedText: '',
+            extractionDiagnostics: [],
+          },
+        ]}
+        selectedCvId="cv-1"
+        activeConversationId="conversation-1"
+        includeCv
+        onIncludeCvChange={onIncludeCvChange}
+      />,
+    );
+
+    const toggle = screen.getByRole('checkbox', { name: 'Always include CV in this conversation' });
+    expect(toggle).toBeChecked();
+    expect(toggle).toBeEnabled();
+    await user.click(toggle);
+    expect(onIncludeCvChange).toHaveBeenCalledWith(false);
+  });
 });

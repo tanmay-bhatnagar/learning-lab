@@ -193,6 +193,45 @@ describe('useProficiency', () => {
     expect(result.current.proficiency).toEqual(emptyProficiency);
   });
 
+  test('keeps a failed new CV extraction visible when the active CV preview refresh succeeds', async () => {
+    const activeProfile: Profile = {
+      schema_version: 1,
+      revision: 1,
+      active_cv_id: cvOneId,
+      cvs: [cvRecord(cvOneId, 'Existing.pdf')],
+    };
+    const extractionFailedCv: ProfileCv = {
+      ...cvRecord(cvTwoId, 'New CV.pdf'),
+      status: 'error',
+      extracted_sha256: null,
+      extraction_diagnostics: { status: 'error', findings: ['No text was extracted.'] },
+    };
+    const profileAfterUpload: Profile = {
+      ...activeProfile,
+      revision: 2,
+      cvs: [...activeProfile.cvs, extractionFailedCv],
+    };
+    const activeText: profileApi.CvText = {
+      id: cvOneId,
+      original_name: 'Existing.pdf',
+      parser: 'docling',
+      parser_version: '2.55.1',
+      text: 'Existing active CV text.',
+    };
+    vi.spyOn(profileApi, 'getProfile').mockResolvedValueOnce(activeProfile).mockResolvedValue(profileAfterUpload);
+    vi.spyOn(profileApi, 'getProficiency').mockResolvedValue(emptyProficiency);
+    vi.spyOn(profileApi, 'getCvText').mockResolvedValue(activeText);
+    vi.spyOn(profileApi, 'uploadCv').mockResolvedValue({ ...extractionFailedCv, revision: 2 });
+    const { result } = renderHook(() => useProficiency('docling'));
+    await waitFor(() => expect(result.current.cvText).toEqual(activeText));
+
+    const file = new File(['%PDF-synthetic'], 'new.pdf', { type: 'application/pdf' });
+    await act(async () => result.current.uploadCv(file, 'New CV.pdf'));
+
+    expect(result.current.cvText).toEqual(activeText);
+    expect(result.current.cvError).toMatch(/No text was extracted/);
+  });
+
   test('aborts a late full-text preview when a newer CV selection becomes active', async () => {
     const profileOne: Profile = {
       schema_version: 1,
@@ -235,6 +274,52 @@ describe('useProficiency', () => {
       }),
     );
     expect(result.current.cvText).toEqual(secondCvText);
+  });
+
+  test('does not expose the previously selected CV text while the newly active CV preview is pending', async () => {
+    const profileOne: Profile = {
+      schema_version: 1,
+      revision: 1,
+      active_cv_id: cvOneId,
+      cvs: [cvRecord(cvOneId, 'First.pdf'), cvRecord(cvTwoId, 'Second.pdf')],
+    };
+    const profileTwo = { ...profileOne, revision: 2, active_cv_id: cvTwoId };
+    const secondText = deferred<profileApi.CvText>();
+    const firstCvText: profileApi.CvText = {
+      id: cvOneId,
+      original_name: 'First.pdf',
+      parser: 'docling',
+      parser_version: '2.55.1',
+      text: 'First CV text.',
+    };
+    vi.spyOn(profileApi, 'getProfile').mockResolvedValue(profileOne);
+    vi.spyOn(profileApi, 'getProficiency').mockResolvedValue(emptyProficiency);
+    vi.spyOn(profileApi, 'getCvText').mockImplementation((id) =>
+      id === cvOneId ? Promise.resolve(firstCvText) : secondText.promise,
+    );
+    vi.spyOn(profileApi, 'selectCv').mockResolvedValue(profileTwo);
+    const { result } = renderHook(() => useProficiency('docling'));
+    await waitFor(() => expect(result.current.cvText).toEqual(firstCvText));
+
+    let selection!: Promise<void>;
+    await act(async () => {
+      selection = result.current.selectCv(cvTwoId);
+      await waitFor(() => expect(profileApi.getCvText).toHaveBeenCalledWith(cvTwoId, expect.any(AbortSignal)));
+    });
+    expect(result.current.profile?.active_cv_id).toBe(cvTwoId);
+    expect(result.current.cvText).toBeNull();
+
+    await act(async () => {
+      secondText.resolve({
+        id: cvTwoId,
+        original_name: 'Second.pdf',
+        parser: 'docling',
+        parser_version: '2.55.1',
+        text: 'Second CV text.',
+      });
+      await selection;
+    });
+    expect(result.current.cvText?.id).toBe(cvTwoId);
   });
 
   test('keeps optimistic revision conflicts visible and preserves proficiency state', async () => {
