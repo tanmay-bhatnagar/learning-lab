@@ -18,7 +18,7 @@ from lab.section_summary import (
     source_digest,
 )
 
-PREREQUISITE_PROMPT_VERSION = "section-prerequisites-v1"
+PREREQUISITE_PROMPT_VERSION = "section-prerequisites-v2"
 MAX_REQUIREMENTS = 8
 MAX_RESPONSE_BYTES = 24_000
 _LABEL = re.compile(r"^S[1-9][0-9]*$")
@@ -89,7 +89,12 @@ def build_prerequisite_plan(
         "Keep requirements concise and conceptual. For a reproduction goal, basic programming may be relevant "
         "at a conceptual level. Do not list libraries, APIs, implementation recipes, or a "
         "course syllabus. Do not invent a large prerequisite program. Zero requirements is valid when the section "
-        "does not justify one. Return only the requested structured response.\n\n"
+        "does not justify one. Respect the stated goal: understanding a passage is not writing that passage. "
+        "Select foundational concepts assumed by the section, not restatements of its sentences or objectives. "
+        "Use short concept noun phrases such as basic probability or linear algebra, not 'understand how X works'. "
+        "Ordinary reading, recognizing contributor names, gratitude, and identifying funders are not preparation "
+        "requirements. For a nontechnical acknowledgement thanking reviewers and funders, an understanding goal "
+        "needs zero prerequisites: return an empty requirements array. Return only the requested structured response.\n\n"
         "The complete configured Learning Lab runtime policy follows. It is not factual evidence:\n"
         f"<runtime-policy>\n{runtime_policy}\n</runtime-policy>"
     )
