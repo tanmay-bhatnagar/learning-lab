@@ -79,4 +79,27 @@ describe('useLearnerContext', () => {
     expect(result.current.preference).toEqual(apiState(7, true));
     expect(vi.mocked(getLearnerContext).mock.calls[0]?.[2]?.aborted).toBe(true);
   });
+
+  test('clears an earlier target error when a fresh load later succeeds', async () => {
+    vi.mocked(getLearnerContext)
+      .mockRejectedValueOnce(new Error('temporary failed load'))
+      .mockResolvedValueOnce(apiState(2, false))
+      .mockResolvedValueOnce(apiState(3, true));
+    const activityApi = { begin: vi.fn(() => true), end: vi.fn() };
+    const { result, rerender } = renderHook(
+      ({ conversationId }: { conversationId: string }) =>
+        useLearnerContext({ topicId: 'topic-a', conversationId, activity: 'idle', activityApi }),
+      { initialProps: { conversationId: 'conversation-a' } },
+    );
+
+    await waitFor(() => expect(result.current.error).toBe('temporary failed load'));
+
+    rerender({ conversationId: 'conversation-b' });
+    await waitFor(() => expect(result.current.preference?.revision).toBe(2));
+    expect(result.current.error).toBe('');
+
+    rerender({ conversationId: 'conversation-a' });
+    await waitFor(() => expect(result.current.preference?.revision).toBe(3));
+    expect(result.current.error).toBe('');
+  });
 });
