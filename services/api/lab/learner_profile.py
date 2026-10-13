@@ -446,6 +446,34 @@ def register_model_requirements_state(
     )
 
 
+def discard_unpublished_pending(state: dict[str, Any], *, topic_id: str, assessment_id: str) -> dict[str, Any]:
+    """Discard only untouched model rows belonging to one unpublished assessment."""
+    current = validate_proficiency(state)
+    if (
+        not isinstance(topic_id, str)
+        or not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,79}", topic_id)
+        or not isinstance(assessment_id, str)
+        or not assessment_id
+        or len(assessment_id) > 100
+        or any(ord(char) < 32 for char in assessment_id)
+    ):
+        raise InvalidInput("Unpublished prerequisite identity is invalid.")
+    entries = [
+        entry
+        for entry in current["entries"]
+        if not (
+            entry["source_kind"] == "model_requirement"
+            and entry["topic_id"] == topic_id
+            and entry["assessment_id"] == assessment_id
+            and entry["comfort"] is None
+            and entry["notes"] == ""
+        )
+    ]
+    if len(entries) == len(current["entries"]):
+        return current
+    return validate_proficiency({**current, "revision": current["revision"] + 1, "entries": entries})
+
+
 def proficiency_context(
     state: dict[str, Any], *, topic_id: str | None = None, active_assessment_id: str | None = None
 ) -> str:

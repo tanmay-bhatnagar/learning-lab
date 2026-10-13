@@ -18,6 +18,7 @@ from lab.learner_profile import (
     add_cv_record,
     add_manual_proficiency,
     apply_proficiency_batch,
+    discard_unpublished_pending,
     empty_profile,
     empty_proficiency,
     filename_collision_key,
@@ -156,6 +157,15 @@ class ProfileStore:
                 updated_at=datetime.now(UTC).isoformat(),
                 expected_revision=state["revision"],
             )
+            if updated != state:
+                write_json(self.proficiency_path, updated)
+            return copy.deepcopy(updated)
+
+    def discard_unpublished_pending(self, *, topic_id: str, assessment_id: str) -> dict[str, Any]:
+        """Remove only untouched pending rows after the caller confirms no assessment was published."""
+        with self._locked():
+            state = validate_proficiency(read_json(self.proficiency_path, empty_proficiency()))
+            updated = discard_unpublished_pending(state, topic_id=topic_id, assessment_id=assessment_id)
             if updated != state:
                 write_json(self.proficiency_path, updated)
             return copy.deepcopy(updated)

@@ -93,13 +93,7 @@ def router(deps: AppDeps) -> APIRouter:
                 for attempt_id, active in deps.active_prerequisite_attempts.items()
                 if active.topic == topic and active.file_id == file_id
             }
-            recover_interrupted_attempts(
-                deps.store,
-                topic,
-                file_id,
-                active_attempt_ids=active_ids,
-                finished_at=_now(),
-            )
+            _recover_file_state(deps, topic, file_id, active_ids)
             current = get_document_map(deps.store, topic, file_id)
             if current["status"] != "ready" or current["map"] is None:
                 raise Conflict("Build the current document map before generating prerequisites.")
@@ -195,6 +189,7 @@ def router(deps: AppDeps) -> APIRouter:
                         try:
                             write_prerequisite_attempt(deps.store, topic, file_id, cancelled)
                             terminal = True
+                            _discard_if_unpublished(deps, topic, file_id, attempt_id, assessment_id)
                         except Exception as exc:  # noqa: BLE001 - leave generating state recoverable if persistence fails
                             logger.error(
                                 "Prerequisite cancellation save failed for %s (%s)", attempt_id, type(exc).__name__
@@ -244,6 +239,7 @@ def router(deps: AppDeps) -> APIRouter:
                         failed = terminal_attempt("error", message)
                         write_prerequisite_attempt(deps.store, topic, file_id, failed)
                         terminal = True
+                        _discard_if_unpublished(deps, topic, file_id, attempt_id, assessment_id)
                         yield line({"type": "error", "attempt_id": attempt_id, "message": message, "attempt": failed})
                         break
                     if kind != "done":
@@ -318,6 +314,7 @@ def router(deps: AppDeps) -> APIRouter:
                     failed = terminal_attempt("error", message)
                     write_prerequisite_attempt(deps.store, topic, file_id, failed)
                     terminal = True
+                    _discard_if_unpublished(deps, topic, file_id, attempt_id, assessment_id)
                     yield line({"type": "error", "attempt_id": attempt_id, "message": message, "attempt": failed})
             except asyncio.CancelledError:
                 raise
@@ -327,13 +324,70 @@ def router(deps: AppDeps) -> APIRouter:
                     if isinstance(exc, (Conflict, InvalidInput))
                     else "Prerequisite generation could not be completed."
                 )
-                failed = terminal_attempt("error", message[:2000])
                 try:
-                    write_prerequisite_attempt(deps.store, topic, file_id, failed)
-                    terminal = True
-                except Exception as save_exc:  # noqa: BLE001 - retain recovery state when terminal persistence fails
-                    logger.error("Prerequisite failure save failed for %s (%s)", attempt_id, type(save_exc).__name__)
-                yield line({"type": "error", "attempt_id": attempt_id, "message": message, "attempt": failed})
+                    durable = get_prerequisite_state(deps.store, topic, file_id)
+                except Exception as read_exc:  # noqa: BLE001 - never delete rows when publication state is unreadable
+                    logger.error("Prerequisite state check failed for %s (%s)", attempt_id, type(read_exc).__name__)
+                    yield line(
+                        {
+                            "type": "error",
+                            "attempt_id": attempt_id,
+                            "message": "Could not verify whether prerequisites were saved; retry after checking the saved state.",
+                        }
+                    )
+                else:
+                    published = _published_assessment(durable, attempt_id, assessment_id)
+                    if published is not None:
+                        terminal = True
+                        current_profile = deps.profile_store.read_proficiency()
+                        saved_attempt = next(item for item in durable["attempts"] if item["id"] == attempt_id)
+                        yield line(
+                            {
+                                "type": "done",
+                                "attempt_id": attempt_id,
+                                "assessment": published,
+                                "proficiency_revision": current_profile["revision"],
+                                "attempt": saved_attempt,
+                            }
+                        )
+                    else:
+                        saved_attempt = next((item for item in durable["attempts"] if item["id"] == attempt_id), None)
+                        if saved_attempt is not None and saved_attempt["status"] in {
+                            "error",
+                            "cancelled",
+                            "interrupted",
+                        }:
+                            failed = saved_attempt
+                            terminal = True
+                        else:
+                            failed = terminal_attempt("error", message[:2000])
+                            try:
+                                write_prerequisite_attempt(deps.store, topic, file_id, failed)
+                                terminal = True
+                            except Exception as save_exc:  # noqa: BLE001 - retain recovery state when terminal persistence fails
+                                logger.error(
+                                    "Prerequisite failure save failed for %s (%s)", attempt_id, type(save_exc).__name__
+                                )
+                        if terminal:
+                            try:
+                                _discard_if_unpublished(deps, topic, file_id, attempt_id, assessment_id)
+                            except Exception as cleanup_exc:  # noqa: BLE001 - leave rows intact and let idle recovery retry
+                                logger.error(
+                                    "Prerequisite profile cleanup failed for %s (%s)",
+                                    attempt_id,
+                                    type(cleanup_exc).__name__,
+                                )
+                            yield line(
+                                {"type": "error", "attempt_id": attempt_id, "message": message, "attempt": failed}
+                            )
+                        else:
+                            yield line(
+                                {
+                                    "type": "error",
+                                    "attempt_id": attempt_id,
+                                    "message": "Prerequisites could not be saved; retry after checking the saved state.",
+                                }
+                            )
             finally:
                 await finish()
 
@@ -360,9 +414,35 @@ async def _recover_if_idle(deps: AppDeps, topic: str, file_id: str) -> None:
             for attempt_id, active in deps.active_prerequisite_attempts.items()
             if active.topic == topic and active.file_id == file_id
         }
-        recover_interrupted_attempts(deps.store, topic, file_id, active_attempt_ids=active_ids, finished_at=_now())
+        _recover_file_state(deps, topic, file_id, active_ids)
     finally:
         lease.release()
+
+
+def _recover_file_state(deps: AppDeps, topic: str, file_id: str, active_ids: set[str]) -> None:
+    recover_interrupted_attempts(deps.store, topic, file_id, active_attempt_ids=active_ids, finished_at=_now())
+    state = get_prerequisite_state(deps.store, topic, file_id)
+    for attempt in state["attempts"]:
+        if attempt["status"] in {"error", "cancelled", "interrupted"}:
+            _discard_if_unpublished(deps, topic, file_id, attempt["id"], attempt["assessment_id"])
+
+
+def _discard_if_unpublished(deps: AppDeps, topic: str, file_id: str, attempt_id: str, assessment_id: str) -> None:
+    state = get_prerequisite_state(deps.store, topic, file_id)
+    attempt = next((item for item in state["attempts"] if item["id"] == attempt_id), None)
+    if attempt is None or attempt["status"] not in {"error", "cancelled", "interrupted"}:
+        return
+    if _published_assessment(state, attempt_id, assessment_id) is not None:
+        return
+    deps.profile_store.discard_unpublished_pending(topic_id=topic, assessment_id=assessment_id)
+
+
+def _published_assessment(state: dict[str, object], attempt_id: str, assessment_id: str) -> dict[str, object] | None:
+    assessments = state["assessments"]
+    return next(
+        (item for item in assessments if item["attempt_id"] == attempt_id and item["assessment_id"] == assessment_id),
+        None,
+    )
 
 
 def _now() -> str:
