@@ -1,0 +1,100 @@
+.prerequisite-panel {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--line, #d9dedf);
+  border-radius: 12px;
+  background: var(--surface, #fff);
+}
+
+.prerequisite-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.prerequisite-header h3,
+.prerequisite-requirement h4 {
+  margin: 0.2rem 0;
+}
+
+.prerequisite-goal {
+  display: grid;
+  gap: 0.4rem;
+  font-weight: 600;
+}
+
+.prerequisite-goal textarea {
+  width: 100%;
+  resize: vertical;
+}
+
+.prerequisite-model,
+.prerequisite-status,
+.prerequisite-warning,
+.prerequisite-error {
+  margin: 0;
+}
+
+.prerequisite-blocked,
+.prerequisite-overview,
+.prerequisite-requirement {
+  padding: 0.85rem;
+  border-radius: 9px;
+  background: var(--surface-muted, #f6f7f7);
+}
+
+.prerequisite-assessment {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.prerequisite-overview p {
+  margin: 0.4rem 0;
+}
+
+.prerequisite-requirement {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.prerequisite-requirement p {
+  margin: 0;
+}
+
+.prerequisite-question {
+  font-weight: 600;
+}
+
+.prerequisite-citations {
+  display: grid;
+  gap: 0.4rem;
+  margin-top: 0.3rem;
+}
+
+.prerequisite-citation {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.65rem;
+}
+
+.prerequisite-cv-quote {
+  margin: 0.2rem 0 0;
+  padding-left: 0.75rem;
+  border-left: 2px solid var(--line, #d9dedf);
+  color: var(--muted, #596569);
+}
+
+.prerequisite-cv-note {
+  margin: 0;
+  font-size: 0.85em;
+}
+
+@media (max-width: 680px) {
+  .prerequisite-header {
+    flex-direction: column;
+  }
+}

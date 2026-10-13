@@ -17,6 +17,7 @@ import { useDocumentMap } from './useDocumentMap';
 import { useSectionSummary } from './useSectionSummary';
 import { useProficiency } from './useProficiency';
 import { useLearnerContext } from './useLearnerContext';
+import { usePrerequisites } from './usePrerequisites';
 import { cvOriginalUrl } from '../api/profile';
 import { adaptProficiencyEntries } from '../domain/proficiency';
 import { useSidebarDefault, useTopicSidebarClose, useWindowDragGuards } from './useWindowEffects';
@@ -133,6 +134,31 @@ export function useAppState() {
       if (session.conversation === destination) session.reload();
     },
   });
+  const selectedCvId = proficiency.profile?.active_cv_id ?? null;
+  const selectedCv = proficiency.profile?.cvs.find((cv) => cv.id === selectedCvId);
+  const activeCvHash =
+    selectedCv && !selectedCv.revoked && selectedCv.status === 'ready' ? selectedCv.extracted_sha256 : null;
+  const modelThink = thinkValue(activeModel);
+  const prerequisiteThink =
+    typeof modelThink === 'boolean' || modelThink === 'low' || modelThink === 'medium' || modelThink === 'high'
+      ? modelThink
+      : undefined;
+  const prerequisites = usePrerequisites({
+    topicId: bootstrap.topic,
+    fileId: documentMap.fileId,
+    sectionId: sectionSummary.sectionId,
+    mapRevision: documentMap.state.response?.map?.revision ?? '',
+    mapReady: documentMap.state.response?.status === 'ready',
+    activeCvId: activeCvHash ? selectedCvId : null,
+    activeCvHash,
+    modelId: activeModel?.id,
+    contextLimit: bootstrap.settings.context_limit,
+    think: prerequisiteThink,
+    defaultGoal: session.learningGoal,
+    activity: activityApi.activity,
+    activityApi,
+    refreshProficiency: proficiency.refreshProficiency,
+  });
 
   const createTopic = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -222,6 +248,7 @@ export function useAppState() {
     session,
     documentMap,
     sectionSummary,
+    prerequisites,
     proficiency,
     learnerContext,
     proficiencyEntries,

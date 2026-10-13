@@ -14,6 +14,8 @@ import { TopBar } from './components/TopBar';
 import { WorkspaceTabs } from './components/WorkspaceTabs';
 import { DocumentMapPanel } from './components/DocumentMapPanel';
 import { MyProficiencyPanel } from './components/MyProficiencyPanel';
+import { PrerequisitePanel } from './components/PrerequisitePanel';
+import { findMapSection } from './state/documentMap';
 
 export function App() {
   const state = useAppState();
@@ -117,6 +119,10 @@ export function App() {
   } = session;
   const documentMap = state.documentMap;
   const sectionSummary = state.sectionSummary;
+  const prerequisites = state.prerequisites;
+  const currentMap = documentMap.state.response?.map ?? null;
+  const selectedMapSection =
+    currentMap && sectionSummary.sectionId ? findMapSection(currentMap.sections, sectionSummary.sectionId) : null;
 
   const meter = contextMeter(context, settings);
   const bannerMessage = [error, migrationError, storageError].filter(Boolean).join(' ');
@@ -324,31 +330,57 @@ export function App() {
                 onRefreshFiles={() => void refreshFiles()}
               />
             ) : tab === 'map' ? (
-              <DocumentMapPanel
-                topic={topic}
-                files={files}
-                fileId={documentMap.fileId}
-                onFileChange={documentMap.setFileId}
-                map={documentMap.state.response?.map ?? null}
-                status={documentMap.state.response?.status ?? null}
-                loading={documentMap.state.loading}
-                busy={busy}
-                error={documentMap.state.error}
-                conversationTitle={
-                  session.conversations.find((item) => item.id === session.conversation)?.title ?? 'Default'
-                }
-                selectedSectionId={sectionSummary.sectionId}
-                summaryView={sectionSummary.view}
-                summaryRunning={sectionSummary.running}
-                summaryImporting={sectionSummary.importing}
-                summaryNotice={sectionSummary.notice}
-                onSelectSection={sectionSummary.selectSection}
-                onGenerateSummary={() => void sectionSummary.generate()}
-                onStopSummary={() => void sectionSummary.stop()}
-                onAddSummary={() => void sectionSummary.addToConversation()}
-                onBuild={() => void documentMap.build()}
-                onRetry={documentMap.reload}
-              />
+              <>
+                <DocumentMapPanel
+                  topic={topic}
+                  files={files}
+                  fileId={documentMap.fileId}
+                  onFileChange={documentMap.setFileId}
+                  map={documentMap.state.response?.map ?? null}
+                  status={documentMap.state.response?.status ?? null}
+                  loading={documentMap.state.loading}
+                  busy={busy}
+                  error={documentMap.state.error}
+                  conversationTitle={
+                    session.conversations.find((item) => item.id === session.conversation)?.title ?? 'Default'
+                  }
+                  selectedSectionId={sectionSummary.sectionId}
+                  summaryView={sectionSummary.view}
+                  summaryRunning={sectionSummary.running}
+                  summaryImporting={sectionSummary.importing}
+                  summaryNotice={sectionSummary.notice}
+                  onSelectSection={sectionSummary.selectSection}
+                  onGenerateSummary={() => void sectionSummary.generate()}
+                  onStopSummary={() => void sectionSummary.stop()}
+                  onAddSummary={() => void sectionSummary.addToConversation()}
+                  onBuild={() => void documentMap.build()}
+                  onRetry={documentMap.reload}
+                />
+                <PrerequisitePanel
+                  key={`${topic}:${documentMap.fileId}:${currentMap?.revision ?? ''}:${sectionSummary.sectionId}`}
+                  topicId={topic}
+                  fileId={documentMap.fileId}
+                  sectionId={sectionSummary.sectionId}
+                  sectionTitle={selectedMapSection?.title ?? ''}
+                  pageCount={files.find((file) => file.id === documentMap.fileId)?.page_count}
+                  units={currentMap?.units ?? []}
+                  assessment={prerequisites.assessment}
+                  assessmentStaleReason={prerequisites.assessmentStaleReason}
+                  attempt={prerequisites.attempt}
+                  loading={prerequisites.loading}
+                  running={prerequisites.running}
+                  progress={prerequisites.progress}
+                  error={prerequisites.error}
+                  blockedReason={prerequisites.blockedReason}
+                  modelName={activeModel?.display_name ?? ''}
+                  busy={busy}
+                  defaultGoal={activeTopic?.learning_goal?.trim() ?? ''}
+                  onGenerate={(goal) => void prerequisites.generate(goal)}
+                  onStop={() => void prerequisites.stop()}
+                  onReload={prerequisites.reload}
+                  onOpenMyProficiency={() => setPage('proficiency')}
+                />
+              </>
             ) : (
               <ChatPanel
                 messages={messages}

@@ -83,12 +83,16 @@ const options = {
   fileId: 'file-a',
   sectionId: 'section-a',
   mapRevision: revision,
-  model: { id: 'local-model' },
+  mapReady: true,
+  activeCvId: cvId,
+  activeCvHash: revision,
+  modelId: 'local-model',
   contextLimit: 8192,
   think: false,
-  goal: 'Understand this section',
+  defaultGoal: 'Understand this section',
   activity: 'idle' as const,
   activityApi: { begin: vi.fn(() => true), end: vi.fn() },
+  refreshProficiency: vi.fn(async () => undefined),
 };
 
 describe('usePrerequisites', () => {
@@ -131,7 +135,6 @@ describe('usePrerequisites', () => {
       { revision, model: 'local-model', context_limit: 8192, think: false, goal: 'Understand this section' },
       expect.any(AbortSignal),
       expect.any(Function),
-      expect.any(Function),
     );
     expect(result.current.assessment).toEqual(assessment);
     expect(result.current.assessment?.requirements[0].comfort).toBeNull();
@@ -150,5 +153,15 @@ describe('usePrerequisites', () => {
 
     expect(result.current.assessment).toEqual(assessment);
     expect(result.current.error).toMatch(/local model unavailable/i);
+  });
+
+  test('keeps an older completed result visible and labels it when the selected CV changes', async () => {
+    vi.mocked(readPrerequisites).mockResolvedValue(state(assessment, false));
+    const { result } = renderHook(() => usePrerequisites({ ...options, activeCvId: null, activeCvHash: null }));
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.assessment).toEqual(assessment);
+    expect(result.current.assessmentStaleReason).toMatch(/different CV/i);
   });
 });

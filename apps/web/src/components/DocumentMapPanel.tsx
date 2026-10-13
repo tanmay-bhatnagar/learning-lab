@@ -60,7 +60,7 @@ function SectionTree({
               <p>{section.text || 'No direct preview text was extracted.'}</p>
               <small>Direct extracted text. A generated summary covers this section and its nested sections.</small>
               <button className="text-button" disabled={selectionDisabled} onClick={() => onSelectSection(section.id)}>
-                {selectedSectionId === section.id ? 'Selected for summary' : 'Select for summary'}
+                {selectedSectionId === section.id ? 'Selected section' : 'Select section'}
               </button>
               {section.pages.length > 0 && (
                 <div className="map-pages">

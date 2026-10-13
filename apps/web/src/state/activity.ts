@@ -8,6 +8,8 @@ export type Activity =
   | 'managingCv'
   | 'refreshingProficiency'
   | 'savingLearnerContext'
+  | 'generatingPrerequisites'
+  | 'importingPrerequisites'
   | 'buildingMap'
   | 'generatingSummary'
   | 'importingSummary';
@@ -21,6 +23,8 @@ export type ActivityOp =
   | 'manageCv'
   | 'refreshProficiency'
   | 'saveLearnerContext'
+  | 'generatePrerequisites'
+  | 'importPrerequisites'
   | 'selectModel'
   | 'buildMap'
   | 'generateSummary'
@@ -45,6 +49,10 @@ export function activityForOp(op: ActivityOp): Activity {
       return 'refreshingProficiency';
     case 'saveLearnerContext':
       return 'savingLearnerContext';
+    case 'generatePrerequisites':
+      return 'generatingPrerequisites';
+    case 'importPrerequisites':
+      return 'importingPrerequisites';
     case 'buildMap':
       return 'buildingMap';
     case 'generateSummary':
