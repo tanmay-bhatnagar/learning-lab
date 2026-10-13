@@ -42,7 +42,10 @@ export function useLearnerContext({ topicId, conversationId, activity, activityA
     let active = true;
     void getLearnerContext(topicId, conversationId, controller.signal)
       .then((preference) => {
-        if (active && !controller.signal.aborted && targetRef.current === target) setState({ target, preference });
+        if (active && !controller.signal.aborted && targetRef.current === target) {
+          setState({ target, preference });
+          setErrorState((current) => (current?.target === target ? null : current));
+        }
       })
       .catch((reason: unknown) => {
         if (active && !controller.signal.aborted && targetRef.current === target) {
