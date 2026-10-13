@@ -477,6 +477,49 @@ def test_unreadable_state_after_provider_completion_emits_uncertain_error_withou
     assert deps.active_prerequisite_attempts == {}
 
 
+def test_cleanup_never_discards_rows_for_same_assessment_published_by_later_attempt(tmp_path, monkeypatch):
+    import lab.web.prerequisites as prerequisite_routes
+    from types import SimpleNamespace
+    import uuid
+
+    client, topic, outline, _model, cv = _prepared(tmp_path)
+    section = outline["sections"][0]
+    deps = client.app.state.deps
+    assessment_id = _write_generating_attempt(deps.store, topic, outline, section, cv)
+    state = deps.store
+    from lab.prerequisite_store import get_prerequisite_state, write_prerequisite_attempt
+
+    prior = get_prerequisite_state(state, topic, "paper-1")["attempts"][-1]
+    failed_prior = {
+        **prior,
+        "status": "error",
+        "finished_at": "2026-10-13T00:01:00+00:00",
+        "diagnostic": "Synthetic earlier attempt failed.",
+    }
+    write_prerequisite_attempt(state, topic, "paper-1", failed_prior)
+
+    next_ids = iter(["e" * 32, assessment_id])
+    original_uuid4 = uuid.uuid4
+
+    def fixed_attempt_id_then_random():
+        try:
+            return SimpleNamespace(hex=next(next_ids))
+        except StopIteration:
+            return original_uuid4()
+
+    monkeypatch.setattr(prerequisite_routes.uuid, "uuid4", fixed_attempt_id_then_random)
+    section_response = client.post(_generate_url(topic, section["id"]), json=_request(outline))
+    assert section_response.status_code == 200
+
+    recovered = client.get(f"/api/topics/{topic}/files/paper-1/prerequisites")
+    profile_rows = deps.profile_store.read_proficiency()["entries"]
+
+    assert recovered.status_code == 200
+    assert [item["status"] for item in recovered.json()["attempts"]] == ["error", "completed"]
+    assert len(profile_rows) == 2
+    assert all(item["assessment_id"] == assessment_id for item in profile_rows)
+
+
 def test_idle_get_marks_orphaned_generation_interrupted_and_discards_only_unpublished_rows(tmp_path):
     client, topic, outline, _model, cv = _prepared(tmp_path)
     section = outline["sections"][0]
