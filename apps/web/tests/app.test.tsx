@@ -508,6 +508,91 @@ describe('App characterization', () => {
     await waitFor(() => expect(screen.getByText(/Learning goal saved/i)).toBeInTheDocument());
   });
 
+  test('uses the saved session goal when opening a section in the map', async () => {
+    const fake = installFakeApi({
+      files: {
+        'topic-a': [
+          {
+            id: 'file-1',
+            name: 'paper-a.pdf',
+            status: 'ready',
+            parser: 'docling',
+            docling_name: 'paper-a.docling.json',
+            index_status: 'ready',
+            index_mode: 'hybrid',
+            page_count: 1,
+            asset_count: 0,
+            assets: [],
+            warnings: [],
+          },
+        ],
+      },
+    });
+    const baseFetch = fake.fetch;
+    const mapRequests: string[] = [];
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      if (new URL(url, 'http://test.local').pathname.includes('/map')) mapRequests.push(url);
+      if (new URL(url, 'http://test.local').pathname === '/api/topics/topic-a/files/file-1/map') {
+        return new Response(
+          JSON.stringify({
+            status: 'ready',
+            map: {
+              schema_version: 1,
+              builder_version: 'synthetic',
+              file_id: 'file-1',
+              revision: 'a'.repeat(64),
+              source_revision: { pdf_sha256: 'b'.repeat(64), docling_sha256: 'c'.repeat(64) },
+              outline_mode: 'headings',
+              sections: [
+                {
+                  id: 'section-a',
+                  source_ref: 'doc:section-a',
+                  title: 'Synthetic section',
+                  level: 1,
+                  pages: [1],
+                  text: 'Synthetic source text.',
+                  direct_unit_ids: [],
+                  source_unit_ids: [],
+                  children: [],
+                },
+              ],
+              units: [],
+              coverage: {
+                total_units: 0,
+                included_units: 0,
+                excluded_units: 0,
+                accounted_units: 0,
+                total_source_items: 0,
+                accounted_source_items: 0,
+              },
+              warnings: [],
+              history: [],
+            },
+          }),
+          { headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      return baseFetch(input, init);
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    await waitForAppReady();
+    await user.clear(screen.getByPlaceholderText(/What would you like to learn/i));
+    await user.type(screen.getByPlaceholderText(/What would you like to learn/i), 'Saved goal for the section');
+    await user.click(screen.getByRole('button', { name: /Save learning goal/i }));
+    await waitFor(() => expect(screen.getByText(/Learning goal saved/i)).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: /Map/i }));
+    await user.selectOptions(screen.getByRole('combobox', { name: 'PDF for map' }), 'file-1');
+    await waitFor(() => expect(mapRequests.length).toBeGreaterThan(0));
+    await user.click(await screen.findByRole('button', { name: 'Select section' }));
+
+    expect(await screen.findByRole('textbox', { name: 'What do you want from this section?' })).toHaveValue(
+      'Saved goal for the section',
+    );
+  });
+
   test('send streams thinking and token events; stop aborts with partial text', async () => {
     const slowStream: StreamScript = async function* (_body, signal) {
       yield { type: 'thinking', text: 'Hmm' };
