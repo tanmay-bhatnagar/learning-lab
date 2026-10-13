@@ -139,3 +139,7 @@ Root reran the complete backend suite from its configured `services/api` working
 ## Lifecycle repair branch
 
 Coder red0738b32 → repair9e21154 passes six hook tests, including separate unmount and explicit Stop outcomes, targeted lint and repaired formatting. A mounted-liveness guard prevents starting hydration after unmount. Suppressing every aborted request would also prevent Stop from recovering the actual durable result, so that alternative was rejected. Activity release remains unconditional. Broader App lifecycle and real cancellation timing remain browser gates. The second preference-error finding remains a separate regression/repair slice; no blanket claim that all reviewed UI defects are resolved.
+
+## Preference recovery repair branch
+
+Coder red e3a321c reproduces A failure → B success → A revision3 success with stale A error. The repair clears only the successfully loaded target's error inside existing liveness/abort/current-target guards, rather than clearing every error on navigation and hiding another target's failure. Both assigned hook suites pass10 checks with lint/format. Root commits this narrowly before further integration. Current-request recovery is verified; full checkbox/App behavior remains the final browser owner's gate. No external source was needed for directly reproduced repository state transitions.
