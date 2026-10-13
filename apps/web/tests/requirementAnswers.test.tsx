@@ -115,6 +115,36 @@ describe('RequirementAnswers', () => {
     expect(screen.getByLabelText('Notes for Python')).toHaveValue('Pending note');
   });
 
+  test('rebases only the touched answer field after reload so a fresh note is not overwritten', async () => {
+    const user = userEvent.setup();
+    const onSave = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('My proficiency changed; reload it before saving this update.'))
+      .mockResolvedValueOnce(undefined);
+    const view = render(<RequirementAnswers {...baseProps} onSave={onSave} />);
+
+    await user.selectOptions(screen.getByLabelText('Your comfort with Python'), 'new');
+    await user.click(screen.getByRole('button', { name: 'Save proficiency' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/changed; reload/i);
+
+    view.rerender(
+      <RequirementAnswers
+        {...baseProps}
+        entries={[{ ...currentEntry, note: 'Added elsewhere before reload.' }, oldEntry, manualEntry]}
+        onSave={onSave}
+      />,
+    );
+
+    expect(screen.getByLabelText('Your comfort with Python')).toHaveValue('new');
+    expect(screen.getByLabelText('Notes for Python')).toHaveValue('Added elsewhere before reload.');
+    await user.click(screen.getByRole('button', { name: 'Save proficiency' }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(2));
+    expect(onSave).toHaveBeenLastCalledWith([
+      expect.objectContaining({ comfort: 'new', note: 'Added elsewhere before reload.' }),
+    ]);
+  });
+
   test('shows pending controls but disables save when a completed assessment has no exact saved row', () => {
     const onSave = vi.fn();
     render(<RequirementAnswers {...baseProps} entries={[]} onSave={onSave} />);
