@@ -599,6 +599,9 @@ describe('App characterization', () => {
     expect(tabs).not.toBeNull();
     await user.click(within(tabs as HTMLElement).getByRole('button', { name: /Conversation/i }));
     expect(await screen.findByText('Saved prerequisite snapshot for Synthetic section.')).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue(
+      'Keep this existing thought\n\nI want to understand the concepts needed for “Synthetic section” in paper-a.pdf. Can you help me explore them using the documents I have selected?',
+    );
     expect(chatRequests).toBe(0);
   });
 
