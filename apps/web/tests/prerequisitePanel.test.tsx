@@ -1,6 +1,36 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, test } from 'vitest';
+import type { PrerequisiteAssessment } from '../src/api/prerequisites';
 import { PrerequisitePanel } from '../src/components/PrerequisitePanel';
+
+const assessment: PrerequisiteAssessment = {
+  attempt_id: 'attempt-1',
+  assessment_id: 'assessment-1',
+  topic_id: 'topic-a',
+  file_id: 'file-a',
+  map_revision: 'a'.repeat(64),
+  section_id: 'section-a',
+  cv_id: 'c'.repeat(32),
+  cv_text_sha256: 'b'.repeat(64),
+  source_sha256: 'd'.repeat(64),
+  overview: 'Review the core concepts before reading this section.',
+  requirements: [
+    {
+      requirement_id: `req-${'e'.repeat(24)}`,
+      concept: 'Basic Python',
+      reason: 'The section uses short programs in its examples.',
+      question: 'Are you already comfortable with Basic Python?',
+      source_labels: ['S1'],
+      cv_background: 'not_stated',
+      cv_source_labels: [],
+      cv_quote: '',
+      comfort: null,
+      comfort_status: 'pending',
+    },
+  ],
+  sources: [{ label: 'S1', unit_id: 'unit-1', source_refs: ['doc:section-a'], pages: [2] }],
+  finished_at: '2026-10-13T10:01:00Z',
+};
 
 const baseProps = {
   topicId: 'topic-a',
@@ -47,5 +77,13 @@ describe('PrerequisitePanel section goal', () => {
     expect(screen.getByRole('textbox', { name: 'What do you want from this section?' })).toHaveValue(
       'Understand this section',
     );
+  });
+
+  test('shows an independent pending answer editor and explicit save for each question', () => {
+    render(<PrerequisitePanel {...baseProps} assessment={assessment} sectionTitle="First section" />);
+
+    expect(screen.getByRole('combobox', { name: 'Your comfort with Basic Python' })).toHaveValue('');
+    expect(screen.getByRole('textbox', { name: 'Notes for Basic Python' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save proficiency' })).toBeInTheDocument();
   });
 });
