@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react';
 import { api, json } from '../api/client';
 import type { Context, Message } from '../api/types';
 import {
@@ -37,6 +37,7 @@ export function useTopicSession(
   const [state, dispatch] = useReducer(topicSessionReducer, emptyTopicSession());
   const [trackedTopic, setTrackedTopic] = useState(topic);
   const [conversation, setConversation] = useState('default');
+  const conversationRef = useRef(conversation);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [conversationPending, setConversationPending] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
@@ -64,6 +65,9 @@ export function useTopicSession(
       conversationMutationController.current = null;
     };
   }, [topic]);
+  useLayoutEffect(() => {
+    conversationRef.current = conversation;
+  }, [conversation]);
   useEffect(
     () => () => {
       refreshController.current?.abort();
@@ -88,10 +92,11 @@ export function useTopicSession(
 
   const adoptConversationHistory = useCallback(
     (targetTopic: string, targetConversation: string, messages: Message[], context: Context) => {
-      if (topic !== targetTopic || topicRef.current !== targetTopic || conversation !== targetConversation) return;
+      if (topic !== targetTopic || topicRef.current !== targetTopic || conversationRef.current !== targetConversation)
+        return;
       dispatch({ type: 'conversationHistoryReplaced', messages, context });
     },
-    [conversation, topic],
+    [topic],
   );
 
   useEffect(() => {
@@ -146,6 +151,7 @@ export function useTopicSession(
       if (id === conversation || !conversations.some((item) => item.id === id)) return;
       setConversationPending(true);
       dispatch({ type: 'conversationRequested' });
+      conversationRef.current = id;
       setConversation(id);
     },
     [conversation, conversations],
@@ -171,6 +177,7 @@ export function useTopicSession(
           return;
         setConversations((previous) => [...previous, created]);
         dispatch({ type: 'conversationRequested' });
+        conversationRef.current = created.id;
         setConversation(created.id);
       } catch (e) {
         if (!aborted(e) && topicRef.current === topic && revision === conversationMutationRevision.current) {
