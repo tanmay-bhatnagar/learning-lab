@@ -2,17 +2,23 @@ import { Sparkles, Square } from 'lucide-react';
 import { useState } from 'react';
 import type { PrerequisiteAssessment, PrerequisiteAttempt } from '../api/prerequisites';
 import type { MapSourceUnit } from '../api/documentMap';
+import type { ProficiencyEntryView } from '../domain/proficiency';
 import { originalPdfUrl } from '../api/urls';
+import { RequirementAnswers } from './RequirementAnswers';
 import { RichText } from './RichText';
 import './prerequisite.css';
 
 type Props = {
   topicId: string;
   fileId: string;
+  fileName: string;
   sectionId: string;
   sectionTitle: string;
   pageCount?: number | null;
   units: MapSourceUnit[];
+  proficiencyEntries: ProficiencyEntryView[];
+  proficiencyError: string;
+  proficiencySaving: boolean;
   assessment: PrerequisiteAssessment | null;
   assessmentStaleReason: string;
   attempt: PrerequisiteAttempt | null;
@@ -28,15 +34,21 @@ type Props = {
   onStop: () => void;
   onReload: () => void;
   onOpenMyProficiency: () => void;
+  onSaveProficiency: (drafts: ProficiencyEntryView[]) => void | Promise<void>;
+  onReloadProficiency: () => void | Promise<void>;
 };
 
 export function PrerequisitePanel({
   topicId,
   fileId,
+  fileName,
   sectionId,
   sectionTitle,
   pageCount,
   units,
+  proficiencyEntries,
+  proficiencyError,
+  proficiencySaving,
   assessment,
   assessmentStaleReason,
   attempt,
@@ -52,6 +64,8 @@ export function PrerequisitePanel({
   onStop,
   onReload,
   onOpenMyProficiency,
+  onSaveProficiency,
+  onReloadProficiency,
 }: Props) {
   const [goal, setGoal] = useState(defaultGoal || `Understand “${sectionTitle}”`);
   const unitById = new Map(units.map((unit) => [unit.id, unit]));
@@ -150,7 +164,6 @@ export function PrerequisitePanel({
               <h4>{requirement.concept}</h4>
               <RichText text={requirement.reason} />
               <p className="prerequisite-question">{requirement.question}</p>
-              <p className="muted">Your answer is saved separately in My proficiency; the model does not fill it in.</p>
               <div className="prerequisite-citations">
                 <strong>Sources</strong>
                 {requirement.source_labels.map((label) => {
@@ -179,6 +192,18 @@ export function PrerequisitePanel({
           {assessment.requirements.length === 0 && (
             <p className="muted">No prerequisite topics were identified for this section.</p>
           )}
+          <RequirementAnswers
+            key={`${assessment.topic_id}:${assessment.assessment_id}`}
+            assessment={assessment}
+            sectionTitle={sectionTitle}
+            fileName={fileName}
+            entries={proficiencyEntries}
+            busy={busy || running}
+            saving={proficiencySaving}
+            profileError={proficiencyError}
+            onSave={onSaveProficiency}
+            onReload={onReloadProficiency}
+          />
           <p className="muted prerequisite-cv-note">CV1 refers to the selected CV used for this assessment.</p>
         </article>
       )}

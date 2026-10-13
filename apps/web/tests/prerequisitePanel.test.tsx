@@ -35,9 +35,13 @@ const assessment: PrerequisiteAssessment = {
 const baseProps = {
   topicId: 'topic-a',
   fileId: 'file-a',
+  fileName: 'paper-a.pdf',
   sectionId: 'section-a',
   sectionTitle: 'First section',
   units: [],
+  proficiencyEntries: [],
+  proficiencyError: '',
+  proficiencySaving: false,
   assessment: null,
   assessmentStaleReason: '',
   attempt: null,
@@ -53,6 +57,8 @@ const baseProps = {
   onStop: () => undefined,
   onReload: () => undefined,
   onOpenMyProficiency: () => undefined,
+  onSaveProficiency: () => undefined,
+  onReloadProficiency: () => undefined,
 };
 
 function SectionPanel({ sectionId }: { sectionId: string }) {
@@ -82,8 +88,9 @@ describe('PrerequisitePanel section goal', () => {
   test('shows an independent pending answer editor and explicit save for each question', () => {
     render(<PrerequisitePanel {...baseProps} assessment={assessment} sectionTitle="First section" />);
 
-    expect(screen.getByRole('combobox', { name: 'Your comfort with Basic Python' })).toHaveValue('');
-    expect(screen.getByRole('textbox', { name: 'Notes for Basic Python' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Save proficiency' })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Your comfort with Basic Python' })).toBeDisabled();
+    expect(screen.getByRole('textbox', { name: 'Notes for Basic Python' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Save proficiency' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Reload proficiency' })).toBeInTheDocument();
   });
 });
