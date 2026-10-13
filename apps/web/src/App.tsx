@@ -227,6 +227,7 @@ export function App() {
             busy={busy}
             saving={state.activity === 'savingProficiency'}
             refreshing={state.activity === 'refreshingProficiency'}
+            proficiencyError={proficiency.proficiencyError ?? ''}
             error={[proficiency.profileError, proficiency.proficiencyError, proficiency.cvError]
               .map((message) =>
                 message && proficiencyCvs.some((cv) => cv.extractionDiagnostics.some((item) => message.includes(item)))
@@ -392,7 +393,7 @@ export function App() {
                   fileName={files.find((file) => file.id === documentMap.fileId)?.name ?? documentMap.fileId}
                   units={currentMap?.units ?? []}
                   proficiencyEntries={proficiencyEntries}
-                  proficiencyError={[proficiency.profileError, proficiency.proficiencyError].filter(Boolean).join(' ')}
+                  proficiencyError={proficiency.proficiencyError ?? ''}
                   proficiencySaving={state.activity === 'savingProficiency'}
                   assessment={prerequisites.assessment}
                   assessmentStaleReason={prerequisites.assessmentStaleReason}

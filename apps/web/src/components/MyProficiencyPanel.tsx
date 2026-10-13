@@ -29,6 +29,7 @@ export type MyProficiencyPanelProps = {
   busy: boolean;
   saving: boolean;
   error: string;
+  proficiencyError?: string;
   notice: string;
   preferencesAvailable: boolean;
   preferenceLoading?: boolean;
@@ -97,6 +98,7 @@ export function MyProficiencyPanel({
   busy,
   saving,
   error,
+  proficiencyError = '',
   notice,
   preferencesAvailable = true,
   preferenceLoading = false,
@@ -273,7 +275,7 @@ export function MyProficiencyPanel({
           entries={entries}
           busy={busy}
           saving={saving}
-          profileError={error}
+          profileError={proficiencyError}
           onSave={onSave}
           onReload={onRefresh}
         />
