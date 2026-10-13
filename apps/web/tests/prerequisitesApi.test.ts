@@ -347,3 +347,43 @@ describe('prerequisite API contracts', () => {
     });
   });
 });
+
+test.each([undefined, 'interrupted'])(
+  'accepts a non-actionable uncertainty error with attempt status %s',
+  async (status) => {
+    const error = {
+      type: 'error',
+      attempt_id: attempt.id,
+      message: 'Could not verify whether prerequisites were saved.',
+      ...(status ? { attempt: { ...attempt, status, diagnostic: 'Interrupted' } } : {}),
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(
+          streamResponse([
+            {
+              type: 'started',
+              attempt_id: attempt.id,
+              revision: sha,
+              section_id: attempt.section_id,
+              attempt: { ...attempt, status: 'generating', finished_at: null },
+            },
+            error,
+          ]),
+        ),
+    );
+    const received: unknown[] = [];
+    await streamPrerequisites(
+      'topic-a',
+      'file-a',
+      'section-a',
+      { revision: sha, model: 'qwen-local' },
+      new AbortController().signal,
+      (event) => received.push(event),
+    );
+    expect(received).toEqual([expect.objectContaining({ type: 'started' }), error]);
+    expect(received.some((event) => (event as { type: string }).type === 'done')).toBe(false);
+  },
+);
