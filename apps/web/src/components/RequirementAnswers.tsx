@@ -24,6 +24,8 @@ const choices = [
   { value: 'unsure', label: 'Not sure' },
 ] as const;
 
+type AnswerEdits = Partial<Pick<ProficiencyDraft, 'comfort' | 'note'>>;
+
 export function RequirementAnswers({
   assessment,
   sectionTitle,
@@ -61,12 +63,15 @@ export function RequirementAnswers({
       }),
     [assessment, entries],
   );
-  const [edits, setEdits] = useState<Record<string, ProficiencyDraft>>({});
+  const [edits, setEdits] = useState<Record<string, AnswerEdits>>({});
   const [savePending, setSavePending] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [saveNotice, setSaveNotice] = useState('');
-  const drafts = initial.map((item) => ({ ...item, draft: edits[item.requirement.requirement_id] ?? item.draft }));
-  const changed = drafts.filter((item) => !!edits[item.requirement.requirement_id]);
+  const drafts = initial.map((item) => ({
+    ...item,
+    draft: { ...item.draft, ...edits[item.requirement.requirement_id] },
+  }));
+  const changed = drafts.filter((item) => Object.keys(edits[item.requirement.requirement_id] ?? {}).length > 0);
   const canSave =
     changed.length > 0 &&
     changed.every((item) => item.rowAvailable) &&
@@ -75,8 +80,11 @@ export function RequirementAnswers({
     !saving &&
     !savePending;
 
-  const update = (draft: ProficiencyDraft) => {
-    setEdits((current) => ({ ...current, [draft.requirementId ?? draft.id]: draft }));
+  const update = (requirementId: string, field: keyof AnswerEdits, value: string) => {
+    setEdits((current) => ({
+      ...current,
+      [requirementId]: { ...current[requirementId], [field]: value },
+    }));
     setSaveError('');
     setSaveNotice('');
   };
@@ -128,7 +136,7 @@ export function RequirementAnswers({
               aria-label={`Your comfort with ${requirement.concept}`}
               value={draft.comfort}
               disabled={!rowAvailable || !!profileError || busy || saving || savePending}
-              onChange={(event) => update({ ...draft, comfort: event.target.value as ProficiencyDraft['comfort'] })}
+              onChange={(event) => update(requirement.requirement_id, 'comfort', event.target.value)}
             >
               {choices.map((choice) => (
                 <option key={choice.value || 'pending'} value={choice.value}>
@@ -145,7 +153,7 @@ export function RequirementAnswers({
               maxLength={240}
               rows={2}
               disabled={!rowAvailable || !!profileError || busy || saving || savePending}
-              onChange={(event) => update({ ...draft, note: event.target.value })}
+              onChange={(event) => update(requirement.requirement_id, 'note', event.target.value)}
             />
           </label>
           {!rowAvailable && (
