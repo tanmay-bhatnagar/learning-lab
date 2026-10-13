@@ -151,6 +151,8 @@ describe('useProficiency', () => {
         note: '',
         kind: 'requirement',
         requirementId: 'req-statistics',
+        topicId: 'synthetic-topic',
+        assessmentId: 'synthetic-assessment',
       },
     ];
     await act(async () => result.current.saveProficiency(drafts));

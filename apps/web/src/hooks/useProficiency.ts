@@ -68,12 +68,16 @@ function buildBatch(
     }
 
     const requirementId = draft.requirementId;
-    if (!requirementId) throw new Error(`The requirement identity for ${concept} is missing.`);
+    if (!requirementId || !draft.topicId || !draft.assessmentId)
+      throw new Error(`The requirement identity for ${concept} is missing. Reload My proficiency.`);
     if (requirementIds.has(requirementId)) throw new Error(`The requirement ${concept} appears more than once.`);
     requirementIds.add(requirementId);
     const matches = current.entries.filter(
       (entry): entry is Extract<ProficiencyEntry, { source_kind: 'model_requirement' }> =>
-        entry.source_kind === 'model_requirement' && entry.requirement_id === requirementId,
+        entry.source_kind === 'model_requirement' &&
+        entry.topic_id === draft.topicId &&
+        entry.assessment_id === draft.assessmentId &&
+        entry.requirement_id === requirementId,
     );
     if (matches.length !== 1) {
       throw new Error(`Could not identify exactly one saved requirement for ${concept}.`);

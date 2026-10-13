@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, test, vi } from 'vitest';
 import { MyProficiencyPanel } from '../src/components/MyProficiencyPanel';
 import type { MyProficiencyPanelProps } from '../src/components/MyProficiencyPanel';
-import { adaptProficiencyEntries, hasDuplicateConcept } from '../src/domain/proficiency';
+import { adaptProficiencyEntries, createRequirementDraft, hasDuplicateConcept } from '../src/domain/proficiency';
 
 const baseProps: MyProficiencyPanelProps = {
   requirements: [],
@@ -170,6 +170,61 @@ describe('My proficiency panel', () => {
         'Your comfort with Python',
       ),
     ).toHaveValue('new');
+  });
+
+  test('binds a saved answer by topic, assessment, and requirement identity rather than concept or requirement alone', () => {
+    const entries = adaptProficiencyEntries([
+      {
+        id: 'req-row-old',
+        concept: 'Python',
+        comfort: 'new',
+        notes: 'Old assessment answer.',
+        source_kind: 'model_requirement',
+        topic_id: 'topic-a',
+        assessment_id: 'assessment-old',
+        requirement_id: 'req-python',
+      },
+      {
+        id: 'req-row-current',
+        concept: 'Python',
+        comfort: null,
+        notes: null,
+        source_kind: 'model_requirement',
+        topic_id: 'topic-a',
+        assessment_id: 'assessment-current',
+        requirement_id: 'req-python',
+      },
+      {
+        id: 'manual-python',
+        concept: 'Python',
+        comfort: 'refresher',
+        notes: 'Manual self-report.',
+        source_kind: 'user_manual',
+      },
+    ]);
+
+    expect(
+      createRequirementDraft(
+        {
+          id: 'req-python',
+          concept: 'Python',
+          rationale: 'Runs examples.',
+          sourceLabel: 'S1',
+          topicId: 'topic-a',
+          assessmentId: 'assessment-current',
+        },
+        entries,
+      ),
+    ).toEqual({
+      id: 'req-row-current',
+      concept: 'Python',
+      comfort: '',
+      note: '',
+      kind: 'requirement',
+      requirementId: 'req-python',
+      topicId: 'topic-a',
+      assessmentId: 'assessment-current',
+    });
   });
 
   test('model requirement names do not count as duplicate manual skills', async () => {

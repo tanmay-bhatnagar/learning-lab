@@ -8,6 +8,8 @@ export type ProficiencyDraft = {
   note: string;
   kind: 'requirement' | 'manual';
   requirementId?: string;
+  topicId?: string;
+  assessmentId?: string;
 };
 
 export type RequirementView = {
@@ -15,6 +17,8 @@ export type RequirementView = {
   concept: string;
   rationale: string;
   sourceLabel: string;
+  topicId?: string;
+  assessmentId?: string;
 };
 
 export type ProficiencyEntryView = ProficiencyDraft;
@@ -54,7 +58,13 @@ export function adaptProficiencyEntries(entries: StoredProficiencyEntryView[]): 
     comfort: entry.comfort ?? '',
     note: entry.notes ?? '',
     kind: entry.source_kind === 'user_manual' ? 'manual' : 'requirement',
-    ...(entry.source_kind === 'model_requirement' ? { requirementId: entry.requirement_id } : {}),
+    ...(entry.source_kind === 'model_requirement'
+      ? {
+          requirementId: entry.requirement_id,
+          topicId: entry.topic_id,
+          assessmentId: entry.assessment_id,
+        }
+      : {}),
   }));
 }
 
@@ -62,7 +72,12 @@ export function createRequirementDraft(
   requirement: RequirementView,
   entries: ProficiencyEntryView[],
 ): ProficiencyDraft {
-  const saved = entries.find((entry) => entry.requirementId === requirement.id);
+  const saved = entries.find(
+    (entry) =>
+      entry.requirementId === requirement.id &&
+      (!requirement.topicId || entry.topicId === requirement.topicId) &&
+      (!requirement.assessmentId || entry.assessmentId === requirement.assessmentId),
+  );
   return {
     id: saved?.id ?? `requirement:${requirement.id}`,
     concept: requirement.concept,
@@ -70,6 +85,8 @@ export function createRequirementDraft(
     note: saved?.note ?? '',
     kind: 'requirement',
     requirementId: requirement.id,
+    ...(requirement.topicId ? { topicId: requirement.topicId } : {}),
+    ...(requirement.assessmentId ? { assessmentId: requirement.assessmentId } : {}),
   };
 }
 
