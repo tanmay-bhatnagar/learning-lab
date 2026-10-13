@@ -101,3 +101,27 @@ test('adopts imported history without clearing same-conversation input and ignor
   expect(result.current.messages).not.toContainEqual({ role: 'user', content: 'Stale snapshot' });
   expect(result.current.input).toBe('');
 });
+
+test('a captured history adopter cannot update a conversation after switching within the same topic', async () => {
+  installFakeApi();
+  const setError = vi.fn();
+  const { result } = renderHook(() => {
+    const activity = useActivity();
+    return useTopicSession('topic-a', setError, activity.activity, activity);
+  });
+  await waitFor(() => expect(result.current.topicReady).toBe(true));
+  const adoptDefaultConversation = result.current.adoptConversationHistory;
+
+  let creation!: Promise<void>;
+  act(() => {
+    creation = result.current.createConversation('Second chat');
+  });
+  await act(async () => creation);
+  await waitFor(() => expect(result.current.conversation).toBe('chat-1'));
+  await waitFor(() => expect(result.current.topicReady).toBe(true));
+
+  act(() => {
+    adoptDefaultConversation('topic-a', 'default', [{ role: 'user', content: 'Old conversation snapshot' }], {});
+  });
+  expect(result.current.messages).not.toContainEqual({ role: 'user', content: 'Old conversation snapshot' });
+});
