@@ -432,7 +432,7 @@ def _discard_if_unpublished(deps: AppDeps, topic: str, file_id: str, attempt_id:
     attempt = next((item for item in state["attempts"] if item["id"] == attempt_id), None)
     if attempt is None or attempt["status"] not in {"error", "cancelled", "interrupted"}:
         return
-    if _published_assessment(state, attempt_id, assessment_id) is not None:
+    if _assessment_id_is_published(state, assessment_id):
         return
     deps.profile_store.discard_unpublished_pending(topic_id=topic, assessment_id=assessment_id)
 
@@ -443,6 +443,10 @@ def _published_assessment(state: dict[str, object], attempt_id: str, assessment_
         (item for item in assessments if item["attempt_id"] == attempt_id and item["assessment_id"] == assessment_id),
         None,
     )
+
+
+def _assessment_id_is_published(state: dict[str, object], assessment_id: str) -> bool:
+    return any(item["assessment_id"] == assessment_id for item in state["assessments"])
 
 
 def _now() -> str:
