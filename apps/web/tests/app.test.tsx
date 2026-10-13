@@ -454,7 +454,7 @@ describe('App characterization', () => {
     let messages: Array<{ role: string; content: string; prerequisite_import?: unknown }> = [
       { role: 'user', content: 'Hello from Topic A' },
     ];
-    let importBody: unknown;
+    const importBodies: unknown[] = [];
     let chatRequests = 0;
     const focus = {
       file_id: 'file-1',
@@ -548,13 +548,16 @@ describe('App characterization', () => {
         parsed.pathname === '/api/topics/topic-a/conversations/default/prerequisite-imports' &&
         init?.method === 'POST'
       ) {
-        importBody = JSON.parse(String(init.body));
-        preference = { ...preference, revision: preference.revision + 1, active_assessment: focus };
-        messages = [...messages, importedMessage];
+        importBodies.push(JSON.parse(String(init.body)));
+        const importedBefore = messages.some((message) => message.prerequisite_import);
+        if (!importedBefore) {
+          preference = { ...preference, revision: preference.revision + 1, active_assessment: focus };
+          messages = [...messages, importedMessage];
+        }
         return new Response(
           JSON.stringify({
             conversation_id: 'default',
-            imported: true,
+            imported: !importedBefore,
             message: importedMessage,
             messages,
             learner_context: preference,
@@ -588,7 +591,7 @@ describe('App characterization', () => {
     await user.click(screen.getByRole('button', { name: 'Add to “Main chat”' }));
 
     await waitFor(() => expect(screen.getByText(/Added to “Main chat”/)).toBeInTheDocument());
-    expect(importBody).toEqual({
+    expect(importBodies[0]).toEqual({
       file_id: 'file-1',
       assessment_id: assessment.assessment_id,
       revision,
@@ -599,9 +602,25 @@ describe('App characterization', () => {
     expect(tabs).not.toBeNull();
     await user.click(within(tabs as HTMLElement).getByRole('button', { name: /Conversation/i }));
     expect(await screen.findByText('Saved prerequisite snapshot for Synthetic section.')).toBeInTheDocument();
-    expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue(
-      'Keep this existing thought\n\nI want to understand the concepts needed for “Synthetic section” in paper-a.pdf. Can you help me explore them using the documents I have selected?',
-    );
+    const draftedInput =
+      'Keep this existing thought\n\nI want to understand the concepts needed for “Synthetic section” in paper-a.pdf. Can you help me explore them using the documents I have selected?';
+    expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue(draftedInput);
+
+    await user.click(screen.getByRole('button', { name: /Map/i }));
+    const retryImportButton = screen.getByRole('button', { name: 'Add to “Main chat”' });
+    await waitFor(() => expect(retryImportButton).toBeEnabled());
+    await user.click(retryImportButton);
+    expect(await screen.findByText(/Already in “Main chat”/)).toBeInTheDocument();
+    expect(importBodies[1]).toEqual({
+      file_id: 'file-1',
+      assessment_id: assessment.assessment_id,
+      revision,
+      section_id: 'section-a',
+      expected_revision: 1,
+    });
+    await user.click(within(tabs as HTMLElement).getByRole('button', { name: /Conversation/i }));
+    expect(await screen.findByText('Saved prerequisite snapshot for Synthetic section.')).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Message' })).toHaveValue(draftedInput);
     expect(chatRequests).toBe(0);
   });
 

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { api, json } from '../api/client';
+import type { Context, Message } from '../api/types';
 import {
   conversationMessagesPath,
   conversationPath,
@@ -84,6 +85,14 @@ export function useTopicSession(
     dispatch({ type: 'conversationRequested' });
     setReloadToken((value) => value + 1);
   }, []);
+
+  const adoptConversationHistory = useCallback(
+    (targetTopic: string, targetConversation: string, messages: Message[], context: Context) => {
+      if (topic !== targetTopic || topicRef.current !== targetTopic || conversation !== targetConversation) return;
+      dispatch({ type: 'conversationHistoryReplaced', messages, context });
+    },
+    [conversation, topic],
+  );
 
   useEffect(() => {
     const controller = new AbortController();
@@ -277,6 +286,7 @@ export function useTopicSession(
     setInput: (value: string) => dispatch({ type: 'inputChanged', value }),
     setGoalDraft: (value: string) => dispatch({ type: 'goalDraftChanged', value }),
     reload,
+    adoptConversationHistory,
     refreshFiles,
     saveLearningGoal,
     appendFile,

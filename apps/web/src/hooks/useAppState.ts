@@ -180,8 +180,8 @@ export function useAppState() {
     preferenceError: learnerContext.error,
     activity: activityApi.activity,
     activityApi,
-    onImported: () => {
-      session.reload();
+    onImported: (topicId, result) => {
+      session.adoptConversationHistory(topicId, result.conversation_id, result.messages, result.context ?? {});
       learnerContext.reload();
     },
   });

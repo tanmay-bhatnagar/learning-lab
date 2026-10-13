@@ -117,6 +117,13 @@ export function contextChanged(previous: TopicSessionState, context: Context): T
   return { ...previous, context };
 }
 
+export function conversationHistoryReplaced(
+  previous: TopicSessionState,
+  payload: { messages: Message[]; context: Context },
+): TopicSessionState {
+  return { ...previous, messages: payload.messages, context: payload.context };
+}
+
 export type TopicSessionAction =
   | { type: 'topicRequested' }
   | { type: 'conversationRequested' }
@@ -133,7 +140,8 @@ export type TopicSessionAction =
   | { type: 'goalSaved'; learningGoal: string }
   | { type: 'fileUploaded'; file: LabFile }
   | { type: 'messagesChanged'; value: Message[] | ((messages: Message[]) => Message[]) }
-  | { type: 'contextChanged'; context: Context };
+  | { type: 'contextChanged'; context: Context }
+  | { type: 'conversationHistoryReplaced'; messages: Message[]; context: Context };
 
 export function topicSessionReducer(state: TopicSessionState, action: TopicSessionAction): TopicSessionState {
   switch (action.type) {
@@ -163,6 +171,8 @@ export function topicSessionReducer(state: TopicSessionState, action: TopicSessi
       return messagesChanged(state, action.value);
     case 'contextChanged':
       return contextChanged(state, action.context);
+    case 'conversationHistoryReplaced':
+      return conversationHistoryReplaced(state, { messages: action.messages, context: action.context });
     default:
       return state;
   }

@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { LearnerContext } from '../api/learnerContext';
-import { importPrerequisites, type PrerequisiteAssessment } from '../api/prerequisites';
+import {
+  importPrerequisites,
+  type PrerequisiteAssessment,
+  type PrerequisiteImportResponse,
+} from '../api/prerequisites';
 import { aborted, errorText } from '../lib/errors';
 import type { Activity } from '../state/activity';
 import type { useActivity } from './useActivity';
@@ -19,7 +23,7 @@ type Options = {
   preferenceError: string;
   activity: Activity;
   activityApi: ActivityApi;
-  onImported: () => void;
+  onImported: (topicId: string, result: PrerequisiteImportResponse) => void;
 };
 
 type ViewState = { scope: string; notice: string; error: string };
@@ -144,7 +148,7 @@ export function usePrerequisiteImport(options: Options) {
           : `Already in “${selected.conversationTitle}”.`,
         error: '',
       });
-      selected.onImported();
+      selected.onImported(selected.topicId, result);
     } catch (cause) {
       if (controller.signal.aborted || current.current.scope !== captured.scope || aborted(cause)) return;
       const message = errorText(cause);

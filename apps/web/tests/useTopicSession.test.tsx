@@ -64,3 +64,40 @@ test('a stale rename response cannot clear the current topic mutation state', as
   expect(result.current.conversationPending).toBe(false);
   expect(result.current.conversations[0]).toEqual({ id: 'default', title: 'B title' });
 });
+
+test('adopts imported history without clearing same-conversation input and ignores another topic', async () => {
+  installFakeApi();
+  const setError = vi.fn();
+  const { result, rerender } = renderHook(
+    ({ topic }) => {
+      const activity = useActivity();
+      return useTopicSession(topic, setError, activity.activity, activity);
+    },
+    { initialProps: { topic: 'topic-a' } },
+  );
+  await waitFor(() => expect(result.current.topicReady).toBe(true));
+
+  const response = deferred<void>();
+  const hydrate = response.promise.then(() => {
+    result.current.adoptConversationHistory('topic-a', 'default', [{ role: 'user', content: 'Saved snapshot' }], {
+      used: 12,
+      limit: 1000,
+    });
+  });
+  act(() => result.current.setInput('Typed while import was pending'));
+  await act(async () => {
+    response.resolve();
+    await hydrate;
+  });
+  expect(result.current.messages).toEqual([{ role: 'user', content: 'Saved snapshot' }]);
+  expect(result.current.context).toEqual({ used: 12, limit: 1000 });
+  expect(result.current.input).toBe('Typed while import was pending');
+
+  rerender({ topic: 'topic-b' });
+  await waitFor(() => expect(result.current.topicReady).toBe(true));
+  act(() => {
+    result.current.adoptConversationHistory('topic-a', 'default', [{ role: 'user', content: 'Stale snapshot' }], {});
+  });
+  expect(result.current.messages).not.toContainEqual({ role: 'user', content: 'Stale snapshot' });
+  expect(result.current.input).toBe('');
+});
