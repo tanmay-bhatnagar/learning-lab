@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from lab.conversation_profile import get_conversation_profile
-from lab.errors import Conflict
+from lab.errors import Conflict, CorruptData
 from lab.learner_profile import proficiency_context
 from lab.prerequisite_store import get_prerequisite_state
 from lab.profile_store import ProfileStore
@@ -67,6 +67,8 @@ def _project_context(
     assessment: dict[str, Any] | None,
 ) -> str:
     assessment_id = focus["assessment_id"] if focus is not None else None
+    if focus is not None and assessment is not None:
+        _validate_selected_assessment_rows(proficiency, topic_id=topic_id, assessment=assessment)
     current_self_reports = proficiency_context(
         proficiency,
         topic_id=topic_id,
@@ -90,6 +92,32 @@ def _project_context(
     if current_self_reports:
         lines.extend(["", current_self_reports])
     return "\n".join(lines)
+
+
+def _validate_selected_assessment_rows(
+    proficiency: dict[str, Any],
+    *,
+    topic_id: str,
+    assessment: dict[str, Any],
+) -> None:
+    """Require exact, complete My proficiency links for only this selected assessment."""
+    expected = {item["requirement_id"]: item["concept"] for item in assessment["requirements"]}
+    found: set[str] = set()
+    for entry in proficiency["entries"]:
+        if (
+            entry["source_kind"] != "model_requirement"
+            or entry["topic_id"] != topic_id
+            or entry["assessment_id"] != assessment["assessment_id"]
+        ):
+            continue
+        requirement_id = entry["requirement_id"]
+        if requirement_id not in expected or entry["concept"] != expected[requirement_id]:
+            raise CorruptData("My proficiency contains a requirement link that does not match this assessment.")
+        if requirement_id in found:
+            raise CorruptData("My proficiency contains duplicate rows for this assessment requirement.")
+        found.add(requirement_id)
+    if found != set(expected):
+        raise CorruptData("My proficiency is missing a requirement row for this completed assessment.")
 
 
 def load_learner_context(
