@@ -5,6 +5,7 @@ import {
   prerequisiteStateSchema,
   prerequisiteStreamEventSchema,
   readPrerequisites,
+  readSavedPrerequisites,
   streamPrerequisites,
 } from '../src/api/prerequisites';
 import { messageSchema } from '../src/api/types';
@@ -131,6 +132,16 @@ describe('prerequisite API contracts', () => {
     await readPrerequisites('topic/one', 'file one', 'section/one');
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/topics/topic%2Fone/files/file%20one/prerequisites?section_id=section%2Fone',
+      {},
+    );
+  });
+
+  test('reads saved history by exact assessment without requesting current CV or map eligibility', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(emptyState));
+    vi.stubGlobal('fetch', fetchMock);
+    await readSavedPrerequisites('topic/one', 'file one', 'assessment/one');
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/topics/topic%2Fone/files/file%20one/prerequisites?assessment_id=assessment%2Fone',
       {},
     );
   });
