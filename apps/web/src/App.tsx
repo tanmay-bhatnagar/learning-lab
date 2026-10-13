@@ -374,7 +374,7 @@ export function App() {
                   blockedReason={prerequisites.blockedReason}
                   modelName={activeModel?.display_name ?? ''}
                   busy={busy}
-                  defaultGoal={activeTopic?.learning_goal?.trim() ?? ''}
+                  defaultGoal={session.learningGoal}
                   onGenerate={(goal) => void prerequisites.generate(goal)}
                   onStop={() => void prerequisites.stop()}
                   onReload={prerequisites.reload}
