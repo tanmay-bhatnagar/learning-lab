@@ -298,7 +298,7 @@ describe('document map navigation', () => {
     await user.click(screen.getByRole('button', { name: 'Map' }));
     await user.selectOptions(screen.getByRole('combobox', { name: /PDF for map/i }), 'synthetic-paper');
     await user.click(await screen.findByRole('button', { name: /Build outline/i }));
-    await user.click((await screen.findAllByRole('button', { name: 'Select for summary' }))[0]);
+    await user.click((await screen.findAllByRole('button', { name: 'Select section' }))[0]);
     await user.click(screen.getByRole('button', { name: 'Generate summary' }));
     expect(screen.getByRole('button', { name: /Stop summary/i })).toBeInTheDocument();
     await waitFor(() => expect(summaryCalls).toHaveLength(1));
@@ -308,7 +308,7 @@ describe('document map navigation', () => {
     expect(screen.getByRole('button', { name: /Stop summary/i })).toBeInTheDocument();
     expect(
       screen
-        .getAllByRole('button', { name: /Select for summary/i })
+        .getAllByRole('button', { name: /Select section/i })
         .every((button) => (button as HTMLButtonElement).disabled),
     ).toBe(true);
     resolveSummary();
@@ -324,7 +324,7 @@ describe('document map navigation', () => {
     const picker = screen.getByRole('combobox', { name: /PDF for map/i });
     await user.selectOptions(picker, 'synthetic-paper');
     await user.click(await screen.findByRole('button', { name: /Build outline/i }));
-    await user.click((await screen.findAllByRole('button', { name: 'Select for summary' }))[0]);
+    await user.click((await screen.findAllByRole('button', { name: 'Select section' }))[0]);
     fireEvent.click(screen.getByRole('button', { name: 'Generate summary' }));
     await waitFor(() => expect(summaryCalls).toHaveLength(1));
     await user.selectOptions(picker, 'second-paper');
@@ -342,7 +342,7 @@ describe('document map navigation', () => {
     await user.click(screen.getByRole('button', { name: 'Map' }));
     await user.selectOptions(screen.getByRole('combobox', { name: /PDF for map/i }), 'synthetic-paper');
     await user.click(await screen.findByRole('button', { name: /Build outline/i }));
-    await user.click((await screen.findAllByRole('button', { name: 'Select for summary' }))[0]);
+    await user.click((await screen.findAllByRole('button', { name: 'Select section' }))[0]);
     fireEvent.click(screen.getByRole('button', { name: 'Generate summary' }));
     await waitFor(() => expect(summaryCalls).toHaveLength(1));
     expect(screen.getByRole('button', { name: 'Topic B' })).toBeDisabled();
@@ -359,7 +359,7 @@ describe('document map navigation', () => {
     await user.click(screen.getByRole('button', { name: 'Map' }));
     await user.selectOptions(screen.getByRole('combobox', { name: /PDF for map/i }), 'synthetic-paper');
     await user.click(await screen.findByRole('button', { name: /Build outline/i }));
-    await user.click((await screen.findAllByRole('button', { name: 'Select for summary' }))[0]);
+    await user.click((await screen.findAllByRole('button', { name: 'Select section' }))[0]);
     fireEvent.click(screen.getByRole('button', { name: 'Generate summary' }));
     await waitFor(() => expect(summaryCalls).toHaveLength(1));
     await user.click(screen.getByRole('button', { name: /Attached files/i }));
@@ -376,7 +376,7 @@ describe('document map navigation', () => {
     const picker = screen.getByRole('combobox', { name: /PDF for map/i });
     await user.selectOptions(picker, 'synthetic-paper');
     await user.click(await screen.findByRole('button', { name: /Build outline/i }));
-    await user.click((await screen.findAllByRole('button', { name: 'Select for summary' }))[0]);
+    await user.click((await screen.findAllByRole('button', { name: 'Select section' }))[0]);
     fireEvent.click(screen.getByRole('button', { name: 'Generate summary' }));
     await waitFor(() => expect(summaryCalls).toHaveLength(1));
     await user.selectOptions(picker, 'second-paper');
@@ -397,7 +397,7 @@ describe('document map navigation', () => {
     await user.click(screen.getByRole('button', { name: 'Map' }));
     await user.selectOptions(screen.getByRole('combobox', { name: /PDF for map/i }), 'synthetic-paper');
     await user.click(await screen.findByRole('button', { name: /Build outline/i }));
-    await user.click((await screen.findAllByRole('button', { name: 'Select for summary' }))[0]);
+    await user.click((await screen.findAllByRole('button', { name: 'Select section' }))[0]);
     const generate = screen.getByRole('button', { name: 'Generate summary' });
     fireEvent.click(generate);
     fireEvent.click(generate);
