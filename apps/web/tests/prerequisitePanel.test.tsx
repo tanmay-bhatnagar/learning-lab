@@ -93,4 +93,13 @@ describe('PrerequisitePanel section goal', () => {
     expect(screen.getByRole('button', { name: 'Save proficiency' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Reload proficiency' })).toBeInTheDocument();
   });
+
+  test('does not claim CV experience was absent when there were no proposed concepts', () => {
+    render(<PrerequisitePanel {...baseProps} assessment={{ ...assessment, requirements: [] }} />);
+
+    expect(
+      screen.getByText(/CV evidence was not assessed because this result identified no prerequisite concepts/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/no relevant experience was stated in the CV/i)).not.toBeInTheDocument();
+  });
 });

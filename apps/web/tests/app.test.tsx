@@ -347,6 +347,7 @@ describe('App characterization', () => {
       requirement_id: `req-${'e'.repeat(24)}`,
     };
     const baseFetch = globalThis.fetch;
+    let answerSaveBody: unknown;
     vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
       const pathname = new URL(url, 'http://test.local').pathname;
@@ -366,6 +367,9 @@ describe('App characterization', () => {
           headers: { 'Content-Type': 'application/json' },
         });
       }
+      if (pathname === '/api/profile/proficiency' && init?.method === 'PUT') {
+        answerSaveBody = JSON.parse(String(init.body));
+      }
       return baseFetch(input, init);
     });
     const user = userEvent.setup();
@@ -376,6 +380,18 @@ describe('App characterization', () => {
     expect(await screen.findByRole('combobox', { name: 'Your comfort with Basic Python' })).toBeInTheDocument();
     expect(screen.getByText(/Saved section assessment/)).toBeInTheDocument();
     expect(screen.queryByText(/Select a ready CV/i)).not.toBeInTheDocument();
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Your comfort with Basic Python' }), 'unsure');
+    await user.click(
+      within(screen.getByRole('region', { name: 'Requirement answers' })).getByRole('button', {
+        name: 'Save proficiency',
+      }),
+    );
+    await waitFor(() => expect(screen.getByText('Your answers were saved to My proficiency.')).toBeInTheDocument());
+    expect(answerSaveBody).toMatchObject({
+      updates: [{ id: requirementRow.id, comfort: 'unsure' }],
+      additions: [],
+    });
   });
 
   test('opens My proficiency without a topic, saves a manual skill, and reloads authoritative state', async () => {

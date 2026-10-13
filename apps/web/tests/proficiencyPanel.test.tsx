@@ -343,10 +343,35 @@ describe('My proficiency panel', () => {
 
     expect(screen.getByText('Synthetic extracted CV text.')).toBeInTheDocument();
     expect(
-      screen.getByText(/The complete extracted CV text is added to each message in this conversation/),
+      screen.getByText(/Turn this on to add the complete extracted CV text to each message in this conversation/),
     ).toBeInTheDocument();
     await user.click(screen.getByRole('checkbox', { name: 'Always include CV in Default' }));
     expect(onIncludeCvChange).toHaveBeenCalledWith(true);
+  });
+
+  test('describes full CV inclusion as active only when the preference is enabled', () => {
+    render(
+      <MyProficiencyPanel
+        {...baseProps}
+        cvs={[
+          {
+            id: 'cv-1',
+            originalName: 'Research CV.pdf',
+            originalUrl: '/api/profile/cvs/cv-1/original',
+            status: 'ready',
+            extractedText: 'Synthetic extracted CV text.',
+            extractionDiagnostics: [],
+          },
+        ]}
+        selectedCvId="cv-1"
+        activeConversationId="conversation-1"
+        includeCv
+      />,
+    );
+
+    expect(
+      screen.getByText(/The complete extracted CV text is added to each message in this conversation/),
+    ).toBeInTheDocument();
   });
 
   test('allows disabling always-include after the selected CV becomes unavailable', async () => {

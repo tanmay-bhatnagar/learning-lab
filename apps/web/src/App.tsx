@@ -100,6 +100,7 @@ export function App() {
     learnerContext,
     proficiencyEntries,
     proficiencyCvs,
+    focusedAssessment,
     runProfileActivity,
   } = state;
 
@@ -123,6 +124,24 @@ export function App() {
   const currentMap = documentMap.state.response?.map ?? null;
   const selectedMapSection =
     currentMap && sectionSummary.sectionId ? findMapSection(currentMap.sections, sectionSummary.sectionId) : null;
+  const focused = learnerContext.preference?.active_assessment ?? null;
+  const focusedImport = focused
+    ? [...messages].reverse().find((message) => {
+        const metadata = message.prerequisite_import;
+        return (
+          metadata?.topic_id === topic &&
+          metadata.conversation_id === session.conversation &&
+          metadata.file_id === focused.file_id &&
+          metadata.assessment_id === focused.assessment_id &&
+          metadata.map_revision === focused.map_revision &&
+          metadata.section_id === focused.section_id
+        );
+      })?.prerequisite_import
+    : null;
+  const focusedFileName = files.find((file) => file.id === focusedAssessment.assessment?.file_id)?.name ?? '';
+  const focusedSectionTitle =
+    focusedImport?.section_title ||
+    (focused ? 'Saved section assessment' : selectedMapSection?.title || 'Saved section assessment');
 
   const meter = contextMeter(context, settings);
   const bannerMessage = [error, migrationError, storageError].filter(Boolean).join(' ');
@@ -186,6 +205,11 @@ export function App() {
         ) : page === 'proficiency' ? (
           <MyProficiencyPanel
             requirements={[]}
+            focusedAssessment={focusedAssessment.assessment}
+            focusedAssessmentLoading={focusedAssessment.loading}
+            focusedAssessmentError={focusedAssessment.error}
+            focusedSectionTitle={focusedSectionTitle}
+            focusedFileName={focusedFileName}
             entries={proficiencyEntries}
             cvs={proficiencyCvs}
             selectedCvId={proficiency.profile?.active_cv_id ?? ''}
@@ -363,7 +387,11 @@ export function App() {
                   sectionId={sectionSummary.sectionId}
                   sectionTitle={selectedMapSection?.title ?? ''}
                   pageCount={files.find((file) => file.id === documentMap.fileId)?.page_count}
+                  fileName={files.find((file) => file.id === documentMap.fileId)?.name ?? documentMap.fileId}
                   units={currentMap?.units ?? []}
+                  proficiencyEntries={proficiencyEntries}
+                  proficiencyError={[proficiency.profileError, proficiency.proficiencyError].filter(Boolean).join(' ')}
+                  proficiencySaving={state.activity === 'savingProficiency'}
                   assessment={prerequisites.assessment}
                   assessmentStaleReason={prerequisites.assessmentStaleReason}
                   attempt={prerequisites.attempt}
@@ -379,6 +407,12 @@ export function App() {
                   onStop={() => void prerequisites.stop()}
                   onReload={prerequisites.reload}
                   onOpenMyProficiency={() => setPage('proficiency')}
+                  onSaveProficiency={(drafts) =>
+                    runProfileActivity('saveProficiency', () => proficiency.saveProficiency(drafts))
+                  }
+                  onReloadProficiency={() =>
+                    runProfileActivity('refreshProficiency', () => proficiency.refreshProficiency())
+                  }
                 />
               </>
             ) : (

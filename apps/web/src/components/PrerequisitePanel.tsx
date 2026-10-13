@@ -153,10 +153,9 @@ export function PrerequisitePanel({
             <strong>Learning requirements</strong>
             <p>{assessment.overview}</p>
             <small>
-              CV background:{' '}
-              {assessment.requirements.some((requirement) => requirement.cv_background === 'mentioned')
-                ? 'the CV mentions relevant experience; this is not a proficiency rating.'
-                : 'no relevant experience was stated in the CV.'}
+              {assessment.requirements.length === 0
+                ? 'CV evidence was not assessed because this result identified no prerequisite concepts.'
+                : `CV background for these proposed concepts: ${assessment.requirements.some((requirement) => requirement.cv_background === 'mentioned') ? 'the CV mentions relevant experience; this is not a proficiency rating.' : 'no relevant experience was stated for these concepts in the CV.'}`}
             </small>
           </div>
           {assessment.requirements.map((requirement) => (

@@ -10,9 +10,16 @@ import {
   type RequirementView,
 } from '../domain/proficiency';
 import './proficiency.css';
+import type { PrerequisiteAssessment } from '../api/prerequisites';
+import { RequirementAnswers } from './RequirementAnswers';
 
 export type MyProficiencyPanelProps = {
   requirements: RequirementView[];
+  focusedAssessment?: PrerequisiteAssessment | null;
+  focusedAssessmentLoading?: boolean;
+  focusedAssessmentError?: string;
+  focusedSectionTitle?: string;
+  focusedFileName?: string;
   entries: ProficiencyEntryView[];
   cvs: CvView[];
   selectedCvId: string;
@@ -76,6 +83,11 @@ function ComfortSelect({
 
 export function MyProficiencyPanel({
   requirements,
+  focusedAssessment = null,
+  focusedAssessmentLoading = false,
+  focusedAssessmentError = '',
+  focusedSectionTitle = 'Saved section assessment',
+  focusedFileName = '',
   entries,
   cvs,
   selectedCvId,
@@ -241,6 +253,31 @@ export function MyProficiencyPanel({
           })
         )}
       </section>
+
+      {focusedAssessmentLoading && (
+        <p className="muted" role="status">
+          Loading the assessment saved in this conversation…
+        </p>
+      )}
+      {focusedAssessmentError && (
+        <div className="proficiency-error" role="alert">
+          {focusedAssessmentError}
+        </div>
+      )}
+      {focusedAssessment && (
+        <RequirementAnswers
+          key={`${focusedAssessment.topic_id}:${focusedAssessment.assessment_id}`}
+          assessment={focusedAssessment}
+          sectionTitle={focusedSectionTitle}
+          fileName={focusedFileName || focusedAssessment.file_id}
+          entries={entries}
+          busy={busy}
+          saving={saving}
+          profileError={error}
+          onSave={onSave}
+          onReload={onRefresh}
+        />
+      )}
 
       <section className="proficiency-section" aria-labelledby="manual-title">
         <h3 id="manual-title">Your skills and concepts</h3>
@@ -412,8 +449,9 @@ export function MyProficiencyPanel({
           <p className="muted">Loading the saved preference for this conversation…</p>
         ) : preferencesAvailable && (canIncludeCv || includeCv) ? (
           <p className="muted">
-            The complete extracted CV text is added to each message in this conversation. This uses more context than
-            the compact saved proficiency profile.
+            {includeCv
+              ? 'The complete extracted CV text is added to each message in this conversation. This uses more context than the compact saved proficiency profile.'
+              : 'Turn this on to add the complete extracted CV text to each message in this conversation. This uses more context than the compact saved proficiency profile.'}
           </p>
         ) : (
           <p className="muted">

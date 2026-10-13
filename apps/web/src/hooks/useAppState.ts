@@ -17,6 +17,7 @@ import { useDocumentMap } from './useDocumentMap';
 import { useSectionSummary } from './useSectionSummary';
 import { useProficiency } from './useProficiency';
 import { useLearnerContext } from './useLearnerContext';
+import { useFocusedAssessment } from './useFocusedAssessment';
 import { usePrerequisites } from './usePrerequisites';
 import { cvOriginalUrl } from '../api/profile';
 import { adaptProficiencyEntries } from '../domain/proficiency';
@@ -159,6 +160,11 @@ export function useAppState() {
     activityApi,
     refreshProficiency: proficiency.refreshProficiency,
   });
+  const focusedAssessment = useFocusedAssessment(
+    bootstrap.topic,
+    learnerContext.preference?.active_assessment ?? null,
+    prerequisites.assessmentStaleReason ? null : prerequisites.assessment,
+  );
 
   const createTopic = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -249,6 +255,7 @@ export function useAppState() {
     documentMap,
     sectionSummary,
     prerequisites,
+    focusedAssessment,
     proficiency,
     learnerContext,
     proficiencyEntries,
