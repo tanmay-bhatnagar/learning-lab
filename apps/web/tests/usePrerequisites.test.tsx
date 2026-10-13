@@ -188,4 +188,28 @@ describe('usePrerequisites', () => {
     expect(readPrerequisites).toHaveBeenCalledOnce();
     expect(activityApi.end).toHaveBeenCalledOnce();
   });
+
+  test('explicit Stop aborts generation and reloads durable saved state', async () => {
+    vi.mocked(readPrerequisites).mockResolvedValue(state(null));
+    vi.mocked(streamPrerequisites).mockImplementation(
+      async (_topic, _file, _section, _input, signal) =>
+        await new Promise<void>((_resolve, reject) => {
+          signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true });
+        }),
+    );
+    const activityApi = { begin: vi.fn(() => true), end: vi.fn() };
+    const { result } = renderHook(() => usePrerequisites({ ...options, activityApi }));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    let generation: Promise<void> | undefined;
+    act(() => {
+      generation = result.current.generate();
+    });
+    await waitFor(() => expect(streamPrerequisites).toHaveBeenCalledOnce());
+    await act(async () => result.current.stop());
+    await act(async () => generation);
+
+    expect(readPrerequisites).toHaveBeenCalledTimes(2);
+    expect(activityApi.end).toHaveBeenCalledOnce();
+  });
 });

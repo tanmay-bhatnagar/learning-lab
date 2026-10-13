@@ -97,6 +97,7 @@ export function usePrerequisites(options: Options) {
   const generation = useRef<Generation | null>(null);
   const readController = useRef<AbortController | null>(null);
   const scopeRef = useRef(scope);
+  const mounted = useRef(true);
 
   useLayoutEffect(() => {
     scopeRef.current = scope;
@@ -128,13 +129,14 @@ export function usePrerequisites(options: Options) {
     };
   }, [options.fileId, options.sectionId, options.topicId, options.mapRevision, reloadVersion, scope]);
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
       generation.current?.controller.abort();
       readController.current?.abort();
-    },
-    [],
-  );
+    };
+  }, []);
 
   const value = savedState?.scope === scope ? savedState.value : null;
   const error = errorState?.scope === scope ? errorState.message : '';
@@ -229,7 +231,7 @@ export function usePrerequisites(options: Options) {
         } finally {
           if (generation.current?.scope === requestScope) generation.current = null;
           setRunningScope((currentScope) => (currentScope === requestScope ? '' : currentScope));
-          if (scopeRef.current === requestScope) {
+          if (mounted.current && scopeRef.current === requestScope) {
             setProgressState(null);
             try {
               const hydrateController = new AbortController();
