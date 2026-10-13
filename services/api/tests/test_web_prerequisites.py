@@ -296,9 +296,10 @@ def test_historical_assessment_read_survives_corrupt_current_cv_extraction(tmp_p
     assert payload["map_revision"] is None
     assert payload["selected_cv"] is None
     assert payload["current_assessment"] is None
-    assert next(item for item in payload["assessments"] if item["assessment_id"] == assessment_id) == generated[
-        "assessment"
-    ]
+    assert (
+        next(item for item in payload["assessments"] if item["assessment_id"] == assessment_id)
+        == generated["assessment"]
+    )
 
     current = client.get(f"/api/topics/{topic}/files/paper-1/prerequisites")
     assert current.status_code == 500
@@ -336,9 +337,9 @@ def test_historical_assessment_read_returns_exact_record_without_recovery_or_cur
     assert payload["map_revision"] is None
     assert payload["selected_cv"] is None
     assert payload["current_assessment"] is None
-    assert next(
-        item for item in payload["assessments"] if item["assessment_id"] == expected["assessment_id"]
-    ) == expected
+    assert (
+        next(item for item in payload["assessments"] if item["assessment_id"] == expected["assessment_id"]) == expected
+    )
 
 
 def test_historical_assessment_read_returns_not_found_for_unknown_id(tmp_path):
@@ -350,6 +351,17 @@ def test_historical_assessment_read_returns_not_found_for_unknown_id(tmp_path):
     )
 
     assert response.status_code == 404
+
+
+def test_prerequisite_get_rejects_ambiguous_historical_and_current_selection(tmp_path):
+    client, topic, outline, _model, _cv = _prepared(tmp_path)
+
+    response = client.get(
+        f"/api/topics/{topic}/files/paper-1/prerequisites",
+        params={"assessment_id": "assessment-one", "section_id": outline["sections"][0]["id"]},
+    )
+
+    assert response.status_code == 400
 
 
 def test_historical_assessment_read_survives_revoking_its_source_cv(tmp_path):
@@ -369,9 +381,9 @@ def test_historical_assessment_read_survives_revoking_its_source_cv(tmp_path):
     payload = response.json()
     assert payload["selected_cv"] is None
     assert payload["current_assessment"] is None
-    assert next(
-        item for item in payload["assessments"] if item["assessment_id"] == expected["assessment_id"]
-    ) == expected
+    assert (
+        next(item for item in payload["assessments"] if item["assessment_id"] == expected["assessment_id"]) == expected
+    )
 
 
 @pytest.mark.parametrize(

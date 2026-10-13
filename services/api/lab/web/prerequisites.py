@@ -16,7 +16,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel, ConfigDict, Field
 
 from lab.document_map_store import get_document_map
-from lab.errors import Conflict, InvalidInput
+from lab.errors import Conflict, InvalidInput, NotFound
 from lab.prerequisite_store import (
     current_assessment,
     get_prerequisite_state,
@@ -47,7 +47,29 @@ def router(deps: AppDeps) -> APIRouter:
     routes = APIRouter()
 
     @routes.get("/api/topics/{topic}/files/{file_id}/prerequisites")
-    async def read_prerequisites(topic: str, file_id: str, section_id: str | None = None):
+    async def read_prerequisites(
+        topic: str,
+        file_id: str,
+        section_id: str | None = None,
+        assessment_id: str | None = None,
+    ):
+        if assessment_id is not None:
+            if section_id is not None:
+                raise InvalidInput("Choose either a historical assessment or a current section selection.")
+            state = get_prerequisite_state(deps.store, topic, file_id)
+            if not any(item["assessment_id"] == assessment_id for item in state["assessments"]):
+                raise NotFound("Completed prerequisite assessment not found.")
+            return {
+                "schema_version": state["schema_version"],
+                "topic_id": topic,
+                "file_id": file_id,
+                "map_revision": None,
+                "selected_cv": None,
+                "attempts": state["attempts"],
+                "assessments": state["assessments"],
+                "current_assessment": None,
+            }
+
         await _recover_if_idle(deps, topic, file_id)
         state = get_prerequisite_state(deps.store, topic, file_id)
         current = get_document_map(deps.store, topic, file_id)
