@@ -5,6 +5,7 @@ import { App } from '../src/App';
 import { installFakeApi, pdfFile, type StreamScript } from './fakeApi';
 import { MAX_PDF_BYTES } from '../src/uploads';
 import type { Profile, ProfileCv, ProficiencyState } from '../src/api/profile';
+import type { PrerequisiteState } from '../src/api/prerequisites';
 
 beforeEach(() => {
   window.localStorage.clear();
@@ -266,6 +267,117 @@ function installSharedProfileApi(
 }
 
 describe('App characterization', () => {
+  test('loads the active conversation assessment in My proficiency after reload without opening Map or requiring a CV', async () => {
+    installSharedProfileApi();
+    const activeAssessment = {
+      file_id: 'file-a',
+      assessment_id: 'assessment-a',
+      map_revision: 'a'.repeat(64),
+      section_id: 'section-a',
+      goal: 'Understand this section',
+    };
+    const savedAssessment: PrerequisiteState['assessments'][number] = {
+      attempt_id: 'attempt-a',
+      assessment_id: activeAssessment.assessment_id,
+      topic_id: 'topic-a',
+      file_id: activeAssessment.file_id,
+      map_revision: activeAssessment.map_revision,
+      section_id: activeAssessment.section_id,
+      cv_id: 'c'.repeat(32),
+      cv_text_sha256: 'b'.repeat(64),
+      source_sha256: 'd'.repeat(64),
+      overview: 'Review the core ideas before continuing.',
+      requirements: [
+        {
+          requirement_id: `req-${'e'.repeat(24)}`,
+          concept: 'Basic Python',
+          reason: 'The saved section uses short programs.',
+          question: 'Are you already comfortable with Basic Python?',
+          source_labels: ['S1'],
+          cv_background: 'not_stated',
+          cv_source_labels: [],
+          cv_quote: '',
+          comfort: null,
+          comfort_status: 'pending',
+        },
+      ],
+      sources: [{ label: 'S1', unit_id: 'unit-a', source_refs: ['doc:section-a'], pages: [1] }],
+      finished_at: '2026-10-13T10:01:00Z',
+    };
+    const focusState: PrerequisiteState = {
+      schema_version: 1,
+      topic_id: 'topic-a',
+      file_id: 'file-a',
+      map_revision: activeAssessment.map_revision,
+      selected_cv: null,
+      attempts: [
+        {
+          id: savedAssessment.attempt_id,
+          assessment_id: savedAssessment.assessment_id,
+          topic_id: savedAssessment.topic_id,
+          file_id: savedAssessment.file_id,
+          map_revision: savedAssessment.map_revision,
+          section_id: savedAssessment.section_id,
+          status: 'completed',
+          started_at: '2026-10-13T10:00:00Z',
+          finished_at: savedAssessment.finished_at,
+          provenance: {
+            prompt_version: 'section-prerequisites-v2',
+            source_sha256: savedAssessment.source_sha256,
+            runtime_policy_sha256: 'f'.repeat(64),
+            cv_id: savedAssessment.cv_id,
+            cv_text_sha256: savedAssessment.cv_text_sha256,
+            goal: activeAssessment.goal,
+            model: 'local-model',
+          },
+          diagnostic: null,
+        },
+      ],
+      assessments: [savedAssessment],
+      current_assessment: null,
+    };
+    const requirementRow = {
+      id: '9'.repeat(32),
+      concept: 'Basic Python',
+      comfort: null,
+      notes: '',
+      source_kind: 'model_requirement',
+      topic_id: 'topic-a',
+      assessment_id: 'assessment-a',
+      requirement_id: `req-${'e'.repeat(24)}`,
+    };
+    const baseFetch = globalThis.fetch;
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      const pathname = new URL(url, 'http://test.local').pathname;
+      if (pathname === '/api/topics/topic-a/conversations/default/learner-context') {
+        return new Response(
+          JSON.stringify({ schema_version: 1, revision: 0, include_cv: false, active_assessment: activeAssessment }),
+          { headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      if (pathname === '/api/topics/topic-a/files/file-a/prerequisites') {
+        return new Response(JSON.stringify(focusState), { headers: { 'Content-Type': 'application/json' } });
+      }
+      if (pathname === '/api/profile/proficiency' && (init?.method ?? 'GET') === 'GET') {
+        const response = await baseFetch(input, init);
+        const profileState = (await response.json()) as ProficiencyState;
+        return new Response(JSON.stringify({ ...profileState, entries: [...profileState.entries, requirementRow] }), {
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      return baseFetch(input, init);
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    await waitForAppReady();
+    await user.click(screen.getByRole('button', { name: 'My proficiency' }));
+
+    expect(await screen.findByRole('combobox', { name: 'Your comfort with Basic Python' })).toBeInTheDocument();
+    expect(screen.getByText(/Saved section assessment/)).toBeInTheDocument();
+    expect(screen.queryByText(/Select a ready CV/i)).not.toBeInTheDocument();
+  });
+
   test('opens My proficiency without a topic, saves a manual skill, and reloads authoritative state', async () => {
     const profileApi = installSharedProfileApi();
     const user = userEvent.setup();
