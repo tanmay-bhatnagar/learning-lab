@@ -5,6 +5,7 @@ import { App } from '../src/App';
 import { installFakeApi, pdfFile, type StreamScript } from './fakeApi';
 import { MAX_PDF_BYTES } from '../src/uploads';
 import type { Profile, ProfileCv, ProficiencyState } from '../src/api/profile';
+import type { LearnerContext } from '../src/api/learnerContext';
 import type { PrerequisiteState } from '../src/api/prerequisites';
 
 beforeEach(() => {
@@ -392,6 +393,210 @@ describe('App characterization', () => {
       updates: [{ id: requirementRow.id, comfort: 'unsure' }],
       additions: [],
     });
+  });
+
+  test('explicitly imports the completed assessment and separately drafts follow-up without sending or replacing input', async () => {
+    installSharedProfileApi({ withReadyCv: true });
+    const baseFetch = globalThis.fetch;
+    const revision = 'a'.repeat(64);
+    const cvId = 'c'.repeat(32);
+    const finishedAt = '2026-10-13T10:01:00Z';
+    const assessment: PrerequisiteState['assessments'][number] = {
+      attempt_id: 'attempt-a',
+      assessment_id: 'assessment-a',
+      topic_id: 'topic-a',
+      file_id: 'file-1',
+      map_revision: revision,
+      section_id: 'section-a',
+      cv_id: cvId,
+      cv_text_sha256: '2'.repeat(64),
+      source_sha256: 'd'.repeat(64),
+      overview: 'Review these core ideas.',
+      requirements: [],
+      sources: [{ label: 'S1', unit_id: 'unit-a', source_refs: ['doc:section-a'], pages: [1] }],
+      finished_at: finishedAt,
+    };
+    const attempt: PrerequisiteState['attempts'][number] = {
+      id: 'attempt-a',
+      assessment_id: assessment.assessment_id,
+      topic_id: 'topic-a',
+      file_id: 'file-1',
+      map_revision: revision,
+      section_id: 'section-a',
+      status: 'completed',
+      started_at: '2026-10-13T10:00:00Z',
+      finished_at: finishedAt,
+      provenance: {
+        prompt_version: 'section-prerequisites-v2',
+        source_sha256: assessment.source_sha256,
+        runtime_policy_sha256: 'f'.repeat(64),
+        cv_id: cvId,
+        cv_text_sha256: assessment.cv_text_sha256,
+        goal: 'Understand this section.',
+        model: 'local-model',
+      },
+      diagnostic: null,
+    };
+    const prerequisiteState: PrerequisiteState = {
+      schema_version: 1,
+      topic_id: 'topic-a',
+      file_id: 'file-1',
+      map_revision: revision,
+      selected_cv: { id: cvId, original_name: 'Synthetic CV.pdf', extracted_sha256: assessment.cv_text_sha256 },
+      attempts: [attempt],
+      assessments: [assessment],
+      current_assessment: assessment,
+    };
+    let preference: LearnerContext = { schema_version: 1, revision: 0, include_cv: false, active_assessment: null };
+    let messages: Array<{ role: string; content: string; prerequisite_import?: unknown }> = [
+      { role: 'user', content: 'Hello from Topic A' },
+    ];
+    let importBody: unknown;
+    let chatRequests = 0;
+    const focus = {
+      file_id: 'file-1',
+      assessment_id: assessment.assessment_id,
+      map_revision: revision,
+      section_id: 'section-a',
+      goal: attempt.provenance.goal,
+    };
+    const importMetadata = {
+      schema_version: 1,
+      import_id: 'e'.repeat(64),
+      conversation_id: 'default',
+      topic_id: 'topic-a',
+      file_id: 'file-1',
+      assessment_id: assessment.assessment_id,
+      map_revision: revision,
+      section_id: 'section-a',
+      section_title: 'Synthetic section',
+      goal: attempt.provenance.goal,
+      model: 'local-model',
+      assessment_finished_at: finishedAt,
+      imported_at: '2026-10-13T10:02:00Z',
+      sources: assessment.sources,
+      content_sha256: 'f'.repeat(64),
+    };
+    const importedMessage = {
+      role: 'user',
+      content: 'Saved prerequisite snapshot for Synthetic section.',
+      prerequisite_import: importMetadata,
+    };
+    const map = {
+      schema_version: 1,
+      builder_version: 'synthetic',
+      file_id: 'file-1',
+      revision,
+      source_revision: { pdf_sha256: 'b'.repeat(64), docling_sha256: 'c'.repeat(64) },
+      outline_mode: 'headings',
+      sections: [
+        {
+          id: 'section-a',
+          source_ref: 'doc:section-a',
+          title: 'Synthetic section',
+          level: 1,
+          pages: [1],
+          text: 'Synthetic source text.',
+          direct_unit_ids: [],
+          source_unit_ids: [],
+          children: [],
+        },
+      ],
+      units: [],
+      coverage: {
+        total_units: 0,
+        included_units: 0,
+        excluded_units: 0,
+        accounted_units: 0,
+        total_source_items: 0,
+        accounted_source_items: 0,
+      },
+      warnings: [],
+      history: [],
+    };
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      const parsed = new URL(url, 'http://test.local');
+      if (parsed.pathname === '/api/topics/topic-a/files' && init?.method === undefined) {
+        const response = await baseFetch(input, init);
+        const payload = (await response.json()) as { files: Array<Record<string, unknown>> };
+        return new Response(
+          JSON.stringify({ files: payload.files.map((file) => ({ ...file, docling_name: 'paper-a.docling.json' })) }),
+          { headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      if (parsed.pathname === '/api/topics/topic-a/conversations/default/learner-context') {
+        return new Response(JSON.stringify(preference), { headers: { 'Content-Type': 'application/json' } });
+      }
+      if (parsed.pathname === '/api/topics/topic-a/files/file-1/map') {
+        return new Response(JSON.stringify({ status: 'ready', map }), {
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (parsed.pathname === '/api/topics/topic-a/files/file-1/prerequisites') {
+        return new Response(JSON.stringify(prerequisiteState), { headers: { 'Content-Type': 'application/json' } });
+      }
+      if (parsed.pathname === '/api/topics/topic-a/conversations/default/messages') {
+        return new Response(JSON.stringify({ messages, context: { used: 0, limit: 32768 } }), {
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (
+        parsed.pathname === '/api/topics/topic-a/conversations/default/prerequisite-imports' &&
+        init?.method === 'POST'
+      ) {
+        importBody = JSON.parse(String(init.body));
+        preference = { ...preference, revision: preference.revision + 1, active_assessment: focus };
+        messages = [...messages, importedMessage];
+        return new Response(
+          JSON.stringify({
+            conversation_id: 'default',
+            imported: true,
+            message: importedMessage,
+            messages,
+            learner_context: preference,
+            context: { used: 20, limit: 32768 },
+          }),
+          { headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      if (parsed.pathname === '/api/topics/topic-a/conversations/default/chat' && init?.method === 'POST')
+        chatRequests += 1;
+      return baseFetch(input, init);
+    });
+
+    const user = userEvent.setup();
+    render(<App />);
+    await waitForAppReady();
+    const composer = screen.getByRole('textbox', { name: 'Message' });
+    await user.type(composer, 'Keep this existing thought');
+    await user.click(screen.getByRole('button', { name: /Map/i }));
+    await user.selectOptions(screen.getByRole('combobox', { name: 'PDF for map' }), 'file-1');
+    await user.click(await screen.findByRole('button', { name: 'Select section' }));
+
+    await user.click(screen.getByRole('button', { name: 'Draft a follow-up' }));
+    const composerAfterDraft = screen.getByRole('textbox', { name: 'Message' });
+    expect(composerAfterDraft).toHaveValue(
+      'Keep this existing thought\n\nI want to understand the concepts needed for “Synthetic section” in paper-a.pdf. Can you help me explore them using the documents I have selected?',
+    );
+    expect(chatRequests).toBe(0);
+
+    await user.click(screen.getByRole('button', { name: /Map/i }));
+    await user.click(screen.getByRole('button', { name: 'Add to “Main chat”' }));
+
+    await waitFor(() => expect(screen.getByText(/Added to “Main chat”/)).toBeInTheDocument());
+    expect(importBody).toEqual({
+      file_id: 'file-1',
+      assessment_id: assessment.assessment_id,
+      revision,
+      section_id: 'section-a',
+      expected_revision: 0,
+    });
+    const tabs = document.querySelector('.tabs');
+    expect(tabs).not.toBeNull();
+    await user.click(within(tabs as HTMLElement).getByRole('button', { name: /Conversation/i }));
+    expect(await screen.findByText('Saved prerequisite snapshot for Synthetic section.')).toBeInTheDocument();
+    expect(chatRequests).toBe(0);
   });
 
   test('opens My proficiency without a topic, saves a manual skill, and reloads authoritative state', async () => {

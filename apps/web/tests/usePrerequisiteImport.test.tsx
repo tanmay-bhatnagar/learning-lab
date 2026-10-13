@@ -130,8 +130,8 @@ describe('usePrerequisiteImport', () => {
     expect(end).toHaveBeenCalledTimes(1);
   });
 
-  test('does not import a stale assessment or guess a missing preference revision', async () => {
-    vi.mocked(importPrerequisites).mockClear();
+  test('uses the exact saved identity for an explicitly requested historical retry', async () => {
+    vi.mocked(importPrerequisites).mockResolvedValue(importResult);
     const stale = setup();
     const { result, rerender } = renderHook((props) => usePrerequisiteImport(props), {
       initialProps: stale.options,
@@ -140,8 +140,19 @@ describe('usePrerequisiteImport', () => {
 
     await act(async () => result.current.addToMainChat());
 
-    expect(importPrerequisites).not.toHaveBeenCalled();
-    expect(result.current.error).toMatch(/reload|current/i);
+    expect(importPrerequisites).toHaveBeenCalledWith(
+      'topic-a',
+      'conversation-a',
+      {
+        file_id: 'file-a',
+        assessment_id: 'assessment-a',
+        revision,
+        section_id: 'section-a',
+        expected_revision: 7,
+      },
+      expect.any(AbortSignal),
+    );
+    expect(result.current.notice).toMatch(/Methods chat/);
   });
 
   test('requires a loaded typed preference before starting an import', async () => {

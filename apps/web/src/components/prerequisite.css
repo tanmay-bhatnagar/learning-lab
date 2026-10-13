@@ -51,6 +51,13 @@
   gap: 0.75rem;
 }
 
+.prerequisite-main-chat-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 .prerequisite-overview p {
   margin: 0.4rem 0;
 }

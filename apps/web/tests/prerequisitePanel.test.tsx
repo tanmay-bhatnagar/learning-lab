@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, test, vi } from 'vitest';
 import type { PrerequisiteAssessment } from '../src/api/prerequisites';
 import { PrerequisitePanel } from '../src/components/PrerequisitePanel';
@@ -59,6 +60,17 @@ const baseProps = {
   onOpenMyProficiency: () => undefined,
   onSaveProficiency: () => undefined,
   onReloadProficiency: () => undefined,
+  mainChatTitle: 'Default',
+  canImportAssessment: false,
+  canDraftFollowUp: false,
+  importing: false,
+  importNotice: '',
+  importError: '',
+  preferenceLoading: false,
+  preferenceError: '',
+  onReloadPreference: () => undefined,
+  onAddToMainChat: () => undefined,
+  onDraftFollowUp: () => undefined,
 };
 
 function SectionPanel({ sectionId }: { sectionId: string }) {
@@ -103,7 +115,8 @@ describe('PrerequisitePanel section goal', () => {
     expect(screen.queryByText(/no relevant experience was stated in the CV/i)).not.toBeInTheDocument();
   });
 
-  test('offers separate explicit main-chat import and editable follow-up actions', () => {
+  test('offers separate explicit main-chat import and editable follow-up actions', async () => {
+    const user = userEvent.setup();
     const onAddToMainChat = vi.fn();
     const onDraftFollowUp = vi.fn();
     render(
@@ -112,6 +125,7 @@ describe('PrerequisitePanel section goal', () => {
         assessment={assessment}
         mainChatTitle="Methods chat"
         canImportAssessment
+        canDraftFollowUp
         importing={false}
         importNotice=""
         importError=""
@@ -124,5 +138,12 @@ describe('PrerequisitePanel section goal', () => {
     expect(screen.getByRole('button', { name: 'Draft a follow-up' })).toBeInTheDocument();
     expect(onAddToMainChat).not.toHaveBeenCalled();
     expect(onDraftFollowUp).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'Add to “Methods chat”' }));
+    expect(onAddToMainChat).toHaveBeenCalledTimes(1);
+    expect(onDraftFollowUp).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'Draft a follow-up' }));
+    expect(onDraftFollowUp).toHaveBeenCalledTimes(1);
+    expect(onAddToMainChat).toHaveBeenCalledTimes(1);
   });
 });

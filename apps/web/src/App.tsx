@@ -101,6 +101,7 @@ export function App() {
     proficiencyEntries,
     proficiencyCvs,
     focusedAssessment,
+    prerequisiteImport,
     runProfileActivity,
   } = state;
 
@@ -142,6 +143,7 @@ export function App() {
   const focusedSectionTitle =
     focusedImport?.section_title ||
     (focused ? 'Saved section assessment' : selectedMapSection?.title || 'Saved section assessment');
+  const conversationTitle = session.conversations.find((item) => item.id === session.conversation)?.title ?? 'Default';
 
   const meter = contextMeter(context, settings);
   const bannerMessage = [error, migrationError, storageError].filter(Boolean).join(' ');
@@ -413,6 +415,29 @@ export function App() {
                   onReloadProficiency={() =>
                     runProfileActivity('refreshProficiency', () => proficiency.refreshProficiency())
                   }
+                  mainChatTitle={conversationTitle}
+                  canImportAssessment={
+                    !!session.conversation &&
+                    topicReady &&
+                    !!learnerContext.preference &&
+                    !learnerContext.loading &&
+                    !learnerContext.error
+                  }
+                  canDraftFollowUp={!!session.conversation && topicReady}
+                  importing={prerequisiteImport.importing}
+                  importNotice={prerequisiteImport.notice}
+                  importError={prerequisiteImport.error}
+                  preferenceLoading={learnerContext.loading}
+                  preferenceError={learnerContext.error}
+                  onReloadPreference={learnerContext.reload}
+                  onAddToMainChat={prerequisiteImport.addToMainChat}
+                  onDraftFollowUp={() => {
+                    const fileName = files.find((file) => file.id === documentMap.fileId)?.name ?? documentMap.fileId;
+                    const sectionName = selectedMapSection?.title ?? 'this section';
+                    const followUp = `I want to understand the concepts needed for “${sectionName}” in ${fileName}. Can you help me explore them using the documents I have selected?`;
+                    session.setInput(session.input ? `${session.input}\n\n${followUp}` : followUp);
+                    setTab('chat');
+                  }}
                 />
               </>
             ) : (

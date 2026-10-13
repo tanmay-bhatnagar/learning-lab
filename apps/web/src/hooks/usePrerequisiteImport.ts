@@ -101,14 +101,6 @@ export function usePrerequisiteImport(options: Options) {
     const assessment = selected.assessment;
     const preference = selected.preference;
     if (!assessment || !selected.topicId || !selected.conversationId || !selected.conversationTitle) return;
-    if (selected.assessmentStaleReason) {
-      setState({
-        scope: captured.scope,
-        notice: '',
-        error: 'Reload the current section assessment before adding it to chat.',
-      });
-      return;
-    }
     if (!preference || selected.preferenceLoading || selected.preferenceError) {
       setState({
         scope: captured.scope,

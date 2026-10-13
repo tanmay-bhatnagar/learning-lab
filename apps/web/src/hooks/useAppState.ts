@@ -18,6 +18,7 @@ import { useSectionSummary } from './useSectionSummary';
 import { useProficiency } from './useProficiency';
 import { useLearnerContext } from './useLearnerContext';
 import { useFocusedAssessment } from './useFocusedAssessment';
+import { usePrerequisiteImport } from './usePrerequisiteImport';
 import { usePrerequisites } from './usePrerequisites';
 import { cvOriginalUrl } from '../api/profile';
 import { adaptProficiencyEntries } from '../domain/proficiency';
@@ -165,6 +166,25 @@ export function useAppState() {
     learnerContext.preference?.active_assessment ?? null,
     prerequisites.assessmentStaleReason ? null : prerequisites.assessment,
   );
+  const currentConversationTitle =
+    session.conversations.find((item) => item.id === session.conversation)?.title ?? 'Default';
+  const prerequisiteImport = usePrerequisiteImport({
+    topicId: bootstrap.topic,
+    conversationId: session.topicReady && !session.conversationPending ? session.conversation : '',
+    conversationTitle: currentConversationTitle,
+    assessment: prerequisites.assessment,
+    assessmentStaleReason: prerequisites.assessmentStaleReason,
+    sectionTitle: sectionSummary.section?.title ?? '',
+    preference: learnerContext.preference,
+    preferenceLoading: learnerContext.loading,
+    preferenceError: learnerContext.error,
+    activity: activityApi.activity,
+    activityApi,
+    onImported: () => {
+      session.reload();
+      learnerContext.reload();
+    },
+  });
 
   const createTopic = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -256,6 +276,7 @@ export function useAppState() {
     sectionSummary,
     prerequisites,
     focusedAssessment,
+    prerequisiteImport,
     proficiency,
     learnerContext,
     proficiencyEntries,

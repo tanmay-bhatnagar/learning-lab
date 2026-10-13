@@ -36,6 +36,17 @@ type Props = {
   onOpenMyProficiency: () => void;
   onSaveProficiency: (drafts: ProficiencyEntryView[]) => void | Promise<void>;
   onReloadProficiency: () => void | Promise<void>;
+  mainChatTitle: string;
+  canImportAssessment: boolean;
+  canDraftFollowUp: boolean;
+  importing: boolean;
+  importNotice: string;
+  importError: string;
+  preferenceLoading: boolean;
+  preferenceError: string;
+  onReloadPreference: () => void;
+  onAddToMainChat: () => void | Promise<void>;
+  onDraftFollowUp: () => void;
 };
 
 export function PrerequisitePanel({
@@ -66,6 +77,17 @@ export function PrerequisitePanel({
   onOpenMyProficiency,
   onSaveProficiency,
   onReloadProficiency,
+  mainChatTitle,
+  canImportAssessment,
+  canDraftFollowUp,
+  importing,
+  importNotice,
+  importError,
+  preferenceLoading,
+  preferenceError,
+  onReloadPreference,
+  onAddToMainChat,
+  onDraftFollowUp,
 }: Props) {
   const [goal, setGoal] = useState(defaultGoal || `Understand “${sectionTitle}”`);
   const unitById = new Map(units.map((unit) => [unit.id, unit]));
@@ -203,6 +225,47 @@ export function PrerequisitePanel({
             onSave={onSaveProficiency}
             onReload={onReloadProficiency}
           />
+          <div className="prerequisite-main-chat-actions">
+            <button
+              className="secondary"
+              type="button"
+              disabled={!canImportAssessment || busy || running || importing}
+              onClick={() => void onAddToMainChat()}
+            >
+              {importing ? 'Adding…' : `Add to “${mainChatTitle}”`}
+            </button>
+            <button
+              className="text-button"
+              type="button"
+              disabled={!canDraftFollowUp || busy || running}
+              onClick={onDraftFollowUp}
+            >
+              Draft a follow-up
+            </button>
+            {preferenceLoading && (
+              <p className="muted" role="status">
+                Loading the current conversation preference…
+              </p>
+            )}
+            {preferenceError && (
+              <div className="prerequisite-error" role="alert">
+                <span>{preferenceError}</span>
+                <button className="text-button" type="button" disabled={busy} onClick={onReloadPreference}>
+                  Reload conversation preference
+                </button>
+              </div>
+            )}
+            {importNotice && (
+              <p className="success" role="status">
+                {importNotice}
+              </p>
+            )}
+            {importError && (
+              <p className="prerequisite-error" role="alert">
+                {importError}
+              </p>
+            )}
+          </div>
           <p className="muted prerequisite-cv-note">CV1 refers to the selected CV used for this assessment.</p>
         </article>
       )}
