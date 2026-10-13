@@ -31,10 +31,15 @@ describe('useLearnerContext', () => {
 
     expect(getLearnerContext).toHaveBeenCalledWith('topic-a', 'conversation-a', expect.any(AbortSignal));
     expect(activityApi.begin).toHaveBeenCalledWith('saveLearnerContext');
-    expect(updateLearnerContext).toHaveBeenCalledWith('topic-a', 'conversation-a', {
-      expected_revision: 4,
-      include_cv: true,
-    });
+    expect(updateLearnerContext).toHaveBeenCalledWith(
+      'topic-a',
+      'conversation-a',
+      {
+        expected_revision: 4,
+        include_cv: true,
+      },
+      expect.any(AbortSignal),
+    );
     expect(result.current.preference).toEqual(apiState(5, true));
     expect(activityApi.end).toHaveBeenCalledOnce();
   });
@@ -52,5 +57,26 @@ describe('useLearnerContext', () => {
 
     expect(result.current.preference).toEqual(apiState(2, true));
     expect(result.current.error).toMatch(/revision conflict/i);
+  });
+
+  test('aborts stale loads and adopts only the newly selected conversation', async () => {
+    let finishFirst: ((value: ReturnType<typeof apiState>) => void) | undefined;
+    vi.mocked(getLearnerContext)
+      .mockImplementationOnce(() => new Promise((resolve) => (finishFirst = resolve)))
+      .mockResolvedValueOnce(apiState(7, true));
+    const activityApi = { begin: vi.fn(() => true), end: vi.fn() };
+    const { result, rerender } = renderHook(
+      ({ conversationId }: { conversationId: string }) =>
+        useLearnerContext({ topicId: 'topic-a', conversationId, activity: 'idle', activityApi }),
+      { initialProps: { conversationId: 'conversation-a' } },
+    );
+    await waitFor(() => expect(getLearnerContext).toHaveBeenCalledTimes(1));
+
+    rerender({ conversationId: 'conversation-b' });
+    await waitFor(() => expect(result.current.preference?.revision).toBe(7));
+    await act(async () => finishFirst?.(apiState(3, false)));
+
+    expect(result.current.preference).toEqual(apiState(7, true));
+    expect(vi.mocked(getLearnerContext).mock.calls[0]?.[2]?.aborted).toBe(true);
   });
 });

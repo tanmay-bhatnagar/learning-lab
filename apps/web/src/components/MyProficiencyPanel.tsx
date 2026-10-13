@@ -17,12 +17,16 @@ export type MyProficiencyPanelProps = {
   cvs: CvView[];
   selectedCvId: string;
   activeConversationId: string;
+  conversationTitle?: string;
   includeCv: boolean;
   busy: boolean;
   saving: boolean;
   error: string;
   notice: string;
   preferencesAvailable: boolean;
+  preferenceLoading?: boolean;
+  preferenceError?: string;
+  onRetryPreferences?: () => void;
   refreshing: boolean;
   onSave: (drafts: ProficiencyDraft[]) => void | Promise<void>;
   onRefresh: () => void | Promise<void>;
@@ -76,12 +80,16 @@ export function MyProficiencyPanel({
   cvs,
   selectedCvId,
   activeConversationId,
+  conversationTitle = 'Default',
   includeCv,
   busy,
   saving,
   error,
   notice,
   preferencesAvailable = true,
+  preferenceLoading = false,
+  preferenceError = '',
+  onRetryPreferences,
   refreshing,
   onSave,
   onRefresh,
@@ -386,17 +394,33 @@ export function MyProficiencyPanel({
         <label className="proficiency-cv-toggle">
           <input
             type="checkbox"
-            aria-label="Always include CV in this conversation"
+            aria-label={`Always include CV in ${conversationTitle}`}
             checked={includeCv}
             disabled={!preferencesAvailable || busy || (!includeCv && !canIncludeCv)}
             onChange={(event) => onIncludeCvChange(event.target.checked)}
           />
-          Always include CV in this conversation
+          Always include CV in “{conversationTitle}”
         </label>
-        {preferencesAvailable ? (
-          <p className="muted">Complete extracted text is included on every applicable turn and uses more context.</p>
+        {preferenceError ? (
+          <div className="proficiency-error" role="alert">
+            <p>{preferenceError}</p>
+            <button className="secondary" disabled={busy} onClick={onRetryPreferences}>
+              Reload conversation preference
+            </button>
+          </div>
+        ) : preferenceLoading ? (
+          <p className="muted">Loading the saved preference for this conversation…</p>
+        ) : preferencesAvailable && (canIncludeCv || includeCv) ? (
+          <p className="muted">
+            The complete extracted CV text is added to each message in this conversation. This uses more context than
+            the compact saved proficiency profile.
+          </p>
         ) : (
-          <p className="muted">This option is not available until conversation preferences are connected.</p>
+          <p className="muted">
+            {activeConversationId
+              ? 'Select an active CV with complete extracted text before turning this on.'
+              : 'Choose a topic and conversation before changing this preference.'}
+          </p>
         )}
       </section>
 

@@ -288,9 +288,9 @@ describe('My proficiency panel', () => {
 
     expect(screen.getByText('Synthetic extracted CV text.')).toBeInTheDocument();
     expect(
-      screen.getByText('Complete extracted text is included on every applicable turn and uses more context.'),
+      screen.getByText(/The complete extracted CV text is added to each message in this conversation/),
     ).toBeInTheDocument();
-    await user.click(screen.getByRole('checkbox', { name: 'Always include CV in this conversation' }));
+    await user.click(screen.getByRole('checkbox', { name: 'Always include CV in Default' }));
     expect(onIncludeCvChange).toHaveBeenCalledWith(true);
   });
 
@@ -317,7 +317,7 @@ describe('My proficiency panel', () => {
       />,
     );
 
-    const toggle = screen.getByRole('checkbox', { name: 'Always include CV in this conversation' });
+    const toggle = screen.getByRole('checkbox', { name: 'Always include CV in Default' });
     expect(toggle).toBeChecked();
     expect(toggle).toBeEnabled();
     await user.click(toggle);

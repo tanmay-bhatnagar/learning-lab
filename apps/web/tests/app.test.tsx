@@ -53,7 +53,14 @@ function uploadThroughInput(files: File[]) {
   fireEvent.change(input, { target: { files: list } });
 }
 
-function installSharedProfileApi(options: { uploadStatus?: 'ready' | 'error'; pauseProfileSave?: boolean } = {}) {
+function installSharedProfileApi(
+  options: {
+    uploadStatus?: 'ready' | 'error';
+    pauseProfileSave?: boolean;
+    withReadyCv?: boolean;
+    learnerIncludeCv?: boolean;
+  } = {},
+) {
   const base = installFakeApi();
   const baseFetch = base.fetch;
   const requests: Array<{ path: string; method: string; body?: unknown }> = [];
@@ -87,6 +94,32 @@ function installSharedProfileApi(options: { uploadStatus?: 'ready' | 'error'; pa
   let releaseProfileSave: (() => void) | null = null;
   let releaseCvUpload: (() => void) | null = null;
   const cvId = 'c'.repeat(32);
+  if (options.withReadyCv) {
+    profile = {
+      schema_version: 1,
+      revision: 1,
+      active_cv_id: cvId,
+      cvs: [
+        {
+          id: cvId,
+          original_name: 'Synthetic CV.pdf',
+          status: 'ready',
+          revoked: false,
+          parser: 'docling',
+          parser_version: 'synthetic-parser',
+          original_sha256: '1'.repeat(64),
+          extracted_sha256: '2'.repeat(64),
+          native_document_sha256: null,
+          extraction_diagnostics: { status: 'ready', findings: [] },
+          created_at: '2026-10-13T00:00:00Z',
+        },
+      ],
+    };
+  }
+  const learnerPreferences = new Map<
+    string,
+    { schema_version: 1; revision: number; include_cv: boolean; active_assessment: null }
+  >();
 
   const jsonResponse = (body: unknown, status = 200) =>
     new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
@@ -110,9 +143,27 @@ function installSharedProfileApi(options: { uploadStatus?: 'ready' | 'error'; pa
     const method = (init?.method ?? 'GET').toUpperCase();
     const body = init?.body;
     const apiPath = pathname.replace(/^\/api/, '') || '/';
-    if (!apiPath.startsWith('/profile')) return baseFetch(input, init);
+    const isLearnerContext = /^\/topics\/[^/]+\/conversations\/[^/]+\/learner-context$/.test(apiPath);
+    if (!apiPath.startsWith('/profile') && !isLearnerContext) return baseFetch(input, init);
     const requestBody = body instanceof FormData ? body : typeof body === 'string' ? JSON.parse(body) : undefined;
     requests.push({ path: apiPath, method, body: requestBody });
+
+    if (isLearnerContext) {
+      const saved = learnerPreferences.get(apiPath) ?? {
+        schema_version: 1 as const,
+        revision: 0,
+        include_cv: options.learnerIncludeCv ?? false,
+        active_assessment: null,
+      };
+      if (method === 'GET') return jsonResponse(saved);
+      if (method === 'PATCH') {
+        const payload = requestBody as { expected_revision: number; include_cv: boolean };
+        if (payload.expected_revision !== saved.revision) return jsonResponse({ detail: 'revision conflict' }, 409);
+        const updated = { ...saved, revision: saved.revision + 1, include_cv: payload.include_cv };
+        learnerPreferences.set(apiPath, updated);
+        return jsonResponse(updated);
+      }
+    }
 
     if (apiPath === '/profile' && method === 'GET') return jsonResponse(profile);
     if (apiPath === '/profile/proficiency' && method === 'GET') return jsonResponse(proficiency);
@@ -173,6 +224,19 @@ function installSharedProfileApi(options: { uploadStatus?: 'ready' | 'error'; pa
         parser_version: 'synthetic-parser',
         text: 'Synthetic full CV text.',
       });
+    }
+    if (apiPath === `/profile/cvs/${cvId}/select` && method === 'POST') {
+      profile = { ...profile, revision: profile.revision + 1, active_cv_id: cvId };
+      return jsonResponse(profile);
+    }
+    if (apiPath === `/profile/cvs/${cvId}/revoke` && method === 'POST') {
+      profile = {
+        ...profile,
+        revision: profile.revision + 1,
+        active_cv_id: null,
+        cvs: profile.cvs.map((cv) => ({ ...cv, revoked: true })),
+      };
+      return jsonResponse(profile);
     }
     return jsonResponse({ detail: `Unhandled profile route ${method} ${apiPath}` }, 404);
   };
@@ -254,6 +318,54 @@ describe('App characterization', () => {
     expect(document.querySelector('.app')).toHaveClass('collapsed');
   });
 
+  test('reads and revision-saves the selected conversation CV preference without refetching CV text', async () => {
+    const profileApi = installSharedProfileApi({ withReadyCv: true });
+    const user = userEvent.setup();
+    render(<App />);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'My proficiency' })).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: 'My proficiency' }));
+    const preference = screen.getByRole('checkbox', { name: 'Always include CV in Main chat' });
+    expect(screen.getByText('Always include CV in “Main chat”')).toBeInTheDocument();
+    await waitFor(() => expect(preference).toBeEnabled());
+    expect(preference).not.toBeChecked();
+    const cvTextReads = profileApi.requests.filter((request) => request.path.endsWith('/text')).length;
+
+    await user.click(preference);
+
+    await waitFor(() => expect(preference).toBeChecked());
+    expect(
+      profileApi.requests.find(
+        (request) =>
+          request.path === '/topics/topic-a/conversations/default/learner-context' && request.method === 'PATCH',
+      ),
+    ).toMatchObject({ body: { expected_revision: 0, include_cv: true } });
+    expect(profileApi.requests.filter((request) => request.path.endsWith('/text'))).toHaveLength(cvTextReads);
+    expect(profileApi.requests.some((request) => request.path.endsWith('/chat'))).toBe(false);
+  });
+
+  test('lets the user turn off a saved CV preference after revoking the CV', async () => {
+    const profileApi = installSharedProfileApi({ withReadyCv: true, learnerIncludeCv: true });
+    const user = userEvent.setup();
+    render(<App />);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'My proficiency' })).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: 'My proficiency' }));
+    const preference = screen.getByRole('checkbox', { name: 'Always include CV in Main chat' });
+    await waitFor(() => expect(preference).toBeChecked());
+
+    await user.click(screen.getByRole('button', { name: 'Stop future use' }));
+    await waitFor(() => expect(preference).toBeChecked());
+    expect(preference).toBeEnabled();
+    await user.click(preference);
+
+    await waitFor(() => expect(preference).not.toBeChecked());
+    expect(
+      profileApi.requests.find(
+        (request) =>
+          request.path === '/topics/topic-a/conversations/default/learner-context' && request.method === 'PATCH',
+      ),
+    ).toMatchObject({ body: { expected_revision: 0, include_cv: false } });
+  });
+
   test('uploads the exact renamed shared CV and leaves extraction failures visible and unselectable', async () => {
     const profileApi = installSharedProfileApi({ uploadStatus: 'error' });
     const user = userEvent.setup();
@@ -278,8 +390,8 @@ describe('App characterization', () => {
       'href',
       `/api/profile/cvs/${'c'.repeat(32)}/original`,
     );
-    expect(screen.getByText(/choose a topic and conversation/i)).toBeInTheDocument();
-    expect(screen.getByRole('checkbox', { name: 'Always include CV in this conversation' })).toBeDisabled();
+    expect(screen.getByText(/select an active CV with complete extracted text/i)).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'Always include CV in Main chat' })).toBeDisabled();
   });
 
   test('a shared proficiency save blocks chat, PDF upload, and settings saves through activity', async () => {

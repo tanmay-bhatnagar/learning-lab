@@ -95,6 +95,7 @@ export function App() {
     upload,
     refreshFiles,
     proficiency,
+    learnerContext,
     proficiencyEntries,
     proficiencyCvs,
     runProfileActivity,
@@ -138,7 +139,10 @@ export function App() {
           setPage('settings');
           void refreshModels();
         }}
-        onProficiency={() => setPage('proficiency')}
+        onProficiency={() => {
+          setPage('proficiency');
+          closeSidebarOnMobile();
+        }}
         onNewTopic={() => setNewTopic('')}
         onSelectTopic={(id) => {
           selectTopic(id);
@@ -179,9 +183,15 @@ export function App() {
             entries={proficiencyEntries}
             cvs={proficiencyCvs}
             selectedCvId={proficiency.profile?.active_cv_id ?? ''}
-            activeConversationId={session.conversation}
-            includeCv={false}
-            preferencesAvailable={false}
+            activeConversationId={topicReady && !session.conversationPending ? session.conversation : ''}
+            conversationTitle={
+              session.conversations.find((item) => item.id === session.conversation)?.title ?? 'Default'
+            }
+            includeCv={learnerContext.preference?.include_cv ?? false}
+            preferencesAvailable={!!learnerContext.preference && !learnerContext.error}
+            preferenceLoading={learnerContext.loading}
+            preferenceError={learnerContext.error}
+            onRetryPreferences={learnerContext.reload}
             busy={busy}
             saving={state.activity === 'savingProficiency'}
             refreshing={state.activity === 'refreshingProficiency'}
@@ -203,7 +213,7 @@ export function App() {
             onRevokeCv={(id) => {
               void runProfileActivity('manageCv', () => proficiency.revokeCv(id)).catch(() => undefined);
             }}
-            onIncludeCvChange={() => undefined}
+            onIncludeCvChange={(include) => void learnerContext.setIncludeCv(include)}
           />
         ) : page === 'settings' ? (
           <SettingsPage

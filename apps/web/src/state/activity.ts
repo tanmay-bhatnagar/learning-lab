@@ -7,6 +7,7 @@ export type Activity =
   | 'savingProficiency'
   | 'managingCv'
   | 'refreshingProficiency'
+  | 'savingLearnerContext'
   | 'buildingMap'
   | 'generatingSummary'
   | 'importingSummary';
@@ -19,6 +20,7 @@ export type ActivityOp =
   | 'saveProficiency'
   | 'manageCv'
   | 'refreshProficiency'
+  | 'saveLearnerContext'
   | 'selectModel'
   | 'buildMap'
   | 'generateSummary'
@@ -41,6 +43,8 @@ export function activityForOp(op: ActivityOp): Activity {
       return 'managingCv';
     case 'refreshProficiency':
       return 'refreshingProficiency';
+    case 'saveLearnerContext':
+      return 'savingLearnerContext';
     case 'buildMap':
       return 'buildingMap';
     case 'generateSummary':

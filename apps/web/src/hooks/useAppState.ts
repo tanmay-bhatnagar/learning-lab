@@ -16,6 +16,7 @@ import { useUploads } from './useUploads';
 import { useDocumentMap } from './useDocumentMap';
 import { useSectionSummary } from './useSectionSummary';
 import { useProficiency } from './useProficiency';
+import { useLearnerContext } from './useLearnerContext';
 import { cvOriginalUrl } from '../api/profile';
 import { adaptProficiencyEntries } from '../domain/proficiency';
 import { useSidebarDefault, useTopicSidebarClose, useWindowDragGuards } from './useWindowEffects';
@@ -40,6 +41,12 @@ export function useAppState() {
   }, [bootstrap.topic]);
 
   const session = useTopicSession(bootstrap.topic, bootstrap.setError, activityApi.activity, activityApi);
+  const learnerContext = useLearnerContext({
+    topicId: bootstrap.topic && session.topicReady && !session.conversationPending ? bootstrap.topic : null,
+    conversationId: bootstrap.topic && session.topicReady && !session.conversationPending ? session.conversation : null,
+    activity: activityApi.activity,
+    activityApi,
+  });
   const documentMap = useDocumentMap(
     bootstrap.topic,
     session.files,
@@ -216,6 +223,7 @@ export function useAppState() {
     documentMap,
     sectionSummary,
     proficiency,
+    learnerContext,
     proficiencyEntries,
     proficiencyCvs,
     runProfileActivity,

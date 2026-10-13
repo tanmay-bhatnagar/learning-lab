@@ -9,6 +9,7 @@ describe('activity', () => {
     expect(activityForOp('saveProficiency')).toBe('savingProficiency');
     expect(activityForOp('manageCv')).toBe('managingCv');
     expect(activityForOp('refreshProficiency')).toBe('refreshingProficiency');
+    expect(activityForOp('saveLearnerContext')).toBe('savingLearnerContext');
   });
 
   test('isBusy matches original busy flag semantics (excludes topic creation)', () => {
@@ -20,6 +21,7 @@ describe('activity', () => {
     expect(isBusy('savingProficiency')).toBe(true);
     expect(isBusy('managingCv')).toBe(true);
     expect(isBusy('refreshingProficiency')).toBe(true);
+    expect(isBusy('savingLearnerContext')).toBe(true);
   });
 
   test('uploadBlockedReason mirrors upload guard messages', () => {
