@@ -164,4 +164,28 @@ describe('usePrerequisites', () => {
     expect(result.current.assessment).toEqual(assessment);
     expect(result.current.assessmentStaleReason).toMatch(/different CV/i);
   });
+
+  test('does not reload saved state after an in-flight generation unmounts', async () => {
+    vi.mocked(readPrerequisites).mockResolvedValue(state(null));
+    vi.mocked(streamPrerequisites).mockImplementation(
+      async (_topic, _file, _section, _input, signal) =>
+        await new Promise<void>((_resolve, reject) => {
+          signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true });
+        }),
+    );
+    const activityApi = { begin: vi.fn(() => true), end: vi.fn() };
+    const { result, unmount } = renderHook(() => usePrerequisites({ ...options, activityApi }));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    let generation: Promise<void> | undefined;
+    act(() => {
+      generation = result.current.generate();
+    });
+    await waitFor(() => expect(streamPrerequisites).toHaveBeenCalledOnce());
+    unmount();
+    await act(async () => generation);
+
+    expect(readPrerequisites).toHaveBeenCalledOnce();
+    expect(activityApi.end).toHaveBeenCalledOnce();
+  });
 });
