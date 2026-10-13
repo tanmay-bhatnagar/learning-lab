@@ -297,6 +297,20 @@ export async function readPrerequisites(
   return api(path, prerequisiteStateSchema, signal ? { signal } : {});
 }
 
+export async function readSavedPrerequisites(
+  topicId: string,
+  fileId: string,
+  assessmentId: string,
+  signal?: AbortSignal,
+): Promise<PrerequisiteState> {
+  const path = `${filePrerequisitesPath(topicId, fileId)}?assessment_id=${encodeURIComponent(assessmentId)}`;
+  const state = await api(path, prerequisiteStateSchema, signal ? { signal } : {});
+  if (state.map_revision !== null || state.selected_cv !== null || state.current_assessment !== null) {
+    throw new Error('Saved assessment retrieval returned current source eligibility. Reload and retry.');
+  }
+  return state;
+}
+
 export async function streamPrerequisites(
   topicId: string,
   fileId: string,

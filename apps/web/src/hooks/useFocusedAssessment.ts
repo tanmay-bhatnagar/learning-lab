@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { readPrerequisites, type PrerequisiteAssessment } from '../api/prerequisites';
+import { readSavedPrerequisites, type PrerequisiteAssessment } from '../api/prerequisites';
 import type { LearnerContext } from '../api/learnerContext';
 import { errorText } from '../lib/errors';
 
@@ -32,7 +32,7 @@ export function useFocusedAssessment(
     if (!focus || !target) return;
     const controller = new AbortController();
     let active = true;
-    void readPrerequisites(topicId, focus.file_id, focus.section_id, controller.signal)
+    void readSavedPrerequisites(topicId, focus.file_id, focus.assessment_id, controller.signal)
       .then((state) => {
         if (!active || controller.signal.aborted || targetRef.current !== target) return;
         const assessment = state.assessments.find(
