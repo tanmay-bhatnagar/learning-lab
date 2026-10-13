@@ -3,6 +3,8 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, test, vi } from 'vitest';
 import { MyProficiencyPanel } from '../src/components/MyProficiencyPanel';
 import type { MyProficiencyPanelProps } from '../src/components/MyProficiencyPanel';
+import { prerequisiteStateSchema } from '../src/api/prerequisites';
+import actual from './fixtures/prerequisites-api-contract.json';
 import { adaptProficiencyEntries, createRequirementDraft, hasDuplicateConcept } from '../src/domain/proficiency';
 
 const baseProps: MyProficiencyPanelProps = {
@@ -31,6 +33,35 @@ function uploadInput() {
 }
 
 describe('My proficiency panel', () => {
+  test.each([
+    { error: 'CV extraction integrity failed.', proficiencyError: '', enabled: true },
+    { error: '', proficiencyError: 'Proficiency data could not be loaded.', enabled: false },
+  ])('blocks historical answers only for proficiency data failures: $enabled', ({ error, proficiencyError, enabled }) => {
+    const assessment = prerequisiteStateSchema.parse(actual).assessments[0];
+    render(
+      <MyProficiencyPanel
+        {...baseProps}
+        error={error}
+        proficiencyError={proficiencyError}
+        focusedAssessment={assessment}
+        entries={assessment.requirements.map((item) => ({
+          id: item.requirement_id,
+          concept: item.concept,
+          comfort: '',
+          note: '',
+          kind: 'requirement',
+          topicId: assessment.topic_id,
+          assessmentId: assessment.assessment_id,
+          requirementId: item.requirement_id,
+        }))}
+      />,
+    );
+    const answer = screen.getByRole('combobox', { name: `Your comfort with ${assessment.requirements[0].concept}` });
+    if (enabled) expect(answer).toBeEnabled();
+    else expect(answer).toBeDisabled();
+    expect(screen.getAllByText(error || proficiencyError).length).toBeGreaterThan(0);
+  });
+
   test('allows adding and explicitly saving a manual skill without a CV', async () => {
     const user = userEvent.setup();
     const onSave = vi.fn();
