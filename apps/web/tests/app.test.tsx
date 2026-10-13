@@ -309,7 +309,7 @@ describe('App characterization', () => {
       schema_version: 1,
       topic_id: 'topic-a',
       file_id: 'file-a',
-      map_revision: activeAssessment.map_revision,
+      map_revision: null,
       selected_cv: null,
       attempts: [
         {
@@ -359,6 +359,9 @@ describe('App characterization', () => {
         );
       }
       if (pathname === '/api/topics/topic-a/files/file-a/prerequisites') {
+        expect(new URL(url, 'http://test.local').searchParams.get('assessment_id')).toBe(
+          activeAssessment.assessment_id,
+        );
         return new Response(JSON.stringify(focusState), { headers: { 'Content-Type': 'application/json' } });
       }
       if (pathname === '/api/profile/proficiency' && (init?.method ?? 'GET') === 'GET') {
