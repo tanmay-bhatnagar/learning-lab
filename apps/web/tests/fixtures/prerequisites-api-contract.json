@@ -1,0 +1,178 @@
+{
+  "schema_version": 1,
+  "topic_id": "synthetic-prerequisite-walkthrough-3805401a0dd7",
+  "file_id": "1201a863b48642e386c7281ed0f44383",
+  "map_revision": "c2ba3d21a82dc729edd3a1b4e9e65fe0aed64ee98375875279eb5c07af24958e",
+  "selected_cv": {
+    "id": "a48617d2450a446999a016dd3871acb2",
+    "original_name": "Shared Synthetic CV.pdf",
+    "extracted_sha256": "1851a5a53ff81099b0899b5985d8a681ce34abfa40a2a177cc19fccdb2b01d65"
+  },
+  "attempts": [
+    {
+      "id": "ed652e260eee470198b8f1f8a32a5d60",
+      "assessment_id": "a59c91ba51154c00b6b2d21e97d0b5ad",
+      "topic_id": "synthetic-prerequisite-walkthrough-3805401a0dd7",
+      "file_id": "1201a863b48642e386c7281ed0f44383",
+      "map_revision": "c2ba3d21a82dc729edd3a1b4e9e65fe0aed64ee98375875279eb5c07af24958e",
+      "section_id": "section-5ca4eb87883437592c59",
+      "status": "completed",
+      "started_at": "2026-10-12T21:29:17.625897+00:00",
+      "finished_at": "2026-10-12T21:29:34.048652+00:00",
+      "provenance": {
+        "prompt_version": "section-prerequisites-v2",
+        "source_sha256": "8fc16a383f5f86ad327afebb22e0aca001aa5047cf5bb13a586b8e2e8bd7c874",
+        "runtime_policy_sha256": "c39705b9e55787d6f16022c5cbfafa4369e9539a078516d73b03a9c9e26fff67",
+        "cv_id": "a48617d2450a446999a016dd3871acb2",
+        "cv_text_sha256": "1851a5a53ff81099b0899b5985d8a681ce34abfa40a2a177cc19fccdb2b01d65",
+        "goal": "Understand the Methods section at a conceptual level",
+        "model": "qwen3.5:4b-q8_0"
+      },
+      "diagnostic": null
+    }
+  ],
+  "assessments": [
+    {
+      "attempt_id": "ed652e260eee470198b8f1f8a32a5d60",
+      "assessment_id": "a59c91ba51154c00b6b2d21e97d0b5ad",
+      "topic_id": "synthetic-prerequisite-walkthrough-3805401a0dd7",
+      "file_id": "1201a863b48642e386c7281ed0f44383",
+      "map_revision": "c2ba3d21a82dc729edd3a1b4e9e65fe0aed64ee98375875279eb5c07af24958e",
+      "section_id": "section-5ca4eb87883437592c59",
+      "cv_id": "a48617d2450a446999a016dd3871acb2",
+      "cv_text_sha256": "1851a5a53ff81099b0899b5985d8a681ce34abfa40a2a177cc19fccdb2b01d65",
+      "source_sha256": "8fc16a383f5f86ad327afebb22e0aca001aa5047cf5bb13a586b8e2e8bd7c874",
+      "overview": "The selected Methods section describes a linear regression model estimated via least squares using matrix inversion, with a note on numerical implementation. The learner's background indicates an Economics degree and introductory statistics, but does not explicitly state comfort with matrix algebra or specific Python libraries for regression.",
+      "requirements": [
+        {
+          "concept": "matrix inverse",
+          "reason": "Section [S2] explicitly states that the coefficient estimator uses a matrix inverse to estimate y = beta x + epsilon.",
+          "source_labels": ["S2"],
+          "cv_background": "not_stated",
+          "cv_source_labels": [],
+          "cv_quote": "",
+          "requirement_id": "req-99be651125d605e3dabdf548",
+          "question": "Are you already comfortable with matrix inverse?",
+          "comfort": null,
+          "comfort_status": "pending"
+        },
+        {
+          "concept": "least squares estimation",
+          "reason": "Section [S2] explicitly states that the model y = beta x + epsilon is estimated using least squares.",
+          "source_labels": ["S2"],
+          "cv_background": "not_stated",
+          "cv_source_labels": [],
+          "cv_quote": "",
+          "requirement_id": "req-f0bf75b42d94b643bdc79d56",
+          "question": "Are you already comfortable with least squares estimation?",
+          "comfort": null,
+          "comfort_status": "pending"
+        },
+        {
+          "concept": "numerical implementation of regression",
+          "reason": "Section [S3] states that a numerical implementation can reproduce the estimates described in the methods.",
+          "source_labels": ["S3"],
+          "cv_background": "not_stated",
+          "cv_source_labels": [],
+          "cv_quote": "",
+          "requirement_id": "req-32d6d73e09a8f08a8c15a5f9",
+          "question": "Are you already comfortable with numerical implementation of regression?",
+          "comfort": null,
+          "comfort_status": "pending"
+        }
+      ],
+      "sources": [
+        {
+          "label": "S1",
+          "unit_id": "unit-73afdcc1f67058e5fe86",
+          "source_refs": ["#/texts/1"],
+          "pages": [1]
+        },
+        {
+          "label": "S2",
+          "unit_id": "unit-05b2838e21c913b4adb2",
+          "source_refs": ["#/texts/2"],
+          "pages": [1]
+        },
+        {
+          "label": "S3",
+          "unit_id": "unit-e9d652d93178947236b4",
+          "source_refs": ["#/texts/3"],
+          "pages": [1]
+        }
+      ],
+      "finished_at": "2026-10-12T21:29:34.048652+00:00"
+    }
+  ],
+  "current_assessment": {
+    "attempt_id": "ed652e260eee470198b8f1f8a32a5d60",
+    "assessment_id": "a59c91ba51154c00b6b2d21e97d0b5ad",
+    "topic_id": "synthetic-prerequisite-walkthrough-3805401a0dd7",
+    "file_id": "1201a863b48642e386c7281ed0f44383",
+    "map_revision": "c2ba3d21a82dc729edd3a1b4e9e65fe0aed64ee98375875279eb5c07af24958e",
+    "section_id": "section-5ca4eb87883437592c59",
+    "cv_id": "a48617d2450a446999a016dd3871acb2",
+    "cv_text_sha256": "1851a5a53ff81099b0899b5985d8a681ce34abfa40a2a177cc19fccdb2b01d65",
+    "source_sha256": "8fc16a383f5f86ad327afebb22e0aca001aa5047cf5bb13a586b8e2e8bd7c874",
+    "overview": "The selected Methods section describes a linear regression model estimated via least squares using matrix inversion, with a note on numerical implementation. The learner's background indicates an Economics degree and introductory statistics, but does not explicitly state comfort with matrix algebra or specific Python libraries for regression.",
+    "requirements": [
+      {
+        "concept": "matrix inverse",
+        "reason": "Section [S2] explicitly states that the coefficient estimator uses a matrix inverse to estimate y = beta x + epsilon.",
+        "source_labels": ["S2"],
+        "cv_background": "not_stated",
+        "cv_source_labels": [],
+        "cv_quote": "",
+        "requirement_id": "req-99be651125d605e3dabdf548",
+        "question": "Are you already comfortable with matrix inverse?",
+        "comfort": null,
+        "comfort_status": "pending"
+      },
+      {
+        "concept": "least squares estimation",
+        "reason": "Section [S2] explicitly states that the model y = beta x + epsilon is estimated using least squares.",
+        "source_labels": ["S2"],
+        "cv_background": "not_stated",
+        "cv_source_labels": [],
+        "cv_quote": "",
+        "requirement_id": "req-f0bf75b42d94b643bdc79d56",
+        "question": "Are you already comfortable with least squares estimation?",
+        "comfort": null,
+        "comfort_status": "pending"
+      },
+      {
+        "concept": "numerical implementation of regression",
+        "reason": "Section [S3] states that a numerical implementation can reproduce the estimates described in the methods.",
+        "source_labels": ["S3"],
+        "cv_background": "not_stated",
+        "cv_source_labels": [],
+        "cv_quote": "",
+        "requirement_id": "req-32d6d73e09a8f08a8c15a5f9",
+        "question": "Are you already comfortable with numerical implementation of regression?",
+        "comfort": null,
+        "comfort_status": "pending"
+      }
+    ],
+    "sources": [
+      {
+        "label": "S1",
+        "unit_id": "unit-73afdcc1f67058e5fe86",
+        "source_refs": ["#/texts/1"],
+        "pages": [1]
+      },
+      {
+        "label": "S2",
+        "unit_id": "unit-05b2838e21c913b4adb2",
+        "source_refs": ["#/texts/2"],
+        "pages": [1]
+      },
+      {
+        "label": "S3",
+        "unit_id": "unit-e9d652d93178947236b4",
+        "source_refs": ["#/texts/3"],
+        "pages": [1]
+      }
+    ],
+    "finished_at": "2026-10-12T21:29:34.048652+00:00"
+  }
+}
