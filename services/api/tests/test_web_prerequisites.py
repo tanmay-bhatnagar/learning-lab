@@ -279,6 +279,101 @@ def test_get_returns_versioned_history_current_selection_and_no_cv_text(tmp_path
     assert "Synthetic CV evidence." not in response.text
 
 
+def test_historical_assessment_read_survives_corrupt_current_cv_extraction(tmp_path):
+    client, topic, outline, _model, cv = _prepared(tmp_path)
+    section = outline["sections"][0]
+    generated = _events(client.post(_generate_url(topic, section["id"]), json=_request(outline)))[-1]
+    assessment_id = generated["assessment"]["assessment_id"]
+    client.app.state.deps.profile_store._text_path(cv["id"]).write_text("tampered current CV", encoding="utf-8")
+
+    historical = client.get(
+        f"/api/topics/{topic}/files/paper-1/prerequisites",
+        params={"assessment_id": assessment_id},
+    )
+
+    assert historical.status_code == 200
+    payload = historical.json()
+    assert payload["map_revision"] is None
+    assert payload["selected_cv"] is None
+    assert payload["current_assessment"] is None
+    assert next(item for item in payload["assessments"] if item["assessment_id"] == assessment_id) == generated[
+        "assessment"
+    ]
+
+    current = client.get(f"/api/topics/{topic}/files/paper-1/prerequisites")
+    assert current.status_code == 500
+
+
+def test_historical_assessment_read_returns_exact_record_without_recovery_or_current_inputs(tmp_path, monkeypatch):
+    import lab.web.prerequisites as prerequisite_routes
+
+    client, topic, outline, _model, _cv = _prepared(tmp_path)
+    section = outline["sections"][0]
+    expected = _events(client.post(_generate_url(topic, section["id"]), json=_request(outline)))[-1]["assessment"]
+
+    async def reject_recovery(*_args, **_kwargs):
+        raise AssertionError("historical reads must not run current-state recovery")
+
+    monkeypatch.setattr(prerequisite_routes, "_recover_if_idle", reject_recovery)
+    monkeypatch.setattr(
+        prerequisite_routes,
+        "get_document_map",
+        lambda *_args: (_ for _ in ()).throw(AssertionError("historical reads must not load the current map")),
+    )
+    monkeypatch.setattr(
+        client.app.state.deps.profile_store,
+        "read_profile",
+        lambda: (_ for _ in ()).throw(AssertionError("historical reads must not load the current CV profile")),
+    )
+
+    response = client.get(
+        f"/api/topics/{topic}/files/paper-1/prerequisites",
+        params={"assessment_id": expected["assessment_id"]},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["map_revision"] is None
+    assert payload["selected_cv"] is None
+    assert payload["current_assessment"] is None
+    assert next(
+        item for item in payload["assessments"] if item["assessment_id"] == expected["assessment_id"]
+    ) == expected
+
+
+def test_historical_assessment_read_returns_not_found_for_unknown_id(tmp_path):
+    client, topic, _outline, _model, _cv = _prepared(tmp_path)
+
+    response = client.get(
+        f"/api/topics/{topic}/files/paper-1/prerequisites",
+        params={"assessment_id": "missing-assessment"},
+    )
+
+    assert response.status_code == 404
+
+
+def test_historical_assessment_read_survives_revoking_its_source_cv(tmp_path):
+    client, topic, outline, _model, cv = _prepared(tmp_path)
+    section = outline["sections"][0]
+    expected = _events(client.post(_generate_url(topic, section["id"]), json=_request(outline)))[-1]["assessment"]
+    profile_store = client.app.state.deps.profile_store
+    profile = profile_store.read_profile()
+    profile_store.revoke_cv(cv["id"], expected_revision=profile["revision"])
+
+    response = client.get(
+        f"/api/topics/{topic}/files/paper-1/prerequisites",
+        params={"assessment_id": expected["assessment_id"]},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["selected_cv"] is None
+    assert payload["current_assessment"] is None
+    assert next(
+        item for item in payload["assessments"] if item["assessment_id"] == expected["assessment_id"]
+    ) == expected
+
+
 @pytest.mark.parametrize(
     ("kwargs", "request_patch", "expected_status"),
     [
