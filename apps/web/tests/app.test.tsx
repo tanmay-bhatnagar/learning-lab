@@ -352,6 +352,9 @@ describe('App characterization', () => {
     vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
       const pathname = new URL(url, 'http://test.local').pathname;
+      if (pathname === '/api/profile') {
+        return new Response(JSON.stringify({ detail: 'Synthetic CV integrity failed.' }), { status: 500 });
+      }
       if (pathname === '/api/topics/topic-a/conversations/default/learner-context') {
         return new Response(
           JSON.stringify({ schema_version: 1, revision: 0, include_cv: false, active_assessment: activeAssessment }),
