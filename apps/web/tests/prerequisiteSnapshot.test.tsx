@@ -91,7 +91,7 @@ describe('prerequisite import snapshot', () => {
     renderMessages([prerequisiteMessage()], files as LabFile[]);
 
     expect(screen.queryByRole('link', { name: 'Page 2' })).not.toBeInTheDocument();
-    expect(screen.getAllByText('Page unavailable').length).toBeGreaterThan(0);
+    expect(screen.getByText(/Page 2 unavailable/)).toBeInTheDocument();
   });
 
   it('does not link metadata from another topic and keeps legacy messages visible', () => {
@@ -108,6 +108,6 @@ describe('prerequisite import snapshot', () => {
 
     expect(screen.getByText('Existing response')).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Page 2' })).not.toBeInTheDocument();
-    expect(screen.getByText('Page unavailable')).toBeInTheDocument();
+    expect(screen.getByText(/Page 2 unavailable/)).toBeInTheDocument();
   });
 });

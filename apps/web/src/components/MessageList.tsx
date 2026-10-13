@@ -4,6 +4,7 @@ import { modelLabel } from '../modelControls';
 import { MessageSources } from '../citations';
 import { originalPdfUrl } from '../api/urls';
 import { RichText } from './RichText';
+import { PrerequisiteSnapshot } from './PrerequisiteSnapshot';
 
 type Props = {
   messages: Message[];
@@ -72,6 +73,9 @@ export function MessageList({ messages, models, topic, files, sending, bottomRef
               </details>
             )}
             {message.content && <RichText text={message.content} />}{' '}
+            {message.prerequisite_import && (
+              <PrerequisiteSnapshot metadata={message.prerequisite_import} topic={topic} files={files} />
+            )}
             {message.summary_import && (
               <div className="summary-import-meta">
                 {(() => {
