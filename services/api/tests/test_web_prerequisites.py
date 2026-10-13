@@ -446,6 +446,37 @@ def test_ambiguous_completed_write_is_recognized_as_published_success(tmp_path, 
     assert len(client.app.state.deps.profile_store.read_proficiency()["entries"]) == 2
 
 
+def test_unreadable_state_after_provider_completion_emits_uncertain_error_without_cleanup(tmp_path, monkeypatch):
+    import lab.web.prerequisites as prerequisite_routes
+
+    client, topic, outline, _model, _cv = _prepared(tmp_path)
+    section = outline["sections"][0]
+    first = _events(client.post(_generate_url(topic, section["id"]), json=_request(outline)))[-1]["assessment"]
+    deps = client.app.state.deps
+    write_attempt = prerequisite_routes.write_prerequisite_attempt
+
+    def corrupt_after_provider_done(*args, assessment=None, **kwargs):
+        if assessment is not None:
+            path = deps.store.file_path(topic, "paper-1.prerequisites.json")
+            path.write_text("{unreadable", encoding="utf-8")
+            raise OSError("synthetic state readback failure")
+        return write_attempt(*args, assessment=assessment, **kwargs)
+
+    monkeypatch.setattr(prerequisite_routes, "write_prerequisite_attempt", corrupt_after_provider_done)
+    events = _events(client.post(_generate_url(topic, section["id"]), json=_request(outline)))
+    profile = deps.profile_store.read_proficiency()
+
+    assert events[-1]["type"] == "error"
+    assert "attempt" not in events[-1]
+    assert len(profile["entries"]) == 4
+    assert {entry["assessment_id"] for entry in profile["entries"]} == {
+        first["assessment_id"],
+        events[0]["attempt"]["assessment_id"],
+    }
+    assert not deps.locks[topic].locked()
+    assert deps.active_prerequisite_attempts == {}
+
+
 def test_idle_get_marks_orphaned_generation_interrupted_and_discards_only_unpublished_rows(tmp_path):
     client, topic, outline, _model, cv = _prepared(tmp_path)
     section = outline["sections"][0]

@@ -340,12 +340,27 @@ def test_discard_unpublished_pending_preserves_answers_notes_manual_and_other_as
             )
         ],
     }
+    state = add_manual_proficiency(
+        state,
+        concept="Manual proficiency",
+        comfort="comfortable",
+        notes="Keep my manually entered note",
+        expected_revision=1,
+        entry_id="f" * 32,
+        updated_at="2026-10-13T00:00:00+00:00",
+    )
     original = {**state, "entries": [dict(entry) for entry in state["entries"]]}
 
     cleaned = discard_unpublished_pending(state, topic_id="topic-one", assessment_id="assessment-one")
 
-    assert [entry["id"] for entry in cleaned["entries"]] == ["0" * 31 + "2", "0" * 31 + "3", "0" * 31 + "4"]
-    assert cleaned["revision"] == 2
+    assert [entry["id"] for entry in cleaned["entries"]] == [
+        "0" * 31 + "2",
+        "0" * 31 + "3",
+        "0" * 31 + "4",
+        "f" * 32,
+    ]
+    assert cleaned["entries"][-1]["notes"] == "Keep my manually entered note"
+    assert cleaned["revision"] == 3
     assert state == original
 
 
@@ -392,6 +407,13 @@ def test_profile_store_cleanup_frees_capacity_atomically_and_is_idempotent(tmp_p
     assert len(cleaned["entries"]) == 498
     assert cleaned["revision"] == 1
     assert repeated == cleaned
+    added = store.add_proficiency(
+        concept="Recovered capacity",
+        comfort="new",
+        notes="Can save after cleanup",
+        expected_revision=cleaned["revision"],
+    )
+    assert len(added["entries"]) == 499
 
 
 def _active_cv(store, filename="Selected CV.pdf", text="Synthetic CV evidence"):
