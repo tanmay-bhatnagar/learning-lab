@@ -359,20 +359,18 @@ test.each([undefined, 'interrupted'])(
     };
     vi.stubGlobal(
       'fetch',
-      vi
-        .fn()
-        .mockResolvedValue(
-          streamResponse([
-            {
-              type: 'started',
-              attempt_id: attempt.id,
-              revision: sha,
-              section_id: attempt.section_id,
-              attempt: { ...attempt, status: 'generating', finished_at: null },
-            },
-            error,
-          ]),
-        ),
+      vi.fn().mockResolvedValue(
+        streamResponse([
+          {
+            type: 'started',
+            attempt_id: attempt.id,
+            revision: sha,
+            section_id: attempt.section_id,
+            attempt: { ...attempt, status: 'generating', finished_at: null },
+          },
+          error,
+        ]),
+      ),
     );
     const received: unknown[] = [];
     await streamPrerequisites(

@@ -252,7 +252,7 @@ export const prerequisiteStreamEventSchema = z.discriminatedUnion('type', [
       type: z.literal('error'),
       attempt_id: z.string().min(1),
       message: z.string().min(1).max(2000),
-      attempt: prerequisiteAttemptSchema,
+      attempt: prerequisiteAttemptSchema.optional(),
     })
     .strict(),
 ]);
@@ -374,9 +374,10 @@ export async function streamPrerequisites(
     } else if (event.type === 'error') {
       if (
         !startedAttempt ||
-        event.attempt.id !== attemptId ||
-        !sameAttemptSource(startedAttempt, event.attempt) ||
-        event.attempt.status !== 'error'
+        (event.attempt !== undefined &&
+          (event.attempt.id !== attemptId ||
+            !sameAttemptSource(startedAttempt, event.attempt) ||
+            !['error', 'cancelled', 'interrupted'].includes(event.attempt.status)))
       ) {
         throw new Error('Failed prerequisite event does not match its attempt.');
       }
