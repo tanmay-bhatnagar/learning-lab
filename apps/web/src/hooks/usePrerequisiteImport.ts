@@ -61,6 +61,7 @@ function responseMatches(
     focus.assessment_id === assessment.assessment_id &&
     focus.map_revision === assessment.map_revision &&
     focus.section_id === assessment.section_id &&
+    focus.goal === metadata.goal &&
     result.learner_context.include_cv === preference.include_cv &&
     (result.learner_context.revision === preference.revision ||
       result.learner_context.revision === preference.revision + 1)
@@ -175,7 +176,7 @@ export function usePrerequisiteImport(options: Options) {
   const visible = state?.scope === scope ? state : null;
   return {
     addToMainChat,
-    importing: pendingScope === scope,
+    importing: !!scope && pendingScope === scope,
     notice: visible?.notice ?? '',
     error: visible?.error ?? '',
   };

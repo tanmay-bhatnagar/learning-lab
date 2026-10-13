@@ -98,6 +98,13 @@ function setup() {
 }
 
 describe('usePrerequisiteImport', () => {
+  test('starts idle when no assessment has been selected', () => {
+    const { options } = setup();
+    const { result } = renderHook(() => usePrerequisiteImport({ ...options, assessment: null }));
+
+    expect(result.current.importing).toBe(false);
+  });
+
   test('imports the captured assessment to the named conversation with its current preference revision', async () => {
     vi.mocked(importPrerequisites).mockResolvedValue(importResult);
     const { options, begin, end, onImported } = setup();

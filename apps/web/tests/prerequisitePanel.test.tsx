@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import type { PrerequisiteAssessment } from '../src/api/prerequisites';
 import { PrerequisitePanel } from '../src/components/PrerequisitePanel';
 
@@ -101,5 +101,28 @@ describe('PrerequisitePanel section goal', () => {
       screen.getByText(/CV evidence was not assessed because this result identified no prerequisite concepts/i),
     ).toBeInTheDocument();
     expect(screen.queryByText(/no relevant experience was stated in the CV/i)).not.toBeInTheDocument();
+  });
+
+  test('offers separate explicit main-chat import and editable follow-up actions', () => {
+    const onAddToMainChat = vi.fn();
+    const onDraftFollowUp = vi.fn();
+    render(
+      <PrerequisitePanel
+        {...baseProps}
+        assessment={assessment}
+        mainChatTitle="Methods chat"
+        canImportAssessment
+        importing={false}
+        importNotice=""
+        importError=""
+        onAddToMainChat={onAddToMainChat}
+        onDraftFollowUp={onDraftFollowUp}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: 'Add to “Methods chat”' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Draft a follow-up' })).toBeInTheDocument();
+    expect(onAddToMainChat).not.toHaveBeenCalled();
+    expect(onDraftFollowUp).not.toHaveBeenCalled();
   });
 });
