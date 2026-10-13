@@ -1,4 +1,4 @@
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook } from '@testing-library/react';
 import { describe, expect, test, vi } from 'vitest';
 import type { LearnerContext } from '../src/api/learnerContext';
 import {
@@ -135,6 +135,92 @@ describe('usePrerequisiteImport', () => {
 
     expect(importPrerequisites).not.toHaveBeenCalled();
     expect(result.current.error).toMatch(/reload|current/i);
+  });
+
+  test('requires a loaded typed preference before starting an import', async () => {
+    vi.mocked(importPrerequisites).mockClear();
+    const { options, begin, end } = setup();
+    const { result } = renderHook(() =>
+      usePrerequisiteImport({ ...options, preference: null, preferenceLoading: true }),
+    );
+
+    await act(async () => result.current.addToMainChat());
+
+    expect(importPrerequisites).not.toHaveBeenCalled();
+    expect(begin).not.toHaveBeenCalled();
+    expect(end).not.toHaveBeenCalled();
+    expect(result.current.error).toMatch(/reload My proficiency/i);
+  });
+
+  test('reports idempotent retries as already present while refreshing the conversation', async () => {
+    vi.mocked(importPrerequisites).mockResolvedValue({ ...importResult, imported: false });
+    const { options, onImported } = setup();
+    const { result } = renderHook(() => usePrerequisiteImport(options));
+
+    await act(async () => result.current.addToMainChat());
+
+    expect(result.current.notice).toBe('Already in “Methods chat”.');
+    expect(onImported).toHaveBeenCalledTimes(1);
+  });
+
+  test('guards same-tick repeated clicks and validates the saved response identity', async () => {
+    let resolveImport: ((value: PrerequisiteImportResponse) => void) | undefined;
+    vi.mocked(importPrerequisites).mockImplementation(() => new Promise((resolve) => (resolveImport = resolve)));
+    const { options, begin, onImported } = setup();
+    const { result } = renderHook(() => usePrerequisiteImport(options));
+
+    let first: Promise<void> | undefined;
+    let second: Promise<void> | undefined;
+    act(() => {
+      first = result.current.addToMainChat();
+      second = result.current.addToMainChat();
+    });
+    expect(result.current.importing).toBe(true);
+    expect(begin).toHaveBeenCalledTimes(1);
+    resolveImport?.({
+      ...importResult,
+      message: {
+        ...importResult.message,
+        prerequisite_import: { ...metadata, conversation_id: 'conversation-wrong' },
+      },
+    });
+    await act(async () => {
+      await Promise.all([first, second]);
+    });
+
+    expect(onImported).not.toHaveBeenCalled();
+    expect(result.current.error).toMatch(/different assessment or conversation/i);
+  });
+
+  test('ignores a late response after switching to another destination', async () => {
+    let resolveImport: ((value: PrerequisiteImportResponse) => void) | undefined;
+    vi.mocked(importPrerequisites).mockImplementation(() => new Promise((resolve) => (resolveImport = resolve)));
+    const { options, onImported } = setup();
+    const { result, rerender } = renderHook((props) => usePrerequisiteImport(props), { initialProps: options });
+
+    let pending: Promise<void> | undefined;
+    act(() => {
+      pending = result.current.addToMainChat();
+    });
+    rerender({ ...options, conversationId: 'conversation-b', conversationTitle: 'Other chat' });
+    await act(async () => {
+      resolveImport?.(importResult);
+      await pending;
+    });
+
+    expect(onImported).not.toHaveBeenCalled();
+    expect(result.current.notice).toBe('');
+  });
+
+  test('keeps failures actionable and ends the shared activity', async () => {
+    vi.mocked(importPrerequisites).mockRejectedValue(new Error('Conversation preferences changed; reload first.'));
+    const { options, end } = setup();
+    const { result } = renderHook(() => usePrerequisiteImport(options));
+
+    await act(async () => result.current.addToMainChat());
+
+    expect(result.current.error).toMatch(/reload My proficiency and try again/i);
+    expect(end).toHaveBeenCalledTimes(1);
   });
 
   test('ignores a late import completion after the hook unmounts', async () => {
