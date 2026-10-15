@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from lab.conversation_profile import get_conversation_profile
-from lab.errors import Conflict, InvalidInput
+from lab.errors import Conflict, InvalidInput, NotFound
 from lab.evidence_request import MAX_SOURCE_REFERENCES, merge_scoped_sources
 from lab.index import IndexInputError, TopicIndex
 from lab.learner_context import load_learner_context
@@ -119,8 +119,10 @@ def capture_prompt_context(
         preferences
     ):
         raise Conflict("Conversation learning context changed while evidence was being captured; retry the request.")
-    if preferences["include_cv"] and hashlib.sha256(learner["cv_text"].encode("utf-8")).hexdigest() != cv_hash:
+    current_cv = _cv_identity(profile_store, preferences["include_cv"])
+    if current_cv != (cv_id, cv_name, cv_hash):
         raise Conflict("The selected CV changed while evidence was being captured; retry the request.")
+    _validate_loaded_cv(learner, cv_name=cv_name, cv_hash=cv_hash, include_cv=preferences["include_cv"])
     snapshot = _make_snapshot(
         topic_id=topic_id,
         conversation_id=conversation_id,
@@ -199,7 +201,9 @@ def revalidate_evidence_snapshot(
             "The runtime policy or topic learning goal changed during evidence generation; retry the request."
         )
 
-    _cv_id, _cv_name, cv_hash = _cv_identity(profile_store, preferences["include_cv"])
+    cv_id, cv_name, cv_hash = _cv_identity(profile_store, preferences["include_cv"])
+    if (cv_id, cv_name, cv_hash) != (snapshot.cv_id, snapshot.cv_name, snapshot.cv_text_sha256):
+        raise Conflict("The selected CV changed during evidence generation; retry the request.")
     learner = load_learner_context(
         store,
         profile_store,
@@ -210,10 +214,12 @@ def revalidate_evidence_snapshot(
     after_preferences = get_conversation_profile(store, snapshot.topic_id, snapshot.conversation_id)
     if _preference_projection(after_preferences) != _preference_projection(preferences):
         raise Conflict("Conversation learning preferences changed during evidence validation; retry the request.")
+    current_cv = _cv_identity(profile_store, preferences["include_cv"])
+    if current_cv != (snapshot.cv_id, snapshot.cv_name, snapshot.cv_text_sha256):
+        raise Conflict("The selected CV changed during evidence validation; retry the request.")
+    _validate_loaded_cv(learner, cv_name=cv_name, cv_hash=cv_hash, include_cv=preferences["include_cv"])
     if (
         _sha256(learner["learner_context"] or "") != snapshot.learner_context_sha256
-        or cv_hash != snapshot.cv_text_sha256
-        or (preferences["include_cv"] and _sha256(learner["cv_text"] or "") != snapshot.cv_text_sha256)
     ):
         raise Conflict("Learner context or selected CV changed during evidence generation; retry the request.")
 
@@ -255,7 +261,7 @@ def _selected_files(
         try:
             raw = read_bytes(store.file_path(topic_id, markdown_name))
             text = raw.decode("utf-8")
-        except (UnicodeError, OSError):
+        except (NotFound, UnicodeError, OSError):
             raise Conflict("A selected unindexed attachment changed or is unavailable; retry the request.") from None
         markdown[record["id"]] = text
         markdown_projections.append((record["id"], markdown_name, hashlib.sha256(raw).hexdigest()))
@@ -271,6 +277,25 @@ def _cv_identity(profile_store: ProfileStore, include_cv: bool) -> tuple[str | N
     if record is None or record["status"] != "ready" or record["revoked"]:
         raise Conflict("The selected CV is no longer eligible for this evidence request.")
     return cv_id, record["original_name"], record["extracted_sha256"]
+
+
+def _validate_loaded_cv(
+    learner: dict[str, str | None],
+    *,
+    cv_name: str | None,
+    cv_hash: str | None,
+    include_cv: bool,
+) -> None:
+    if not include_cv:
+        return
+    text = learner["cv_text"]
+    if (
+        not isinstance(text, str)
+        or learner["cv_name"] != cv_name
+        or cv_hash is None
+        or _sha256(text) != cv_hash
+    ):
+        raise Conflict("The selected CV changed while evidence context was being loaded; retry the request.")
 
 
 def _source_projection(source: Mapping[str, object]) -> SourceProjection:
