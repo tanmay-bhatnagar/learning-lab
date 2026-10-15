@@ -12,15 +12,24 @@ from lab.errors import InvalidInput
 from lab.evidence_request import MAX_SOURCE_REFERENCES, SourceReference, build_source_manifest, merge_scoped_sources
 
 _INITIAL_INSTRUCTION = (
-    "Return the requested structured answer-or-search action. Answer only from supplied evidence and declare "
-    "the source labels that support the answer. If an important part of the question needs evidence from the "
-    "selected indexed documents that is not supplied, you may request one additional selected-document search. "
-    "Do not invent labels or treat a source label as proof beyond its indexed source identity."
+    "Return exactly one JSON action object with fields action, answer, source_labels, query. "
+    'For an answer, use {"action":"answer","answer":"A complete Markdown answer.",'
+    '"source_labels":["E1"],"query":""}. E1 is an example only: declare only labels actually supplied in '
+    "the evidence above; the list may be empty or noncontiguous. If you use inline [E#] markers, each marker must "
+    "be in source_labels. When no supplied source supports the answer, use an empty source_labels list and no "
+    "[E#] markers. For a search, use "
+    '{"action":"search_selected","answer":"","source_labels":[],"query":"one search query"}. '
+    "Never fill query on an answer action or answer/source_labels on a search action. Never return both. You may "
+    "request at most one additional selected-document search, with one query of at most 500 characters. Do not "
+    "copy or rephrase the user's question as a search query. Do not invent facts. If the evidence cannot answer "
+    "and no useful selected-document query is apparent, answer with an explicit limitation and empty "
+    "source_labels. Never request a file, path, topic, or conversation identifier."
 )
 _FINAL_INSTRUCTION = (
-    "Return the requested structured answer using the supplied retained evidence and declare only source labels "
-    "that support the answer. Do not request another search. State what remains unsupported instead of inventing "
-    "facts or labels."
+    "Return a complete, user-facing Markdown answer; this final turn is prose, not a JSON action object. Use only "
+    "the supplied retained evidence, cite study evidence by filename and page, and use [E#] markers only when the "
+    "matching source label is supplied above. Do not request or imply another search. State what remains "
+    "unsupported instead of inventing facts or labels."
 )
 
 
@@ -138,7 +147,6 @@ def _build_evidence_prompt(
     labeled_citations: list[Citation] = []
     for reference in manifest:
         source_id = reference.source_id
-        source = sources_by_id[source_id]
         evidence = evidence_by_id[source_id]
         label_header = _source_header(reference)
         labeled_evidence.append({**evidence, "content": f"{label_header}\n{evidence['content']}"})
