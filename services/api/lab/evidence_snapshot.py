@@ -16,7 +16,7 @@ from lab.index import IndexInputError, TopicIndex
 from lab.learner_context import load_learner_context
 from lab.profile_store import ProfileStore
 from lab.runtime_policy import load_runtime_policy
-from lab.storage import Store, read_bytes
+from lab.storage import Store, read_bytes, read_json
 
 _FILE_FIELDS = (
     "id",
@@ -34,20 +34,6 @@ _FILE_FIELDS = (
     "page_count",
     "asset_count",
 )
-_SOURCE_FIELDS = (
-    "chunk_id",
-    "file_id",
-    "file_name",
-    "chunk_index",
-    "text_sha256",
-    "content_hash",
-    "headings",
-    "pages",
-    "bboxes",
-    "asset_ids",
-)
-
-
 @dataclass(frozen=True)
 class SourceProjection:
     """Identity and location metadata for text actually supplied to a provider."""
@@ -71,7 +57,7 @@ class EvidenceSnapshot:
     topic_id: str
     conversation_id: str
     include_cv: bool
-    focus_json: str
+    focus_sha256: str
     cv_id: str | None
     cv_name: str | None
     cv_text_sha256: str | None
@@ -114,7 +100,7 @@ def capture_prompt_context(
         store, topic_id, frozenset(selected_file_ids)
     )
     policy = load_runtime_policy(runtime_policy_path)
-    topic = store.topic(topic_id)
+    topic = read_json(store.topic(topic_id) / "topic.json", {})
     goal = topic.get("learning_goal", "")
     if not isinstance(goal, str):
         raise Conflict("The topic learning goal changed to an unsupported value; reload before continuing.")
@@ -196,11 +182,11 @@ def revalidate_evidence_snapshot(
 ) -> None:
     """Reject changed prompt inputs or supplied sources before a later provider call."""
     preferences = get_conversation_profile(store, snapshot.topic_id, snapshot.conversation_id)
-    if _preference_projection(preferences) != (snapshot.include_cv, snapshot.focus_json):
+    if _preference_projection(preferences) != (snapshot.include_cv, snapshot.focus_sha256):
         raise Conflict("Conversation learning preferences changed during evidence generation; retry the request.")
 
     policy = load_runtime_policy(runtime_policy_path)
-    topic = store.topic(snapshot.topic_id)
+    topic = read_json(store.topic(snapshot.topic_id) / "topic.json", {})
     goal = topic.get("learning_goal", "")
     if not isinstance(goal, str) or _sha256(policy) != snapshot.policy_sha256 or _sha256(goal) != snapshot.learning_goal_sha256:
         raise Conflict("The runtime policy or topic learning goal changed during evidence generation; retry the request.")
@@ -327,12 +313,12 @@ def _make_snapshot(
     file_projections: tuple[str, ...],
     markdown_projections: tuple[tuple[str, str, str], ...],
 ) -> EvidenceSnapshot:
-    focus_json = _canonical_json(preferences["active_assessment"])
+    focus_sha256 = _sha256(_canonical_json(preferences["active_assessment"]))
     values = {
         "topic_id": topic_id,
         "conversation_id": conversation_id,
         "include_cv": preferences["include_cv"],
-        "focus_json": focus_json,
+        "focus_sha256": focus_sha256,
         "cv_id": cv_id,
         "cv_name": cv_name,
         "cv_text_sha256": cv_hash,
@@ -349,7 +335,7 @@ def _make_snapshot(
 
 
 def _preference_projection(preferences: dict[str, Any]) -> tuple[bool, str]:
-    return preferences["include_cv"], _canonical_json(preferences["active_assessment"])
+    return preferences["include_cv"], _sha256(_canonical_json(preferences["active_assessment"]))
 
 
 def _snapshot_digest(snapshot: EvidenceSnapshot, sources: tuple[SourceProjection, ...]) -> str:
@@ -359,7 +345,31 @@ def _snapshot_digest(snapshot: EvidenceSnapshot, sources: tuple[SourceProjection
 
 
 def _snapshot_digest_values(values: dict[str, Any]) -> str:
-    return _sha256(_canonical_json(values))
+    return _sha256(_canonical_json(_digest_payload(values)))
+
+
+def _digest_payload(values: dict[str, Any]) -> dict[str, Any]:
+    return {
+        **values,
+        "selected_file_ids": sorted(values["selected_file_ids"]),
+        "indexed_file_ids": sorted(values["indexed_file_ids"]),
+        "markdown_projections": [list(item) for item in values["markdown_projections"]],
+        "supplied_sources": [
+            {
+                "chunk_id": source.chunk_id,
+                "file_id": source.file_id,
+                "file_name": source.file_name,
+                "chunk_index": source.chunk_index,
+                "text_sha256": source.text_sha256,
+                "content_hash": source.content_hash,
+                "headings_json": source.headings_json,
+                "pages_json": source.pages_json,
+                "bboxes_json": source.bboxes_json,
+                "asset_ids_json": source.asset_ids_json,
+            }
+            for source in values["supplied_sources"]
+        ],
+    }
 
 
 def _canonical_json(value: Any) -> str:
