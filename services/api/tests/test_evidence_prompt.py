@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from copy import deepcopy
 
 import pytest
 
@@ -65,6 +66,8 @@ def test_initial_prompt_labels_full_hash_sources_and_returns_retained_manifest()
     second = _source("chunk-b", "Full indexed source text B. " * 100)
     kwargs = _prompt_kwargs([first, second])
     kwargs["context_limit"] = 16384
+    original_kwargs = deepcopy(kwargs)
+    original_sources = deepcopy([first, second])
     plan = build_initial_evidence_prompt(
         prompt_kwargs=kwargs,
         source_chunks=[first, second],
@@ -81,6 +84,31 @@ def test_initial_prompt_labels_full_hash_sources_and_returns_retained_manifest()
     assert manifest_by_id["chunk-b"].label == citations_by_id["chunk-b"]["source_label"] == "E2"
     assert "[E1]" in _user_content(plan) and "[E2]" in _user_content(plan)
     assert "request one additional selected-document search" in plan["prompt"][0]["content"].casefold()
+    assert kwargs == original_kwargs
+    assert [first, second] == original_sources
+
+
+def test_initial_prompt_defines_exact_exclusive_action_object_and_empty_branch_fields():
+    source = _source("chunk-a", "Evidence from the selected paper.")
+    kwargs = _prompt_kwargs([source])
+    kwargs["context_limit"] = 16384
+    plan = build_initial_evidence_prompt(
+        prompt_kwargs=kwargs,
+        source_chunks=[source],
+        selected_file_ids={"file-chunk-a"},
+    )
+    instruction = str(plan["prompt"][0]["content"]).casefold()
+
+    assert "return exactly one json action object" in instruction
+    assert "fields action, answer, source_labels, query" in instruction
+    assert '{"action":"answer"' in instruction
+    assert '"source_labels":["e1"]' in instruction
+    assert '"query":""' in instruction
+    assert '{"action":"search_selected","answer":"","source_labels":[]' in instruction
+    assert '"query":"one search query"' in instruction
+    assert "never return both" in instruction
+    assert "do not copy or rephrase the user's question" in instruction
+    assert "never request a file, path, topic, or conversation identifier" in instruction
 
 
 def test_initial_manifest_uses_full_source_not_short_citation_excerpt():
@@ -192,12 +220,16 @@ def test_final_prompt_balances_initial_and_additional_sources_and_forbids_more_s
 
     assert prioritized == ("new-0", "old-0", "new-1", "old-1")
     assert {item.source_id for item in plan["source_manifest"]} == set(prioritized)
+    assert all(citation.get("source_label") for citation in plan["citations"])
+    assert plan["retrieval_record"]["citations"] == plan["citations"]
     assert "Initial evidence 2." not in _user_content(plan)
     assert "Additional evidence 2." not in _user_content(plan)
     assert "Initial evidence 0." in _user_content(plan)
     assert "Additional evidence 0." in _user_content(plan)
     assert "do not request another search" in plan["prompt"][0]["content"].casefold()
     assert "request one additional selected-document search" not in plan["prompt"][0]["content"].casefold()
+    assert "complete markdown answer" in plan["prompt"][0]["content"].casefold()
+    assert "json action object" not in plan["prompt"][0]["content"].casefold()
 
 
 def test_source_priority_preserves_rank_and_does_not_mutate_inputs():
