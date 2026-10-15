@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from lab.conversation_profile import get_conversation_profile
+from lab.conversation_profile import validate_conversation_profile
 from lab.errors import Conflict, CorruptData
 from lab.learner_profile import proficiency_context
 from lab.prerequisite_store import get_prerequisite_state
@@ -125,9 +126,15 @@ def load_learner_context(
     profile_store: ProfileStore,
     topic_id: str,
     conversation_id: str,
+    *,
+    pinned_preferences: dict[str, Any] | None = None,
 ) -> dict[str, str | None]:
     """Reload preferences, current self-reports, historical focus and optional full CV for this turn."""
-    preferences = get_conversation_profile(store, topic_id, conversation_id)
+    preferences = (
+        get_conversation_profile(store, topic_id, conversation_id)
+        if pinned_preferences is None
+        else validate_conversation_profile(pinned_preferences)
+    )
     proficiency = profile_store.read_proficiency()
     focus = preferences["active_assessment"]
     assessment = _active_assessment(store, topic_id, focus) if focus is not None else None
