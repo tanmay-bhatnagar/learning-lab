@@ -128,3 +128,29 @@ Agree support/latency acceptance before experimenting. Existing evidence support
 Verified: existing route/gateway/lock/source/budget/trace boundaries. Unverified: useful action selection, model/quantization reliability, supported-answer benefit, allocation balance, native streaming behavior, real load/token/latency costs and timeout values. Equivalent deterministic results favor cheaper retrieval; reliable cheaper native calls favor native protocol; discarded support favors allocation repair; measured missing dependencies may justify another bounded operation; durable intermediate resume may justify LangGraph.
 
 Checks: read-only tracing/research synthesis. Application tests/build, inference and browser experiments were not run. Application implementation is pending discussion and explicit authorization.
+
+## 15 October addendum — protocol cost and effective-input freshness
+
+Designer supplied this clarification after the initial handoff. It supersedes the initial conservative raw-revision rejection and strengthens the protocol comparison; initial reasoning remains above and the original filed copy remains in Git/local history. No new research, tool runs, tests or application changes were performed.
+
+A schema approach does not inherently require two calls. An answer-or-search union can return `{"action":"answer","answer":"The complete answer…"}` or `{"action":"search_selected","query":"The comparison in Appendix B"}`.
+
+| Protocol | No lookup | Lookup | Main tradeoff |
+| --- | --- | --- | --- |
+| Small decision then ordinary answer | 2 calls | 2 calls | Simple capped decision plus ordinary final streaming; always pays another generation |
+| Complete answer-or-search JSON | 1 call | 2 calls | Buffer complete JSON until valid provider completion; larger output, answer limits/citation validation |
+| Native answer/tool response | Potentially1 call | 2 calls | New gateway/tool parsing/capability handling; buffer provisional text/actions |
+
+Include answer-or-search JSON in the isolated comparison: avoiding an unnecessary generation addresses the cost constraint and can reuse format support. If experiment scope must shrink, compare this variant and native calls against baseline before treating the always-two-call reference as cost-efficient. No protocol is a measured production winner. For a complete first-call answer, validate source references solely against evidence supplied in that call; no JSON fragment, invalid or truncated answer may be shown/saved as complete.
+
+Freshness uses prompt-relevant identity, not raw global revisions:
+
+1. Pin the question/history and deterministic effective learner-context projection.
+2. Before later lookup/model effects, recompute the scoped relevant projection and compare a stable content/scope digest.
+3. Compare policy hash, effective goal, conversation focus/preferences and selected source identities.
+4. Unrelated topic-derived rows, unused metadata and global revision bumps alone are not material. A manual concept change is material when that concept is in this turn's effective projection.
+5. CV-off performs no CV profile/artifact reads for freshness.
+6. CV-on separately revalidates selection/eligibility/revocation/extracted-text identity through the CV boundary; a matching learner digest cannot replace source eligibility.
+7. Material mismatch stops visibly before the next inference; do not silently rebuild only part of an active turn.
+
+Revisions may optimize detecting possible changes; they are neither sufficient freshness proof nor automatic rejection. Recomputing context adds bounded I/O. Check/read ordering, race windows and store guarantees still need implementation characterization; this report does not claim tested cross-store concurrency guarantees.
