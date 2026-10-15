@@ -34,6 +34,8 @@ _FILE_FIELDS = (
     "page_count",
     "asset_count",
 )
+
+
 @dataclass(frozen=True)
 class SourceProjection:
     """Identity and location metadata for text actually supplied to a provider."""
@@ -188,8 +190,14 @@ def revalidate_evidence_snapshot(
     policy = load_runtime_policy(runtime_policy_path)
     topic = read_json(store.topic(snapshot.topic_id) / "topic.json", {})
     goal = topic.get("learning_goal", "")
-    if not isinstance(goal, str) or _sha256(policy) != snapshot.policy_sha256 or _sha256(goal) != snapshot.learning_goal_sha256:
-        raise Conflict("The runtime policy or topic learning goal changed during evidence generation; retry the request.")
+    if (
+        not isinstance(goal, str)
+        or _sha256(policy) != snapshot.policy_sha256
+        or _sha256(goal) != snapshot.learning_goal_sha256
+    ):
+        raise Conflict(
+            "The runtime policy or topic learning goal changed during evidence generation; retry the request."
+        )
 
     _cv_id, _cv_name, cv_hash = _cv_identity(profile_store, preferences["include_cv"])
     learner = load_learner_context(
@@ -233,7 +241,9 @@ def _selected_files(
     if any(record.get("status") != "ready" for record in files):
         raise Conflict("A selected source file is not ready for evidence retrieval.")
     indexed_ids = frozenset(record["id"] for record in files if record.get("index_status") == "ready")
-    projections = tuple(_canonical_json({field: record[field] for field in _FILE_FIELDS if field in record}) for record in files)
+    projections = tuple(
+        _canonical_json({field: record[field] for field in _FILE_FIELDS if field in record}) for record in files
+    )
     markdown: dict[str, str] = {}
     markdown_projections: list[tuple[str, str, str]] = []
     for record in files:
