@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sqlite3
 
 import pytest
 
@@ -239,6 +240,35 @@ def test_unrelated_proficiency_revision_does_not_conflict(snapshot_workspace):
     _revalidate(snapshot_workspace, captured.snapshot)
 
 
+@pytest.mark.parametrize("change", ["add", "update"])
+def test_unrelated_topic_model_requirement_does_not_change_effective_context(snapshot_workspace, change):
+    captured = _capture(snapshot_workspace)
+    state = snapshot_workspace["profile_store"].read_proficiency()
+    entry = {
+        "id": "1" * 32,
+        "concept": "Unrelated synthetic prerequisite",
+        "comfort": None,
+        "notes": "Pending in another topic.",
+        "source_kind": "model_requirement",
+        "topic_id": "another-topic",
+        "assessment_id": "another-assessment",
+        "requirement_id": "another-requirement",
+    }
+    if change == "update":
+        state["entries"].append(entry)
+    else:
+        state["entries"].append(entry)
+    state["revision"] += 1
+    write_json(snapshot_workspace["profile_store"].proficiency_path, state)
+    if change == "update":
+        state["entries"][0]["notes"] = "Updated, still in another topic."
+        state["entries"][0]["comfort"] = "new"
+        state["revision"] += 1
+        write_json(snapshot_workspace["profile_store"].proficiency_path, state)
+
+    _revalidate(snapshot_workspace, captured.snapshot)
+
+
 def test_unrelated_index_rows_and_embedding_metadata_do_not_conflict(snapshot_workspace):
     captured = _capture(snapshot_workspace)
     bound = bind_retained_sources(captured.snapshot, [snapshot_workspace["chunk"]])
@@ -305,9 +335,35 @@ def test_malformed_or_inconsistent_supplied_source_is_rejected(snapshot_workspac
 
 def test_valid_legacy_file_record_without_original_hash_or_parser_fields_is_accepted(snapshot_workspace):
     captured = _capture(snapshot_workspace, selected_file_ids=("paper",))
+    bound = bind_retained_sources(captured.snapshot, [snapshot_workspace["chunk"]])
 
     assert captured.snapshot.selected_file_ids == frozenset({"paper"})
-    _revalidate(snapshot_workspace, captured.snapshot)
+    _revalidate(snapshot_workspace, bound)
+
+
+def test_valid_legacy_schema_v1_index_is_revalidated_read_only(snapshot_workspace):
+    captured = _capture(snapshot_workspace, selected_file_ids=("paper",))
+    bound = bind_retained_sources(captured.snapshot, [snapshot_workspace["chunk"]])
+    index_path = snapshot_workspace["topic_path"] / "retrieval.sqlite"
+    with sqlite3.connect(index_path) as connection:
+        connection.execute("ALTER TABLE chunk_embeddings DROP COLUMN model")
+        connection.execute("UPDATE schema_version SET version = 1")
+
+    _revalidate(snapshot_workspace, bound)
+
+    with sqlite3.connect(index_path) as connection:
+        assert connection.execute("SELECT version FROM schema_version").fetchone()[0] == 1
+
+
+def test_changed_source_text_with_unchanged_stored_hash_conflicts(snapshot_workspace):
+    captured = _capture(snapshot_workspace)
+    bound = bind_retained_sources(captured.snapshot, [snapshot_workspace["chunk"]])
+    index_path = snapshot_workspace["topic_path"] / "retrieval.sqlite"
+    with sqlite3.connect(index_path) as connection:
+        connection.execute("UPDATE chunks SET text = ? WHERE chunk_id = ?", ("unhashed changed text", "paper-chunk-1"))
+
+    with pytest.raises(Conflict):
+        _revalidate(snapshot_workspace, bound)
 
 
 @pytest.mark.parametrize("mutation", ["delete", "repoint", "invalid_utf8"])
