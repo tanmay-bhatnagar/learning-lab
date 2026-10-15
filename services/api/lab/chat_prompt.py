@@ -81,9 +81,7 @@ def build_chat_prompt(
     if cv_message is not None:
         protected_indices.add(cursor)
         cursor += 1
-    learner_context_enabled = learner_message is not None or cv_message is not None
-    if learner_context_enabled:
-        protected_indices.add(cursor + len(evidence) + len(attachments))
+    protected_indices.add(cursor + len(evidence) + len(attachments))
     evidence_start = cursor
     atomic_indices = set(range(evidence_start, evidence_start + len(evidence)))
     prompt: list[dict[str, object]] = [
