@@ -126,6 +126,40 @@ def test_cv_is_omitted_when_disabled_and_defaults_keep_existing_prompt_shape():
     assert "learner_context_tokens" not in default_plan["prompt_context"]
 
 
+def test_chat_prompt_rejects_an_oversized_question_without_profile_or_cv():
+    question = "CURRENT-QUESTION-BEGIN " + ("x" * 6000) + " CURRENT-QUESTION-END"
+    kwargs = {
+        **_prompt_kwargs(),
+        "history": [],
+        "evidence": [],
+        "citations": [],
+        "question": question,
+        "context_limit": 4096,
+    }
+
+    with pytest.raises(DoesNotFit, match="selected material does not fit"):
+        build_chat_prompt(**kwargs)
+
+
+def test_chat_prompt_preserves_a_fitting_question_without_profile_or_cv():
+    question = "CURRENT-QUESTION-BEGIN " + ("x" * 1200) + " CURRENT-QUESTION-END"
+    kwargs = {
+        **_prompt_kwargs(),
+        "history": [
+            {"role": "user", "content": "old question " * 300},
+            {"role": "assistant", "content": "old answer " * 300},
+        ],
+        "evidence": [],
+        "citations": [],
+        "question": question,
+        "context_limit": 4096,
+    }
+
+    plan = build_chat_prompt(**kwargs)
+
+    assert plan["prompt"][-1] == {"role": "user", "content": question}
+
+
 def test_cv_background_can_be_qualified_without_becoming_a_study_citation():
     plan = build_chat_prompt(
         **_prompt_kwargs(),
