@@ -106,6 +106,7 @@ class Citation(TypedDict):
     trace: dict[str, object]
     text: str
     chunk_index: NotRequired[int]
+    source_label: NotRequired[str]
 
 
 class ArtifactAsset(TypedDict):

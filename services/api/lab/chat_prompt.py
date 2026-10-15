@@ -33,6 +33,7 @@ def build_chat_prompt(
     learner_context: str = "",
     cv_text: str | None = None,
     cv_name: str | None = None,
+    trusted_extra_instruction: str = "",
 ) -> ChatPromptPlan:
     evidence_pairs = list(zip(evidence, citations, strict=True))[::-1]
     evidence = [pair[0] for pair in evidence_pairs]
@@ -49,6 +50,8 @@ def build_chat_prompt(
         system_content += (
             f"\n\nUSER-AUTHORED LEARNING GOAL FOR THIS TOPIC (context, not evidence):\n{learning_goal.strip()}"
         )
+    if trusted_extra_instruction:
+        system_content += f"\n\nTRUSTED FEATURE INSTRUCTION:\n{trusted_extra_instruction}"
     if cv_text is not None and (not cv_text.strip() or not cv_name):
         raise InvalidInput("cv_text must contain extracted text and cv_name must identify the source")
     if cv_text is None and cv_name is not None:
