@@ -155,6 +155,22 @@ def test_rejects_truncated_malformed_oversized_and_controlled_json():
         )
 
 
+@pytest.mark.parametrize("representation", ["json", "object"])
+def test_rejects_deeply_nested_response_as_domain_error(representation):
+    nested = 0
+    for _ in range(12_000):
+        nested = [nested]
+    if representation == "json":
+        response = '{"action":"answer","answer":' + "[" * 12_000 + "0" + "]" * 12_000
+        response += ',"source_labels":[],"query":""}'
+        assert len(response.encode("utf-8")) < 25_000
+    else:
+        response = {"action": "answer", "answer": nested, "source_labels": [], "query": ""}
+
+    with pytest.raises(InvalidInput):
+        parse_evidence_action(response, _manifest(), can_search=True)
+
+
 def test_search_action_is_one_bounded_query_and_requires_nonempty_selected_scope():
     result = parse_evidence_action(
         {"action": "search_selected", "answer": "", "source_labels": [], "query": "Appendix B comparison"},
