@@ -218,9 +218,7 @@ def revalidate_evidence_snapshot(
     if current_cv != (snapshot.cv_id, snapshot.cv_name, snapshot.cv_text_sha256):
         raise Conflict("The selected CV changed during evidence validation; retry the request.")
     _validate_loaded_cv(learner, cv_name=cv_name, cv_hash=cv_hash, include_cv=preferences["include_cv"])
-    if (
-        _sha256(learner["learner_context"] or "") != snapshot.learner_context_sha256
-    ):
+    if _sha256(learner["learner_context"] or "") != snapshot.learner_context_sha256:
         raise Conflict("Learner context or selected CV changed during evidence generation; retry the request.")
 
     _files, file_projections, indexed_ids, _markdown, markdown_projections = _selected_files(
@@ -289,12 +287,7 @@ def _validate_loaded_cv(
     if not include_cv:
         return
     text = learner["cv_text"]
-    if (
-        not isinstance(text, str)
-        or learner["cv_name"] != cv_name
-        or cv_hash is None
-        or _sha256(text) != cv_hash
-    ):
+    if not isinstance(text, str) or learner["cv_name"] != cv_name or cv_hash is None or _sha256(text) != cv_hash:
         raise Conflict("The selected CV changed while evidence context was being loaded; retry the request.")
 
 

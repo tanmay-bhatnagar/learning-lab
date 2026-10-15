@@ -232,7 +232,9 @@ def test_material_prompt_context_changes_conflict(snapshot_workspace, change):
 
 def test_unrelated_proficiency_revision_does_not_conflict(snapshot_workspace):
     captured = _capture(snapshot_workspace)
-    write_json(snapshot_workspace["profile_store"].proficiency_path, {"schema_version": 1, "revision": 17, "entries": []})
+    write_json(
+        snapshot_workspace["profile_store"].proficiency_path, {"schema_version": 1, "revision": 17, "entries": []}
+    )
 
     _revalidate(snapshot_workspace, captured.snapshot)
 
