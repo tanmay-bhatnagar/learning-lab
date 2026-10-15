@@ -20,7 +20,18 @@ from lab.evidence_request import (
 
 
 def _source(chunk_id: str, file_id: str, text: str) -> dict[str, str]:
-    return {"chunk_id": chunk_id, "file_id": file_id, "text": text}
+    return {
+        "chunk_id": chunk_id,
+        "file_id": file_id,
+        "file_name": f"{file_id}.pdf",
+        "chunk_index": 0,
+        "text": text,
+        "content_hash": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+        "headings": [],
+        "pages": [1],
+        "bboxes": [],
+        "asset_ids": [],
+    }
 
 
 def _manifest():
@@ -39,7 +50,7 @@ def test_schema_is_one_strict_object_with_manifest_scoped_references():
     assert schema["additionalProperties"] is False
     assert set(schema["required"]) == {"action", "answer", "source_labels", "query"}
     assert schema["properties"]["action"]["enum"] == ["answer", "search_selected"]
-    assert schema["properties"]["source_labels"]["items"]["enum"] == ["E1", "E2"]
+    assert list(schema["properties"]["source_labels"]["items"]["enum"]) == ["E1", "E2"]
     assert schema["properties"]["query"]["maxLength"] == 500
     assert schema["properties"]["answer"]["maxLength"] >= 16_000
 
@@ -57,11 +68,44 @@ def test_complete_answer_resolves_only_exact_initial_manifest_and_preserves_text
     assert result.references[1].content_sha256 == hashlib.sha256(b"Initial evidence B.").hexdigest()
 
 
+def test_unverifiable_answer_can_abstain_without_claiming_source_references():
+    result = parse_evidence_action(
+        {
+            "action": "answer",
+            "answer": "The selected passages do not establish this.",
+            "source_labels": [],
+            "query": "",
+        },
+        _manifest(),
+        can_search=True,
+    )
+
+    assert result == AnswerAction(markdown="The selected passages do not establish this.", references=())
+
+
+def test_source_labels_are_explicit_references_even_without_inline_markers():
+    manifest = _manifest()
+    result = parse_evidence_action(
+        {
+            "action": "answer",
+            "answer": "Method A produced a mean output of 12 units.",
+            "source_labels": ["E1"],
+            "query": "",
+        },
+        manifest,
+        can_search=True,
+    )
+
+    assert result.references == (manifest[0],)
+
+
 @pytest.mark.parametrize(
     "payload",
     [
         {"action": "answer", "answer": " ", "source_labels": ["E1"], "query": ""},
         {"action": "answer", "answer": "A [E1]", "source_labels": ["unknown"], "query": ""},
+        {"action": "answer", "answer": "A [E0]", "source_labels": [], "query": ""},
+        {"action": "answer", "answer": "A [Eoutsider]", "source_labels": [], "query": ""},
         {"action": "answer", "answer": "A [E1]", "source_labels": ["E1", "E1"], "query": ""},
         {"action": "answer", "answer": "A [E1]", "source_labels": [], "query": ""},
         {"action": "answer", "answer": "A [E1]", "source_labels": ["E1"], "query": "search too"},
@@ -87,7 +131,19 @@ def test_rejects_truncated_malformed_oversized_and_controlled_json():
         parse_evidence_action("not json", manifest, can_search=True)
     with pytest.raises(InvalidInput):
         parse_evidence_action(
+            '{"action":"answer","action":"search_selected","answer":"x","source_labels":[],"query":""}',
+            manifest,
+            can_search=True,
+        )
+    with pytest.raises(InvalidInput):
+        parse_evidence_action(
             {"action": "answer", "answer": "A\x00 [E1]", "source_labels": ["E1"], "query": ""},
+            manifest,
+            can_search=True,
+        )
+    with pytest.raises(InvalidInput):
+        parse_evidence_action(
+            {"action": "answer", "answer": "A\ud800", "source_labels": [], "query": ""},
             manifest,
             can_search=True,
         )
@@ -102,7 +158,7 @@ def test_rejects_truncated_malformed_oversized_and_controlled_json():
 def test_search_action_is_one_bounded_query_and_requires_nonempty_selected_scope():
     result = parse_evidence_action(
         {"action": "search_selected", "answer": "", "source_labels": [], "query": "Appendix B comparison"},
-        _manifest(),
+        (),
         can_search=True,
     )
 
@@ -110,15 +166,13 @@ def test_search_action_is_one_bounded_query_and_requires_nonempty_selected_scope
     with pytest.raises(InvalidInput):
         parse_evidence_action(
             {"action": "search_selected", "answer": "", "source_labels": [], "query": "Appendix B"},
-            _manifest(),
+            (),
             can_search=False,
         )
-    with pytest.raises(InvalidInput):
-        parse_evidence_action(
-            {"action": "search_selected", "answer": "", "source_labels": [], "query": "Appendix B"},
-            (),
-            can_search=True,
-        )
+
+    empty_source_schema = evidence_action_schema([])
+    assert empty_source_schema["properties"]["source_labels"]["maxItems"] == 0
+    assert "enum" not in empty_source_schema["properties"]["source_labels"]["items"]
 
 
 def test_merge_deduplicates_by_stable_id_preserves_order_and_does_not_mutate_inputs():
