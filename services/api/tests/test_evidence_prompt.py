@@ -83,7 +83,7 @@ def test_initial_prompt_labels_full_hash_sources_and_returns_retained_manifest()
     assert manifest_by_id["chunk-a"].label == citations_by_id["chunk-a"]["source_label"] == "E1"
     assert manifest_by_id["chunk-b"].label == citations_by_id["chunk-b"]["source_label"] == "E2"
     assert "[E1]" in _user_content(plan) and "[E2]" in _user_content(plan)
-    assert "request one additional selected-document search" in plan["prompt"][0]["content"].casefold()
+    assert "request at most one additional selected-document search" in plan["prompt"][0]["content"].casefold()
     assert kwargs == original_kwargs
     assert [first, second] == original_sources
 
@@ -226,10 +226,13 @@ def test_final_prompt_balances_initial_and_additional_sources_and_forbids_more_s
     assert "Additional evidence 2." not in _user_content(plan)
     assert "Initial evidence 0." in _user_content(plan)
     assert "Additional evidence 0." in _user_content(plan)
-    assert "do not request another search" in plan["prompt"][0]["content"].casefold()
-    assert "request one additional selected-document search" not in plan["prompt"][0]["content"].casefold()
-    assert "complete markdown answer" in plan["prompt"][0]["content"].casefold()
-    assert "json action object" not in plan["prompt"][0]["content"].casefold()
+    assert "do not request or imply another search" in plan["prompt"][0]["content"].casefold()
+    assert "request at most one additional selected-document search" not in plan["prompt"][0]["content"].casefold()
+    final_instruction = plan["prompt"][0]["content"].casefold()
+    assert "complete, user-facing markdown answer" in final_instruction
+    assert "this final turn is prose, not a json action object" in final_instruction
+    assert "return exactly one json action object" not in final_instruction
+    assert "fields action, answer, source_labels, query" not in final_instruction
 
 
 def test_source_priority_preserves_rank_and_does_not_mutate_inputs():
