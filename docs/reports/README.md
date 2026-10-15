@@ -8,13 +8,14 @@ Organized by feature on 12 October 2026. Feature folder names contain no more th
 | --- | --- |
 | [Document Map](document-map/) | [Original consolidated research/design plan](document-map/2026_10_05_document_map_plan.md), [regenerated plan](document-map/2026_10_05_document_map_plan_regenerated.md), [implementation decisions and validation](document-map/2026_10_05_document_map_implementation.md) |
 | [Personalized Prerequisites](personalized-prerequisites/) | Separate [research](personalized-prerequisites/2026_10_12_personalized_prerequisites_research.md) and [design](personalized-prerequisites/2026_10_12_personalized_prerequisites_design.md) reports, plus [consolidated plan](personalized-prerequisites/2026_10_12_personalized_prerequisites_plan.md) and [12 October implementation checkpoints](personalized-prerequisites/2026_10_12_personalized_prerequisites_implementation.md) and [13 October continuation](personalized-prerequisites/2026_10_13_personalized_prerequisites_implementation.md) |
+| [Evidence Retrieval](evidence-retrieval/) | [Discussion and decision notes](evidence-retrieval/2026_10_15_evidence_retrieval_discussion.md); research/design requested, implementation not yet authorized |
 | [Architecture](architecture/) | [Architecture research/review and refactor proposals](architecture/architecture-review.md) |
 | [Conversations](conversations/) | [Multi-conversation review, implementation and verification](conversations/2026_10_03_resume_validation.md) |
 | [Retrieval Evaluation](retrieval-evaluation/) | [Three-paper methodology and validation](retrieval-evaluation/retrieval_eval_validation.md) |
 | [Parser Skills](parser-skills/) | [Parser-skill provenance and review](parser-skills/skills-review.md) |
 | [Foundation](foundation/) | [Initial foundation validation and follow-ups](foundation/validation.md) |
 
-These are 13 durable reports. Current API/architecture/engineering documentation stays at its canonical location. Additional combined decision/validation material remains in [runtime policy](../runtime_policy.md) and [query traces](../query_traces.md).
+These are 14 durable reports. Current API/architecture/engineering documentation stays at its canonical location. Additional combined decision/validation material remains in [runtime policy](../runtime_policy.md) and [query traces](../query_traces.md).
 
 ## Older local reports
 
