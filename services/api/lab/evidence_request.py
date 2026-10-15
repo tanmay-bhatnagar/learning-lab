@@ -121,13 +121,13 @@ def parse_evidence_action(
             raise InvalidInput("The evidence response exceeded its structured-output limit.")
         try:
             value = json.loads(response, object_pairs_hook=_unique_object)
-        except (json.JSONDecodeError, UnicodeError, ValueError):
+        except (json.JSONDecodeError, UnicodeError, ValueError, RecursionError):
             raise InvalidInput("The evidence response was not one complete valid JSON object.") from None
     else:
         value = response
         try:
             encoded = json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-        except (TypeError, ValueError, UnicodeError):
+        except (TypeError, ValueError, UnicodeError, RecursionError):
             raise InvalidInput("The evidence response must be JSON-compatible.") from None
         if len(encoded) > MAX_ACTION_BYTES:
             raise InvalidInput("The evidence response exceeded its structured-output limit.")
