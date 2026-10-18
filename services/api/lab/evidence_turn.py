@@ -397,13 +397,13 @@ async def _stream_final(
         return
     state["final_chunk_ids"] = list(final_chunk_ids)
     state["retained_new_chunk_ids"] = list(retained_new_chunk_ids)
-    yield EvidenceTurnEvent(kind="plan", stage="answering", plan=plan, metadata=dict(state))
     completed = False
     response_model: str | None = None
     response_context: dict[str, object] | None = None
     error_code: str | None = None
     saw_answer_text = False
     try:
+        yield EvidenceTurnEvent(kind="plan", stage="answering", plan=plan, metadata=dict(state))
         yield _stage("answering", state)
         async for event in stream:
             event_type = event.get("type") if isinstance(event, Mapping) else None
