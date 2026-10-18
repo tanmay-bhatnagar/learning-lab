@@ -716,8 +716,8 @@ def test_stopping_at_final_plan_does_not_count_an_unstarted_generation():
         workflow = _workflow(gateway, initial_chunks=[], lookup=lookup)
         async for event in workflow:
             if event.kind == "plan":
-                assert event.metadata["generation_count"] == 1
-                assert len(gateway.calls) == 1
+                assert event.metadata["generation_count"] == 2
+                assert len(gateway.calls) == 2
                 await workflow.aclose()
                 return
         pytest.fail("Expected a final plan event")
@@ -758,6 +758,37 @@ def test_search_attempt_is_started_before_search_stage_and_cancelled_when_stoppe
 
     asyncio.run(scenario())
     assert cleaned
+
+
+def test_final_gateway_factory_failure_does_not_claim_prepared_sources_were_supplied():
+    initial = _chunk("initial-1", "Initial passage.")
+    additional = _chunk("new-1", "Prepared follow-up passage.")
+    action = json.dumps({"action": "search_selected", "answer": "", "source_labels": [], "query": "details"})
+
+    class Gateway:
+        calls = 0
+
+        def stream_chat(self, *_args, **_kwargs):
+            self.calls += 1
+            if self.calls == 2:
+                raise RuntimeError("private gateway failure")
+
+            async def first():
+                yield _token(action)
+                yield _done()
+
+            return first()
+
+    async def lookup(_query: str, *, file_ids: tuple[str, ...]):
+        return {"hits": [additional], "mode": "hybrid"}
+
+    events = asyncio.run(_collect(_workflow(Gateway(), initial_chunks=[initial], lookup=lookup)))
+
+    error = next(event for event in events if event.kind == "error")
+    assert error.metadata["generation_count"] == 2
+    assert error.metadata["initial_chunk_ids"] == ["initial-1"]
+    assert error.metadata["final_chunk_ids"] == ["initial-1"]
+    assert error.metadata["retained_new_chunk_ids"] == []
 
 
 def test_snapshot_conflict_is_a_safe_error_and_stops_all_following_effects():
