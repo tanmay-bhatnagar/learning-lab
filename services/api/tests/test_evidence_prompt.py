@@ -178,6 +178,109 @@ def test_initial_prompt_rejects_citation_with_mismatched_source_panel_identity(f
         )
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("headings", ["Fabricated heading"]),
+        ("chunk_index", 999),
+        ("bboxes", [{"page": 99, "l": 0, "t": 0, "r": 1, "b": 1, "coord_origin": "TOPLEFT"}]),
+        ("assets", ["unrelated-figure.png"]),
+        ("assets", ["figure-a.png", "figure-a.png"]),
+        ("text", "A fabricated excerpt that does not occur in the source."),
+    ],
+)
+def test_initial_prompt_rejects_citation_metadata_that_disagrees_with_source(field, value):
+    text = "The complete indexed source excerpt appears in this synthetic paper."
+    source = {
+        **_source("chunk-a", text),
+        "chunk_index": 2,
+        "headings": ["Methods"],
+        "bboxes": [{"page": 1, "l": 0.1, "t": 0.2, "r": 0.8, "b": 0.9, "coord_origin": "TOPLEFT"}],
+        "asset_ids": ["figure-a.png", "figure-b.png"],
+    }
+    kwargs = _prompt_kwargs([source])
+    kwargs["citations"] = [
+        {
+            **_citation(source),
+            "headings": source["headings"],
+            "chunk_index": source["chunk_index"],
+            "bboxes": source["bboxes"],
+            "assets": ["figure-a.png", "figure-b.png"],
+            "text": text,
+            field: value,
+        }
+    ]
+
+    with pytest.raises(InvalidInput):
+        build_initial_evidence_prompt(
+            prompt_kwargs=kwargs,
+            source_chunks=[source],
+            selected_file_ids={str(source["file_id"])},
+        )
+
+
+def test_initial_prompt_accepts_a_source_excerpt_prefix_with_ellipsis_and_asset_subset():
+    text = "A legitimate bounded citation excerpt is a prefix of this complete synthetic source."
+    source = {
+        **_source("chunk-a", text),
+        "asset_ids": ["figure-a.png", "figure-b.png"],
+    }
+    kwargs = _prompt_kwargs([source])
+    kwargs["citations"] = [
+        {
+            **_citation(source),
+            "assets": ["figure-b.png"],
+            "text": text[:30] + "…",
+        }
+    ]
+
+    plan = build_initial_evidence_prompt(
+        prompt_kwargs=kwargs,
+        source_chunks=[source],
+        selected_file_ids={str(source["file_id"])},
+    )
+
+    assert plan["source_manifest"][0].source_id == "chunk-a"
+
+
+def test_initial_prompt_records_hashes_only_for_images_actually_supplied_in_evidence_messages():
+    import base64
+
+    image_bytes = b"synthetic image bytes supplied to the model"
+    encoded_image = base64.b64encode(image_bytes).decode("ascii")
+    source = {**_source("chunk-a", "Synthetic source with a referenced image."), "asset_ids": ["figure-a.png"]}
+    kwargs = _prompt_kwargs([source])
+    kwargs["evidence"] = [{**kwargs["evidence"][0], "images": [encoded_image]}]
+    kwargs["citations"] = [{**_citation(source), "assets": ["figure-a.png"]}]
+
+    plan = build_initial_evidence_prompt(
+        prompt_kwargs=kwargs,
+        source_chunks=[source],
+        selected_file_ids={str(source["file_id"])},
+    )
+
+    reference = plan["supplied_images"][0]
+    assert reference.source_id == "chunk-a"
+    assert reference.file_id == source["file_id"]
+    assert reference.asset_name == "figure-a.png"
+    assert reference.content_sha256 == hashlib.sha256(image_bytes).hexdigest()
+    assert encoded_image not in repr(reference)
+
+
+def test_initial_prompt_does_not_claim_citation_assets_without_supplied_image_bytes():
+    source = {**_source("chunk-a", "Synthetic text-only evidence."), "asset_ids": ["figure-a.png"]}
+    kwargs = _prompt_kwargs([source])
+    kwargs["citations"] = [{**_citation(source), "assets": ["figure-a.png"]}]
+
+    plan = build_initial_evidence_prompt(
+        prompt_kwargs=kwargs,
+        source_chunks=[source],
+        selected_file_ids={str(source["file_id"])},
+    )
+
+    assert plan["supplied_images"] == ()
+
+
 def test_initial_prompt_rejects_source_text_missing_from_matched_evidence_message():
     source = _source("chunk-a", "Full indexed text must be supplied to the model.")
     kwargs = _prompt_kwargs([source])

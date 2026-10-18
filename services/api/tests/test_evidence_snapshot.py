@@ -10,6 +10,7 @@ import pytest
 
 from lab.conversation_profile import save_conversation_profile
 from lab.errors import Conflict, InvalidInput
+from lab.evidence_prompt import build_initial_evidence_prompt
 from lab.evidence_snapshot import (
     bind_retained_sources,
     capture_prompt_context,
@@ -17,6 +18,7 @@ from lab.evidence_snapshot import (
 )
 from lab.index import TopicIndex
 from lab.profile_store import ProfileStore
+from lab.retrieval import evidence_messages
 from lab.storage import Store, write_json, write_text
 
 
@@ -364,6 +366,72 @@ def test_changed_source_text_with_unchanged_stored_hash_conflicts(snapshot_works
 
     with pytest.raises(Conflict):
         _revalidate(snapshot_workspace, bound)
+
+
+def _image_evidence_plan(workspace, *, include_images):
+    messages, citations = evidence_messages(
+        workspace["store"],
+        workspace["topic_id"],
+        [workspace["chunk"]],
+        include_images=include_images,
+    )
+    return build_initial_evidence_prompt(
+        prompt_kwargs={
+            "history": [],
+            "evidence": messages,
+            "citations": citations,
+            "attachments": [],
+            "question": "Describe the supplied synthetic source.",
+            "active_topic": workspace["topic_id"],
+            "learning_goal": "",
+            "runtime_policy": "Synthetic policy.",
+            "context_limit": 8192,
+            "retrieval_record": {},
+        },
+        source_chunks=[workspace["chunk"]],
+        selected_file_ids=frozenset({"paper"}),
+    )
+
+
+def test_supplied_image_bytes_change_invalidates_snapshot(snapshot_workspace):
+    import base64
+
+    asset_path = snapshot_workspace["store"].file_path(snapshot_workspace["topic_id"], "figure-1")
+    first_image = b"synthetic image bytes supplied in evidence"
+    asset_path.write_bytes(first_image)
+    plan = _image_evidence_plan(snapshot_workspace, include_images=True)
+    captured = _capture(snapshot_workspace, selected_file_ids=("paper",))
+    bound = bind_retained_sources(
+        captured.snapshot,
+        [snapshot_workspace["chunk"]],
+        supplied_images=plan["supplied_images"],
+    )
+    assert base64.b64encode(first_image).decode("ascii") not in repr(bound)
+
+    asset_path.write_bytes(b"different image bytes supplied later")
+
+    with pytest.raises(Conflict):
+        _revalidate(snapshot_workspace, bound)
+
+
+def test_text_only_retained_source_does_not_read_image_assets(snapshot_workspace, monkeypatch):
+    import lab.evidence_snapshot as snapshots
+
+    plan = _image_evidence_plan(snapshot_workspace, include_images=False)
+    assert plan["supplied_images"] == ()
+    captured = _capture(snapshot_workspace, selected_file_ids=("paper",))
+    bound = bind_retained_sources(
+        captured.snapshot,
+        [snapshot_workspace["chunk"]],
+        supplied_images=plan["supplied_images"],
+    )
+
+    def forbidden(*_args, **_kwargs):
+        pytest.fail("Text-only snapshot revalidation must not read source image files")
+
+    monkeypatch.setattr(snapshots, "read_bytes", forbidden)
+
+    _revalidate(snapshot_workspace, bound)
 
 
 @pytest.mark.parametrize("mutation", ["delete", "repoint", "invalid_utf8"])

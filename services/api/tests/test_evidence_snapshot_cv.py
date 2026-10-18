@@ -132,3 +132,31 @@ def test_cv_identity_change_during_text_load_aborts_capture(cv_snapshot_workspac
 
     with pytest.raises(Conflict):
         _capture(workspace)
+
+
+def test_unrelated_cv_registration_during_selected_text_read_does_not_conflict(cv_snapshot_workspace, monkeypatch):
+    workspace = cv_snapshot_workspace
+    profile_store = workspace["profile_store"]
+    read_extracted_text = profile_store.read_extracted_text
+    reads = 0
+
+    def read_then_register_unrelated(cv_id):
+        nonlocal reads
+        text = read_extracted_text(cv_id)
+        reads += 1
+        if reads == 1:
+            profile_store.register_cv(
+                "Unrelated CV.pdf",
+                b"synthetic unrelated original",
+                "Unrelated synthetic CV text.",
+                {"status": "ready", "findings": []},
+            )
+        return text
+
+    monkeypatch.setattr(profile_store, "read_extracted_text", read_then_register_unrelated)
+
+    captured = _capture(workspace)
+
+    assert captured.snapshot.cv_id == workspace["first"]["id"]
+    assert captured.prompt_context["cv_text"] == workspace["cv_text"]
+    _revalidate(workspace, captured.snapshot)
