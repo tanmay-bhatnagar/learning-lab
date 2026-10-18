@@ -16,17 +16,23 @@ from lab.storage import Store
 def selected_cv_snapshot(profile_store: ProfileStore) -> tuple[str, str]:
     """Read one eligible active CV as complete canonical extracted text with integrity checks."""
     before = profile_store.read_profile()
-    cv_id = before["active_cv_id"]
-    record = next((candidate for candidate in before["cvs"] if candidate["id"] == cv_id), None)
-    if record is None or record["status"] != "ready" or record["revoked"]:
-        raise Conflict("Select an available, successfully extracted CV before including it in chat.")
+    before_identity = _selected_cv_identity(before)
+    cv_id, original_name = before_identity[0], before_identity[1]
     text = profile_store.read_extracted_text(cv_id)
     after = profile_store.read_profile()
-    if after["revision"] != before["revision"] or after["active_cv_id"] != cv_id:
+    if _selected_cv_identity(after) != before_identity:
         raise Conflict("The selected CV changed while it was being loaded; retry the chat request.")
     if not text.strip():
         raise Conflict("The selected CV has no extracted text available to include.")
-    return text, record["original_name"]
+    return text, original_name
+
+
+def _selected_cv_identity(profile: dict[str, Any]) -> tuple[str, str, str, bool, str]:
+    cv_id = profile["active_cv_id"]
+    record = next((candidate for candidate in profile["cvs"] if candidate["id"] == cv_id), None)
+    if record is None or record["status"] != "ready" or record["revoked"]:
+        raise Conflict("Select an available, successfully extracted CV before including it in chat.")
+    return cv_id, record["original_name"], record["status"], record["revoked"], record["extracted_sha256"]
 
 
 def _active_assessment(store: Store, topic_id: str, focus: dict[str, Any]) -> dict[str, Any]:

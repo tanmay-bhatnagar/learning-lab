@@ -35,6 +35,16 @@ class SourceReference:
 
 
 @dataclass(frozen=True)
+class SourceImageReference:
+    """Identity and byte hash for one image actually attached to retained evidence."""
+
+    source_id: str
+    file_id: str
+    asset_name: str
+    content_sha256: str
+
+
+@dataclass(frozen=True)
 class AnswerAction:
     """A complete buffered Markdown answer with validated initial-source references."""
 

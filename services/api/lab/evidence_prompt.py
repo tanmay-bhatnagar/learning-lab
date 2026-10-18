@@ -2,14 +2,23 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 from collections.abc import Mapping, Sequence, Set
 from copy import deepcopy
+import hashlib
 from typing import TypedDict
 
 from lab.chat_prompt import build_chat_prompt
 from lab.contracts import ChatPromptPlan, Citation
 from lab.errors import InvalidInput
-from lab.evidence_request import MAX_SOURCE_REFERENCES, SourceReference, build_source_manifest, merge_scoped_sources
+from lab.evidence_request import (
+    MAX_SOURCE_REFERENCES,
+    SourceImageReference,
+    SourceReference,
+    build_source_manifest,
+    merge_scoped_sources,
+)
 
 _INITIAL_INSTRUCTION = (
     "Return exactly one JSON action object with fields action, answer, source_labels, query. "
@@ -37,6 +46,7 @@ class EvidencePromptPlan(ChatPromptPlan):
     """A normal context-budgeted prompt plus the exact retained source identities."""
 
     source_manifest: tuple[SourceReference, ...]
+    supplied_images: tuple[SourceImageReference, ...]
 
 
 def build_initial_evidence_prompt(
@@ -141,6 +151,7 @@ def _build_evidence_prompt(
         for chunk in (validation_chunks if validation_chunks is not None else ordered_chunks)
     }
     evidence_by_id, citations_by_id = _aligned_prompt_pairs(prompt_kwargs, sources_by_id)
+    images_by_source = _supplied_image_references(evidence_by_id, citations_by_id, sources_by_id)
     manifest = build_source_manifest(ordered_chunks)
     labels_by_id = {reference.source_id: reference.label for reference in manifest}
     labeled_evidence = []
@@ -162,11 +173,15 @@ def _build_evidence_prompt(
     final_citations = [
         {**citation, "source_label": labels_by_id[str(citation["chunk_id"])]} for citation in plan["citations"]
     ]
+    retained_images = tuple(
+        image for source_id in labels_by_id if source_id in retained_ids for image in images_by_source[source_id]
+    )
     return {
         **plan,
         "citations": final_citations,
         "retrieval_record": {**plan["retrieval_record"], "citations": final_citations},
         "source_manifest": retained_manifest,
+        "supplied_images": retained_images,
     }
 
 
@@ -196,8 +211,13 @@ def _aligned_prompt_pairs(
             raw_citation.get("file_id") != source.get("file_id")
             or raw_citation.get("file_name") != source.get("file_name")
             or raw_citation.get("pages") != source.get("pages")
+            or raw_citation.get("headings") != source.get("headings", [])
+            or raw_citation.get("bboxes") != source.get("bboxes", [])
         ):
             raise InvalidInput("A source citation's panel identity differs from its indexed source.")
+        if "chunk_index" in raw_citation and raw_citation["chunk_index"] != source.get("chunk_index"):
+            raise InvalidInput("A source citation's chunk position differs from its indexed source.")
+        _validate_citation_assets(raw_citation.get("assets"), source.get("asset_ids", []))
         content = raw_message.get("content")
         full_text = source.get("text")
         if (
@@ -207,6 +227,8 @@ def _aligned_prompt_pairs(
             or full_text not in content
         ):
             raise InvalidInput("The full indexed source text must appear in its matched evidence message.")
+        if not _is_source_excerpt(raw_citation.get("text"), full_text):
+            raise InvalidInput("A source citation excerpt must match the beginning of its indexed source text.")
         evidence_by_id[source_id] = dict(raw_message)
         citations_by_id[source_id] = _checked_citation(raw_citation)
     if set(citations_by_id) != expected_ids:
@@ -253,6 +275,64 @@ def _checked_citation(value: Mapping[str, object]) -> Citation:
             raise InvalidInput("A source citation has an invalid chunk index.")
         checked["chunk_index"] = chunk_index
     return checked
+
+
+def _validate_citation_assets(assets: object, source_assets: object) -> None:
+    if (
+        not isinstance(assets, list)
+        or any(not isinstance(asset, str) for asset in assets)
+        or len(assets) != len(set(assets))
+        or not isinstance(source_assets, list)
+        or any(not isinstance(asset, str) for asset in source_assets)
+    ):
+        raise InvalidInput("A source citation has invalid or duplicate image asset names.")
+    positions = [source_assets.index(asset) for asset in assets if asset in source_assets]
+    if len(positions) != len(assets) or positions != sorted(positions):
+        raise InvalidInput("A source citation lists image assets outside its indexed source or in a changed order.")
+
+
+def _is_source_excerpt(excerpt: object, full_text: str) -> bool:
+    if not isinstance(excerpt, str) or not excerpt:
+        return False
+    if full_text.startswith(excerpt):
+        return True
+    return excerpt.endswith("…") and len(excerpt) > 1 and full_text.startswith(excerpt[:-1])
+
+
+def _supplied_image_references(
+    evidence_by_id: Mapping[str, Mapping[str, object]],
+    citations_by_id: Mapping[str, Citation],
+    sources_by_id: Mapping[str, Mapping[str, object]],
+) -> dict[str, tuple[SourceImageReference, ...]]:
+    result: dict[str, tuple[SourceImageReference, ...]] = {}
+    for source_id, message in evidence_by_id.items():
+        images = message.get("images", [])
+        if not isinstance(images, list) or any(not isinstance(image, str) for image in images):
+            raise InvalidInput("Evidence message images must be a list of encoded image bytes.")
+        assets = citations_by_id[source_id]["assets"]
+        if not images:
+            result[source_id] = ()
+            continue
+        if len(images) != len(assets):
+            raise InvalidInput("Each supplied evidence image must match exactly one named source asset.")
+        references = []
+        for asset_name, encoded in zip(assets, images, strict=True):
+            try:
+                image_bytes = base64.b64decode(encoded, validate=True)
+            except (binascii.Error, ValueError):
+                raise InvalidInput("A supplied evidence image is not valid base64 data.") from None
+            if not image_bytes:
+                raise InvalidInput("A supplied evidence image cannot be empty.")
+            references.append(
+                SourceImageReference(
+                    source_id=source_id,
+                    file_id=str(sources_by_id[source_id]["file_id"]),
+                    asset_name=asset_name,
+                    content_sha256=hashlib.sha256(image_bytes).hexdigest(),
+                )
+            )
+        result[source_id] = tuple(references)
+    return result
 
 
 def _source_header(reference: SourceReference) -> str:

@@ -11,7 +11,7 @@ from typing import Any
 
 from lab.conversation_profile import get_conversation_profile
 from lab.errors import Conflict, InvalidInput, NotFound
-from lab.evidence_request import MAX_SOURCE_REFERENCES, merge_scoped_sources
+from lab.evidence_request import MAX_SOURCE_REFERENCES, SourceImageReference, merge_scoped_sources
 from lab.index import IndexInputError, TopicIndex
 from lab.learner_context import load_learner_context
 from lab.profile_store import ProfileStore
@@ -71,6 +71,7 @@ class EvidenceSnapshot:
     file_projections: tuple[str, ...]
     markdown_projections: tuple[tuple[str, str, str], ...]
     supplied_sources: tuple[SourceProjection, ...]
+    supplied_images: tuple[SourceImageReference, ...]
     digest: str
 
 
@@ -153,6 +154,8 @@ def capture_prompt_context(
 def bind_retained_sources(
     snapshot: EvidenceSnapshot,
     sources: Sequence[Mapping[str, object]],
+    *,
+    supplied_images: Sequence[SourceImageReference] = (),
 ) -> EvidenceSnapshot:
     """Accumulate exact source projections across prompt stages without permitting ID drift."""
     if isinstance(sources, (str, bytes)) or not isinstance(sources, Sequence):
@@ -166,6 +169,8 @@ def bind_retained_sources(
         )
     else:
         checked = ()
+    if isinstance(supplied_images, (str, bytes)) or not isinstance(supplied_images, Sequence):
+        raise InvalidInput("Supplied source images must be a sequence of immutable image references.")
     existing = {source.chunk_id: source for source in snapshot.supplied_sources}
     for source in checked:
         projection = _source_projection(source)
@@ -174,7 +179,18 @@ def bind_retained_sources(
             raise InvalidInput("A retained source ID resolved to changed content or location metadata.")
         existing[projection.chunk_id] = projection
     ordered = tuple(existing.values())
-    return replace(snapshot, supplied_sources=ordered, digest=_snapshot_digest(snapshot, ordered))
+    sources_by_id = {source.chunk_id: source for source in ordered}
+    images = {_image_key(image): image for image in snapshot.supplied_images}
+    for image in supplied_images:
+        _validate_image_reference(image, sources_by_id)
+        key = _image_key(image)
+        previous = images.get(key)
+        if previous is not None and previous != image:
+            raise InvalidInput("A supplied source image changed its byte identity during evidence generation.")
+        images[key] = image
+    ordered_images = tuple(images.values())
+    updated = replace(snapshot, supplied_sources=ordered, supplied_images=ordered_images)
+    return replace(updated, digest=_snapshot_digest(updated, ordered, ordered_images))
 
 
 def revalidate_evidence_snapshot(
@@ -231,6 +247,7 @@ def revalidate_evidence_snapshot(
     ):
         raise Conflict("A selected source file or attachment changed during evidence generation; retry the request.")
     _revalidate_sources(store, snapshot)
+    _revalidate_images(store, snapshot)
 
 
 def _selected_files(
@@ -309,6 +326,44 @@ def _source_projection(source: Mapping[str, object]) -> SourceProjection:
     )
 
 
+def image_key(image: SourceImageReference) -> tuple[str, str, str]:
+    return image.source_id, image.file_id, image.asset_name
+
+
+def _validate_image_reference(
+    image: object,
+    sources_by_id: Mapping[str, SourceProjection],
+) -> None:
+    if (
+        not isinstance(image, SourceImageReference)
+        or not image.source_id
+        or not image.file_id
+        or not image.asset_name
+        or len(image.content_sha256) != 64
+        or any(char not in "0123456789abcdef" for char in image.content_sha256)
+    ):
+        raise InvalidInput("A supplied source image reference has an invalid identity or byte hash.")
+    source = sources_by_id.get(image.source_id)
+    if source is None or source.file_id != image.file_id:
+        raise InvalidInput("A supplied source image is not associated with a retained indexed source.")
+    try:
+        assets = json.loads(source.asset_ids_json)
+    except (TypeError, ValueError):
+        raise InvalidInput("A retained source has invalid associated image metadata.") from None
+    if image.asset_name not in assets:
+        raise InvalidInput("A supplied source image is not one of the retained source's associated assets.")
+
+
+def _revalidate_images(store: Store, snapshot: EvidenceSnapshot) -> None:
+    for image in snapshot.supplied_images:
+        try:
+            raw = read_bytes(store.file_path(snapshot.topic_id, image.asset_name))
+        except NotFound:
+            raise Conflict("A supplied source image is no longer available; retry the evidence request.") from None
+        if _sha256_bytes(raw) != image.content_sha256:
+            raise Conflict("A supplied source image changed during evidence generation; retry the request.")
+
+
 def _revalidate_sources(store: Store, snapshot: EvidenceSnapshot) -> None:
     if not snapshot.supplied_sources:
         return
@@ -358,6 +413,7 @@ def _make_snapshot(
         "file_projections": file_projections,
         "markdown_projections": markdown_projections,
         "supplied_sources": (),
+        "supplied_images": (),
     }
     return EvidenceSnapshot(**values, digest=_snapshot_digest_values(values))
 
@@ -366,10 +422,19 @@ def _preference_projection(preferences: dict[str, Any]) -> tuple[bool, str]:
     return preferences["include_cv"], _sha256(_canonical_json(preferences["active_assessment"]))
 
 
-def _snapshot_digest(snapshot: EvidenceSnapshot, sources: tuple[SourceProjection, ...]) -> str:
+def _snapshot_digest(
+    snapshot: EvidenceSnapshot,
+    sources: tuple[SourceProjection, ...],
+    images: tuple[SourceImageReference, ...],
+) -> str:
     values = {field: getattr(snapshot, field) for field in EvidenceSnapshot.__dataclass_fields__ if field != "digest"}
     values["supplied_sources"] = sources
+    values["supplied_images"] = images
     return _snapshot_digest_values(values)
+
+
+def _image_key(image: SourceImageReference) -> tuple[str, str, str]:
+    return image.source_id, image.file_id, image.asset_name
 
 
 def _snapshot_digest_values(values: dict[str, Any]) -> str:
@@ -397,6 +462,15 @@ def _digest_payload(values: dict[str, Any]) -> dict[str, Any]:
             }
             for source in values["supplied_sources"]
         ],
+        "supplied_images": [
+            {
+                "source_id": image.source_id,
+                "file_id": image.file_id,
+                "asset_name": image.asset_name,
+                "content_sha256": image.content_sha256,
+            }
+            for image in values["supplied_images"]
+        ],
     }
 
 
@@ -406,3 +480,7 @@ def _canonical_json(value: Any) -> str:
 
 def _sha256(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _sha256_bytes(value: bytes) -> str:
+    return hashlib.sha256(value).hexdigest()
