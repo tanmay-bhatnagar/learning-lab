@@ -95,10 +95,12 @@ async def run_evidence_turn(
     try:
         scope = _checked_scope(selected_file_ids)
     except InvalidInput:
+        invalid_state = _initial_outcomes()
+        invalid_state["outcome"] = "error"
         yield _error(
             "empty_indexed_scope",
             "Select an indexed document before asking for additional evidence.",
-            _initial_outcomes(),
+            invalid_state,
         )
         return
     initial_available = merge_scoped_sources(
@@ -114,19 +116,32 @@ async def run_evidence_turn(
     }
 
     yield _stage("deciding", state)
-    revalidate(initial_retained, supplied_images=initial_images)
+    try:
+        revalidate(initial_retained, supplied_images=initial_images)
+    except InvalidInput:
+        state["outcome"] = "error"
+        yield _error("snapshot_changed", _INVALID_OUTPUT, state)
+        return
     state["generation_count"] = 1
-    decision_stream = gateway.stream_chat(
-        initial_plan["prompt"],
-        model,
-        think,
-        context_limit,
-        initial_plan["prompt_context"],
-        generation_lock=generation_lock,
-        response_schema=evidence_action_schema([reference.label for reference in initial_plan["source_manifest"]]),
-    )
-    yield _stage("deciding", state)
-    first = await _consume_decision(decision_stream)
+    try:
+        decision_stream = gateway.stream_chat(
+            initial_plan["prompt"],
+            model,
+            think,
+            context_limit,
+            initial_plan["prompt_context"],
+            generation_lock=generation_lock,
+            response_schema=evidence_action_schema([reference.label for reference in initial_plan["source_manifest"]]),
+        )
+    except Exception:  # noqa: BLE001 - the selected gateway is an effect boundary.
+        state["outcome"] = "error"
+        yield _error("provider_failed", _PROVIDER_ERROR, state)
+        return
+    try:
+        yield _stage("deciding", state)
+        first = await _consume_decision(decision_stream)
+    finally:
+        await _close_stream(decision_stream)
     if first.error_code is not None:
         state["outcome"] = "error"
         yield _error(first.error_code, _PROVIDER_ERROR, state)
@@ -161,9 +176,15 @@ async def run_evidence_turn(
         state["outcome"] = "invalid_action_fallback"
         final_plan = build_final(initial_available, ())
         final_retained = _retained_chunks(final_plan, initial_available)
+        state["final_chunk_ids"] = [str(source["chunk_id"]) for source in final_retained]
         final_images = _merge_images(initial_images, _checked_images(final_plan.get("supplied_images", ())))
         supplied = _union_chunks(initial_retained, final_retained)
-        revalidate(supplied, supplied_images=final_images)
+        try:
+            revalidate(supplied, supplied_images=final_images)
+        except InvalidInput:
+            state["outcome"] = "error"
+            yield _error("snapshot_changed", _INVALID_OUTPUT, state)
+            return
         final_stream = _stream_final(
             gateway,
             final_plan,
@@ -186,7 +207,12 @@ async def run_evidence_turn(
     state["action"] = "search_selected"
     state["outcome"] = "in_progress"
     state["lookup_count"] = 1
-    revalidate(initial_retained, supplied_images=initial_images)
+    try:
+        revalidate(initial_retained, supplied_images=initial_images)
+    except InvalidInput:
+        state["outcome"] = "error"
+        yield _error("snapshot_changed", _INVALID_OUTPUT, state)
+        return
     yield _stage("searching", state)
     lookup_task = asyncio.create_task(lookup(action.query, file_ids=scope))
     try:
@@ -203,14 +229,21 @@ async def run_evidence_turn(
         yield _error("lookup_failed", _LOOKUP_ERROR, state)
         return
 
-    returned, mode, search_warning = _validate_lookup_result(result, scope, initial_available)
+    try:
+        returned, mode, search_warning = _validate_lookup_result(result, scope, initial_available)
+    except InvalidInput:
+        state["outcome"] = "error"
+        yield _error("invalid_lookup_result", _LOOKUP_ERROR, state)
+        return
     returned_ids = [str(source["chunk_id"]) for source in returned]
     state["returned_chunk_ids"] = returned_ids
     initial_available_ids = set(state["initial_available_chunk_ids"])
     state["new_chunk_ids"] = [chunk_id for chunk_id in returned_ids if chunk_id not in initial_available_ids]
     state["search_mode"] = mode
     state["search_warning"] = search_warning
-    final_plan = build_final(initial_available, returned)
+    initial_ids_for_prompt = {str(source["chunk_id"]) for source in initial_available}
+    novel_returned = tuple(source for source in returned if str(source["chunk_id"]) not in initial_ids_for_prompt)
+    final_plan = build_final(initial_available, novel_returned)
     final_retained = _retained_chunks(
         final_plan,
         merge_scoped_sources(
@@ -219,7 +252,12 @@ async def run_evidence_turn(
     )
     final_images = _merge_images(initial_images, _checked_images(final_plan.get("supplied_images", ())))
     all_supplied = _union_chunks(initial_retained, final_retained)
-    revalidate(all_supplied, supplied_images=final_images)
+    try:
+        revalidate(all_supplied, supplied_images=final_images)
+    except InvalidInput:
+        state["outcome"] = "error"
+        yield _error("snapshot_changed", _INVALID_OUTPUT, state)
+        return
     initial_ids = set(state["initial_available_chunk_ids"])
     final_ids = [str(source["chunk_id"]) for source in final_retained]
     state["final_chunk_ids"] = final_ids
@@ -315,24 +353,29 @@ async def _stream_final(
     generation_lock: asyncio.Lock,
     state: dict[str, object],
 ) -> AsyncIterator[EvidenceTurnEvent]:
-    state["generation_count"] = int(state["generation_count"]) + 1
     yield EvidenceTurnEvent(kind="plan", stage="answering", plan=plan, metadata=dict(state))
-    yield _stage("answering", state)
-    stream = gateway.stream_chat(
-        plan["prompt"],
-        model,
-        think,
-        context_limit,
-        plan["prompt_context"],
-        generation_lock=generation_lock,
-        response_schema=None,
-    )
+    state["generation_count"] = int(state["generation_count"]) + 1
+    try:
+        stream = gateway.stream_chat(
+            plan["prompt"],
+            model,
+            think,
+            context_limit,
+            plan["prompt_context"],
+            generation_lock=generation_lock,
+            response_schema=None,
+        )
+    except Exception:  # noqa: BLE001 - never expose raw gateway boundary errors.
+        state["outcome"] = "error"
+        yield _error("provider_failed", _PROVIDER_ERROR, state)
+        return
     completed = False
     response_model: str | None = None
     response_context: dict[str, object] | None = None
     error_code: str | None = None
     saw_answer_text = False
     try:
+        yield _stage("answering", state)
         async for event in stream:
             event_type = event.get("type") if isinstance(event, Mapping) else None
             if event_type in {"token", "thinking"}:

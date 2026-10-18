@@ -124,6 +124,7 @@ def _workflow(
     lookup=None,
     build_final=None,
     revalidate=None,
+    initial_plan=None,
 ):
     from lab.evidence_turn import run_evidence_turn
 
@@ -138,7 +139,7 @@ def _workflow(
 
     return run_evidence_turn(
         gateway=gateway,
-        initial_plan=_plan(initial_chunks, supplied_images),
+        initial_plan=initial_plan or _plan(initial_chunks, supplied_images),
         initial_chunks=initial_chunks,
         selected_file_ids=selected_file_ids,
         model=MODEL,
@@ -375,3 +376,299 @@ def test_action_stream_buffer_is_bounded_before_joining_and_never_falls_back():
 
     assert len(gateway.calls) == 1
     assert any(event.kind == "error" for event in events)
+
+
+def test_action_buffer_counts_utf8_bytes_across_multiple_unicode_fragments():
+    fragment = "🧠" * (MAX_ACTION_BYTES // 4)
+    gateway = ScriptedGateway([[_token(fragment), _token(fragment), _done()]])
+
+    events = asyncio.run(_collect(_workflow(gateway, initial_chunks=[])))
+
+    assert len(gateway.calls) == 1
+    error = next(event for event in events if event.kind == "error")
+    assert error.error_code == "action_too_large"
+
+
+def test_invalid_action_fallback_reports_actual_final_retained_ids():
+    initial = [_chunk("initial-1", "First passage."), _chunk("initial-2", "Second passage.")]
+    gateway = ScriptedGateway([[_token("not JSON"), _done()], [_token("Fallback answer."), _done()]])
+    final_plan = _plan([initial[0]])
+
+    events = asyncio.run(
+        _collect(_workflow(gateway, initial_chunks=initial, build_final=lambda _initial, _extra: final_plan))
+    )
+
+    terminal = next(event for event in events if event.kind == "done")
+    assert terminal.metadata["final_chunk_ids"] == ["initial-1"]
+    assert [citation["chunk_id"] for citation in terminal.plan["citations"]] == ["initial-1"]
+
+
+def test_search_refuses_a_returned_hit_outside_captured_scope():
+    action = json.dumps({"action": "search_selected", "answer": "", "source_labels": [], "query": "details"})
+    gateway = ScriptedGateway([[_token(action), _done()]])
+
+    async def lookup(_query: str, *, file_ids: tuple[str, ...]):
+        outside = _chunk("outside", "Not selected.")
+        outside["file_id"] = "other-file"
+        return {"hits": [outside], "mode": "keyword"}
+
+    events = asyncio.run(_collect(_workflow(gateway, initial_chunks=[], lookup=lookup)))
+
+    assert len(gateway.calls) == 1
+    error = next(event for event in events if event.kind == "error")
+    assert error.error_code == "invalid_lookup_result"
+
+
+def test_changed_snapshot_before_lookup_stops_without_search_or_final_generation():
+    action = json.dumps({"action": "search_selected", "answer": "", "source_labels": [], "query": "details"})
+    gateway = ScriptedGateway([[_token(action), _done()]])
+    lookups: list[str] = []
+    guards = 0
+
+    async def lookup(query: str, *, file_ids: tuple[str, ...]):
+        lookups.append(query)
+        return {"hits": [], "mode": "none"}
+
+    def revalidate(_sources, *, supplied_images):
+        nonlocal guards
+        guards += 1
+        if guards == 2:
+            from lab.errors import InvalidInput
+
+            raise InvalidInput("snapshot changed")
+
+    events = asyncio.run(_collect(_workflow(gateway, initial_chunks=[], lookup=lookup, revalidate=revalidate)))
+
+    assert guards == 2
+    assert lookups == []
+    assert len(gateway.calls) == 1
+    assert next(event for event in events if event.kind == "error").error_code == "snapshot_changed"
+
+
+def test_search_rejects_changed_text_for_an_existing_source_id_before_final_build():
+    initial = _chunk("same-id", "Original source text.")
+    changed = _chunk("same-id", "Changed source text.")
+    action = json.dumps({"action": "search_selected", "answer": "", "source_labels": [], "query": "details"})
+    gateway = ScriptedGateway([[_token(action), _done()]])
+    built: list[bool] = []
+
+    async def lookup(_query: str, *, file_ids: tuple[str, ...]):
+        return {"hits": [changed], "mode": "hybrid"}
+
+    def build_final(initial_hits, additional_hits):
+        built.append(True)
+        return _plan([*initial_hits, *additional_hits])
+
+    events = asyncio.run(_collect(_workflow(gateway, initial_chunks=[initial], lookup=lookup, build_final=build_final)))
+
+    assert built == []
+    assert len(gateway.calls) == 1
+    assert next(event for event in events if event.kind == "error").error_code == "invalid_lookup_result"
+
+
+def test_search_reports_new_but_trimmed_ids_separately_from_retained_ids():
+    initial_available = [_chunk("initial-1", "Initial passage."), _chunk("initial-2", "Available but trimmed.")]
+    initial_plan = _plan([initial_available[0]])
+    additional = _chunk("new-1", "New passage.")
+    action = json.dumps({"action": "search_selected", "answer": "", "source_labels": [], "query": "details"})
+    gateway = ScriptedGateway([[_token(action), _done()], [_token("Answer."), _done()]])
+
+    async def lookup(_query: str, *, file_ids: tuple[str, ...]):
+        return {"hits": [initial_available[1], additional], "mode": "hybrid"}
+
+    def build_final(_initial, _additional):
+        return _plan([initial_available[0]])
+
+    events = asyncio.run(
+        _collect(
+            _workflow(
+                gateway,
+                initial_chunks=initial_available,
+                initial_plan=initial_plan,
+                lookup=lookup,
+                build_final=build_final,
+            )
+        )
+    )
+
+    terminal = next(event for event in events if event.kind == "done")
+    assert terminal.metadata["initial_chunk_ids"] == ["initial-1"]
+    assert terminal.metadata["new_chunk_ids"] == ["new-1"]
+    assert terminal.metadata["retained_new_chunk_ids"] == []
+    assert terminal.metadata["final_chunk_ids"] == ["initial-1"]
+
+
+def test_final_provider_empty_answer_is_not_reported_as_success():
+    action = json.dumps({"action": "search_selected", "answer": "", "source_labels": [], "query": "details"})
+    gateway = ScriptedGateway([[_token(action), _done()], [_done()]])
+
+    async def lookup(_query: str, *, file_ids: tuple[str, ...]):
+        return {"hits": [], "mode": "none"}
+
+    events = asyncio.run(_collect(_workflow(gateway, initial_chunks=[], lookup=lookup)))
+
+    assert not any(event.kind == "done" for event in events)
+    assert next(event for event in events if event.kind == "error").error_code == "incomplete_answer"
+
+
+@pytest.mark.parametrize("final_stream", [[_token("partial")], [{"type": "error", "message": "private"}]])
+def test_final_provider_failure_or_missing_done_is_incomplete(final_stream):
+    action = json.dumps({"action": "search_selected", "answer": "", "source_labels": [], "query": "details"})
+    gateway = ScriptedGateway([[_token(action), _done()], final_stream])
+
+    async def lookup(_query: str, *, file_ids: tuple[str, ...]):
+        return {"hits": [], "mode": "none"}
+
+    events = asyncio.run(_collect(_workflow(gateway, initial_chunks=[], lookup=lookup)))
+
+    assert not any(event.kind == "done" for event in events)
+    assert next(event for event in events if event.kind == "error").text == (
+        "Evidence generation could not complete. Try again."
+    )
+
+
+def test_direct_answer_declares_only_its_noncontiguous_retained_sources():
+    chunks = [_chunk(f"source-{i}", f"Passage {i}.") for i in range(1, 4)]
+    action = _answer_action("Supported by E1 and E3.", ["E1", "E3"])
+    gateway = ScriptedGateway([[_token(action), _done()]])
+
+    events = asyncio.run(_collect(_workflow(gateway, initial_chunks=chunks)))
+
+    terminal = next(event for event in events if event.kind == "done")
+    assert terminal.metadata["declared_source_labels"] == ["E1", "E3"]
+    assert terminal.metadata["initial_chunk_ids"] == ["source-1", "source-2", "source-3"]
+    assert terminal.metadata["final_chunk_ids"] == ["source-1", "source-2", "source-3"]
+
+
+def test_direct_answer_can_declare_no_sources_while_initial_citations_remain_available():
+    chunks = [_chunk("source-1", "Available passage."), _chunk("source-2", "Another passage.")]
+    gateway = ScriptedGateway([[_token(_answer_action("A general response.")), _done()]])
+
+    events = asyncio.run(_collect(_workflow(gateway, initial_chunks=chunks)))
+
+    terminal = next(event for event in events if event.kind == "done")
+    assert terminal.metadata["declared_source_labels"] == []
+    assert terminal.metadata["final_chunk_ids"] == ["source-1", "source-2"]
+    assert {citation["chunk_id"] for citation in terminal.plan["citations"]} == {"source-1", "source-2"}
+
+
+def test_duplicate_only_lookup_does_not_claim_new_or_retained_new_evidence():
+    initial = _chunk("initial-1", "Initial passage.")
+    action = json.dumps({"action": "search_selected", "answer": "", "source_labels": [], "query": "details"})
+    gateway = ScriptedGateway([[_token(action), _done()], [_token("Answer."), _done()]])
+
+    async def lookup(_query: str, *, file_ids: tuple[str, ...]):
+        return {"hits": [initial], "mode": "hybrid"}
+
+    events = asyncio.run(_collect(_workflow(gateway, initial_chunks=[initial], lookup=lookup)))
+
+    terminal = next(event for event in events if event.kind == "done")
+    assert terminal.metadata["returned_chunk_ids"] == ["initial-1"]
+    assert terminal.metadata["new_chunk_ids"] == []
+    assert terminal.metadata["retained_new_chunk_ids"] == []
+
+
+def test_cancellation_closes_model_stream_and_releases_shared_lock():
+    async def scenario():
+        entered = asyncio.Event()
+        lock = asyncio.Lock()
+        closed = False
+
+        class BlockingGateway:
+            def stream_chat(self, *_args, **_kwargs):
+                async def stream():
+                    nonlocal closed
+                    await lock.acquire()
+                    try:
+                        yield _token("{")
+                        entered.set()
+                        await asyncio.Event().wait()
+                    finally:
+                        closed = True
+                        lock.release()
+
+                return stream()
+
+        workflow = _workflow(BlockingGateway(), initial_chunks=[])
+        task = asyncio.create_task(_collect(workflow))
+        await asyncio.wait_for(entered.wait(), timeout=1)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert closed
+        assert not lock.locked()
+
+    asyncio.run(scenario())
+
+
+def test_cancellation_during_lookup_cancels_lookup_and_does_not_start_final_call():
+    async def scenario():
+        lookup_started = asyncio.Event()
+        lookup_closed = False
+        action = json.dumps({"action": "search_selected", "answer": "", "source_labels": [], "query": "details"})
+        gateway = ScriptedGateway([[_token(action), _done()]])
+
+        async def lookup(_query: str, *, file_ids: tuple[str, ...]):
+            nonlocal lookup_closed
+            lookup_started.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                lookup_closed = True
+
+        task = asyncio.create_task(_collect(_workflow(gateway, initial_chunks=[], lookup=lookup)))
+        await asyncio.wait_for(lookup_started.wait(), timeout=1)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert lookup_closed
+        assert len(gateway.calls) == 1
+
+    asyncio.run(scenario())
+
+
+def test_cancellation_during_final_stream_closes_it_and_releases_lock():
+    async def scenario():
+        final_started = asyncio.Event()
+        lock = asyncio.Lock()
+        final_closed = False
+        action = json.dumps({"action": "search_selected", "answer": "", "source_labels": [], "query": "details"})
+
+        class Gateway:
+            calls = 0
+
+            def stream_chat(self, *_args, **_kwargs):
+                self.calls += 1
+                call = self.calls
+
+                async def stream():
+                    nonlocal final_closed
+                    await lock.acquire()
+                    try:
+                        if call == 1:
+                            yield _token(action)
+                            yield _done()
+                            return
+                        yield _token("Partial answer")
+                        final_started.set()
+                        await asyncio.Event().wait()
+                    finally:
+                        if call == 2:
+                            final_closed = True
+                        lock.release()
+
+                return stream()
+
+        async def lookup(_query: str, *, file_ids: tuple[str, ...]):
+            return {"hits": [], "mode": "none"}
+
+        gateway = Gateway()
+        task = asyncio.create_task(_collect(_workflow(gateway, initial_chunks=[], lookup=lookup)))
+        await asyncio.wait_for(final_started.wait(), timeout=1)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert final_closed
+        assert not lock.locked()
+
+    asyncio.run(scenario())
