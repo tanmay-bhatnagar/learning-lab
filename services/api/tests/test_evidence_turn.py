@@ -8,7 +8,7 @@ import json
 
 import pytest
 
-from lab.evidence_request import MAX_ACTION_BYTES, build_source_manifest
+from lab.evidence_request import MAX_ACTION_BYTES, SourceImageReference, build_source_manifest
 
 
 MODEL = "synthetic-local:latest"
@@ -31,7 +31,7 @@ def _chunk(chunk_id: str, text: str) -> dict[str, object]:
     }
 
 
-def _plan(chunks: list[dict[str, object]]) -> dict[str, object]:
+def _plan(chunks: list[dict[str, object]], supplied_images=()) -> dict[str, object]:
     manifest = build_source_manifest(chunks)
     labels = {reference.source_id: reference.label for reference in manifest}
     citations = [
@@ -56,6 +56,7 @@ def _plan(chunks: list[dict[str, object]]) -> dict[str, object]:
         "citations": citations,
         "retrieval_record": {"mode": "keyword", "citations": citations},
         "source_manifest": manifest,
+        "supplied_images": tuple(supplied_images),
     }
 
 
@@ -102,8 +103,8 @@ def _thinking(text: str) -> dict[str, object]:
     return {"type": "thinking", "text": text}
 
 
-def _done() -> dict[str, object]:
-    return {"type": "done", "model": MODEL, "context": {"used": 200, "estimated": False}}
+def _done(used: int = 200, model: str = MODEL) -> dict[str, object]:
+    return {"type": "done", "model": model, "context": {"used": used, "estimated": False}}
 
 
 def _answer_action(text: str, labels: list[str] | None = None) -> str:
@@ -114,7 +115,16 @@ async def _collect(workflow):
     return [event async for event in workflow]
 
 
-def _workflow(gateway, *, initial_chunks, selected_file_ids=FILE_IDS, lookup=None, build_final=None, revalidate=None):
+def _workflow(
+    gateway,
+    *,
+    initial_chunks,
+    selected_file_ids=FILE_IDS,
+    supplied_images=(),
+    lookup=None,
+    build_final=None,
+    revalidate=None,
+):
     from lab.evidence_turn import run_evidence_turn
 
     async def unavailable_lookup(query: str, *, file_ids: tuple[str, ...]):
@@ -123,12 +133,12 @@ def _workflow(gateway, *, initial_chunks, selected_file_ids=FILE_IDS, lookup=Non
     def identity_final(initial, additional):
         return _plan([*initial, *additional])
 
-    def no_op_revalidate(sources):
+    def no_op_revalidate(sources, *, supplied_images):
         return None
 
     return run_evidence_turn(
         gateway=gateway,
-        initial_plan=_plan(initial_chunks),
+        initial_plan=_plan(initial_chunks, supplied_images),
         initial_chunks=initial_chunks,
         selected_file_ids=selected_file_ids,
         model=MODEL,
@@ -158,6 +168,9 @@ def test_direct_validated_answer_uses_one_schema_call_and_emits_no_planning_json
     assert [event.kind for event in events if event.kind == "token"] == ["token"]
     terminal = next(event for event in events if event.kind == "done")
     assert terminal.plan["citations"][0]["chunk_id"] == "initial-1"
+    assert terminal.context == {"used": 200, "estimated": False}
+    assert terminal.model == MODEL
+    assert terminal.context["used"] != terminal.plan["prompt_context"]["used"]
     assert terminal.metadata["generation_count"] == 1
     assert terminal.metadata["lookup_count"] == 0
 
@@ -193,25 +206,26 @@ def test_search_closes_first_stream_scopes_lookup_and_supplies_validated_new_evi
         return {
             "hits": [additional],
             "mode": "fallback",
-            "warning": "No query match; using opening passages from the selected file.",
+            "warning": "private search query: Appendix comparison; CV_SECRET_731.",
         }
 
     gateway = ClosingGateway(
         [
-            [_thinking("private planner thought"), _token(action), _done()],
-            [_thinking("final answer reasoning"), _token("Final supported answer."), _done()],
+            [_thinking("private planner thought"), _token(action), _done(used=777)],
+            [_thinking("final answer reasoning"), _token("Final supported answer."), _done(used=333)],
         ]
     )
+    initial = _chunk("initial-1", "Initial retained evidence.")
     revalidated: list[tuple[str, ...]] = []
 
-    def revalidate(sources):
+    def revalidate(sources, *, supplied_images):
         revalidated.append(tuple(source["chunk_id"] for source in sources))
 
     events = asyncio.run(
         _collect(
             _workflow(
                 gateway,
-                initial_chunks=[],
+                initial_chunks=[initial],
                 lookup=lookup,
                 revalidate=revalidate,
             )
@@ -228,14 +242,64 @@ def test_search_closes_first_stream_scopes_lookup_and_supplies_validated_new_evi
     assert any(event.kind == "thinking" and event.text == "final answer reasoning" for event in events)
     assert looked_up == [("Appendix comparison", FILE_IDS)]
     assert revalidated
-    assert revalidated[-1] == ("follow-up-1",)
+    assert revalidated[-1] == ("initial-1", "follow-up-1")
     terminal = next(event for event in events if event.kind == "done")
-    assert {citation["chunk_id"] for citation in terminal.plan["citations"]} == {"follow-up-1"}
+    assert terminal.context == {"used": 333, "estimated": False}
+    assert terminal.model == MODEL
+    assert {citation["chunk_id"] for citation in terminal.plan["citations"]} == {"initial-1", "follow-up-1"}
     assert terminal.metadata["generation_count"] == 2
     assert terminal.metadata["lookup_count"] == 1
     assert terminal.metadata["search_mode"] == "fallback"
-    assert terminal.metadata["search_warning"] == "No query match; using opening passages from the selected file."
+    assert terminal.metadata["search_warning"] == (
+        "Selected-document search used bounded opening passages because no query match was found."
+    )
     assert "Appendix comparison" not in json.dumps(terminal.metadata)
+    assert all("private search query" not in str(event) and "CV_SECRET_731" not in str(event) for event in events)
+
+
+def test_revalidation_receives_accumulated_initial_images_even_when_final_plan_trims_them():
+    initial = _chunk("initial-image", "Source passage with an attached figure.")
+    initial["asset_ids"] = ["plot.png"]
+    additional = _chunk("follow-up", "New text passage.")
+    image = SourceImageReference(
+        source_id="initial-image",
+        file_id=FILE_IDS[0],
+        asset_name="plot.png",
+        content_sha256="a" * 64,
+    )
+    action = json.dumps({"action": "search_selected", "answer": "", "source_labels": [], "query": "more detail"})
+    gateway = ScriptedGateway([[_token(action), _done()], [_token("Final."), _done()]])
+    revalidated: list[tuple[tuple[str, ...], tuple[SourceImageReference, ...]]] = []
+
+    async def lookup(query: str, *, file_ids: tuple[str, ...]):
+        return {"hits": [additional], "mode": "keyword"}
+
+    def build_final(initial_hits, additional_hits):
+        return _plan(list(additional_hits))
+
+    def revalidate(sources, *, supplied_images):
+        revalidated.append((tuple(source["chunk_id"] for source in sources), tuple(supplied_images)))
+
+    events = asyncio.run(
+        _collect(
+            _workflow(
+                gateway,
+                initial_chunks=[initial],
+                supplied_images=[image],
+                lookup=lookup,
+                build_final=build_final,
+                revalidate=revalidate,
+            )
+        )
+    )
+
+    expected_image = (image,)
+    assert revalidated[0] == (("initial-image",), expected_image)
+    assert revalidated[1] == (("initial-image",), expected_image)
+    assert revalidated[-1] == (("initial-image", "follow-up"), expected_image)
+    terminal = next(event for event in events if event.kind == "done")
+    assert terminal.plan["citations"][0]["chunk_id"] == "follow-up"
+    assert terminal.plan["supplied_images"] == ()
 
 
 def test_empty_captured_indexed_scope_fails_before_provider_call():
@@ -245,6 +309,24 @@ def test_empty_captured_indexed_scope_fails_before_provider_call():
 
     assert gateway.calls == []
     assert any(event.kind == "error" for event in events)
+
+
+def test_search_is_allowed_with_empty_initial_manifest_and_explicit_indexed_scope():
+    additional = _chunk("follow-up-only", "Selected indexed passage.")
+    action = json.dumps({"action": "search_selected", "answer": "", "source_labels": [], "query": "specific detail"})
+    gateway = ScriptedGateway([[_token(action), _done()], [_token("Answer."), _done()]])
+    looked_up: list[tuple[str, tuple[str, ...]]] = []
+
+    async def lookup(query: str, *, file_ids: tuple[str, ...]):
+        looked_up.append((query, file_ids))
+        return {"hits": [additional], "mode": "keyword"}
+
+    events = asyncio.run(_collect(_workflow(gateway, initial_chunks=[], lookup=lookup)))
+
+    assert len(gateway.calls) == 2
+    assert looked_up == [("specific detail", FILE_IDS)]
+    terminal = next(event for event in events if event.kind == "done")
+    assert [citation["chunk_id"] for citation in terminal.plan["citations"]] == ["follow-up-only"]
 
 
 @pytest.mark.parametrize(
