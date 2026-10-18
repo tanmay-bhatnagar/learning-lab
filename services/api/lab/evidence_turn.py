@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence, Set
 from dataclasses import dataclass
-from typing import Literal, TypeAlias
+from typing import Literal, TypeAlias, cast
 
 from lab.contracts import ModelGateway
 from lab.errors import InvalidInput
@@ -22,7 +22,7 @@ from lab.evidence_request import (
 )
 
 Stage = Literal["deciding", "searching", "answering"]
-EventKind = Literal["stage", "token", "thinking", "done", "error"]
+EventKind = Literal["stage", "plan", "token", "thinking", "done", "error"]
 LookupMode = Literal["hybrid", "keyword", "fallback", "none"]
 
 
@@ -54,24 +54,27 @@ _INVALID_ACTION_WARNING = "The structured planning response was unusable; no add
 _PROVIDER_ERROR = "Evidence generation could not complete. Try again."
 _LOOKUP_ERROR = "Selected-document search could not complete. Try again."
 _INVALID_OUTPUT = "The selected model returned an incomplete evidence response. Try again."
-_INITIAL_OUTCOMES = {
-    "schema_version": 1,
-    "requested": True,
-    "action": None,
-    "outcome": "in_progress",
-    "generation_count": 0,
-    "lookup_count": 0,
-    "initial_available_chunk_ids": [],
-    "initial_chunk_ids": [],
-    "returned_chunk_ids": [],
-    "new_chunk_ids": [],
-    "retained_new_chunk_ids": [],
-    "final_chunk_ids": [],
-    "declared_source_labels": [],
-    "search_mode": None,
-    "search_warning": None,
-    "warning": None,
-}
+
+
+def _initial_outcomes() -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "requested": True,
+        "action": None,
+        "outcome": "in_progress",
+        "generation_count": 0,
+        "lookup_count": 0,
+        "initial_available_chunk_ids": [],
+        "initial_chunk_ids": [],
+        "returned_chunk_ids": [],
+        "new_chunk_ids": [],
+        "retained_new_chunk_ids": [],
+        "final_chunk_ids": [],
+        "declared_source_labels": [],
+        "search_mode": None,
+        "search_warning": None,
+        "warning": None,
+    }
 
 
 async def run_evidence_turn(
@@ -89,14 +92,22 @@ async def run_evidence_turn(
     revalidate: SnapshotGuard,
 ) -> AsyncIterator[EvidenceTurnEvent]:
     """Run one buffered structured decision, at most one scoped search, and one prose answer."""
-    scope = _checked_scope(selected_file_ids)
+    try:
+        scope = _checked_scope(selected_file_ids)
+    except InvalidInput:
+        yield _error(
+            "empty_indexed_scope",
+            "Select an indexed document before asking for additional evidence.",
+            _initial_outcomes(),
+        )
+        return
     initial_available = merge_scoped_sources(
         (), initial_chunks, selected_file_ids=set(scope), max_sources=MAX_SOURCE_REFERENCES
     )
     initial_retained = _retained_chunks(initial_plan, initial_available)
     initial_images = _checked_images(initial_plan.get("supplied_images", ()))
     state = {
-        **_INITIAL_OUTCOMES,
+        **_initial_outcomes(),
         "initial_available_chunk_ids": [str(source["chunk_id"]) for source in initial_available],
         "initial_chunk_ids": [str(source["chunk_id"]) for source in initial_retained],
         "final_chunk_ids": [str(source["chunk_id"]) for source in initial_retained],
@@ -153,7 +164,7 @@ async def run_evidence_turn(
         final_images = _merge_images(initial_images, _checked_images(final_plan.get("supplied_images", ())))
         supplied = _union_chunks(initial_retained, final_retained)
         revalidate(supplied, supplied_images=final_images)
-        async for event in _stream_final(
+        final_stream = _stream_final(
             gateway,
             final_plan,
             model=model,
@@ -161,16 +172,21 @@ async def run_evidence_turn(
             context_limit=context_limit,
             generation_lock=generation_lock,
             state=state,
-        ):
-            if event.kind == "done":
-                yield _done_event(final_plan, state, model=event.model, context=event.context)
-            else:
-                yield event
+        )
+        try:
+            async for event in final_stream:
+                if event.kind == "done":
+                    yield _done_event(final_plan, state, model=event.model, context=event.context)
+                else:
+                    yield event
+        finally:
+            await _close_stream(final_stream)
         return
 
     state["action"] = "search_selected"
     state["outcome"] = "in_progress"
     state["lookup_count"] = 1
+    revalidate(initial_retained, supplied_images=initial_images)
     yield _stage("searching", state)
     lookup_task = asyncio.create_task(lookup(action.query, file_ids=scope))
     try:
@@ -190,7 +206,8 @@ async def run_evidence_turn(
     returned, mode, search_warning = _validate_lookup_result(result, scope, initial_available)
     returned_ids = [str(source["chunk_id"]) for source in returned]
     state["returned_chunk_ids"] = returned_ids
-    state["new_chunk_ids"] = [chunk_id for chunk_id in returned_ids if chunk_id not in set(state["initial_chunk_ids"])]
+    initial_available_ids = set(state["initial_available_chunk_ids"])
+    state["new_chunk_ids"] = [chunk_id for chunk_id in returned_ids if chunk_id not in initial_available_ids]
     state["search_mode"] = mode
     state["search_warning"] = search_warning
     final_plan = build_final(initial_available, returned)
@@ -203,14 +220,14 @@ async def run_evidence_turn(
     final_images = _merge_images(initial_images, _checked_images(final_plan.get("supplied_images", ())))
     all_supplied = _union_chunks(initial_retained, final_retained)
     revalidate(all_supplied, supplied_images=final_images)
-    initial_ids = set(state["initial_chunk_ids"])
+    initial_ids = set(state["initial_available_chunk_ids"])
     final_ids = [str(source["chunk_id"]) for source in final_retained]
     state["final_chunk_ids"] = final_ids
     state["retained_new_chunk_ids"] = [
         chunk_id for chunk_id in final_ids if chunk_id in set(returned_ids) and chunk_id not in initial_ids
     ]
     state["outcome"] = "searched"
-    async for event in _stream_final(
+    final_stream = _stream_final(
         gateway,
         final_plan,
         model=model,
@@ -218,11 +235,15 @@ async def run_evidence_turn(
         context_limit=context_limit,
         generation_lock=generation_lock,
         state=state,
-    ):
-        if event.kind == "done":
-            yield _done_event(final_plan, state, model=event.model, context=event.context)
-        else:
-            yield event
+    )
+    try:
+        async for event in final_stream:
+            if event.kind == "done":
+                yield _done_event(final_plan, state, model=event.model, context=event.context)
+            else:
+                yield event
+    finally:
+        await _close_stream(final_stream)
 
 
 @dataclass(frozen=True)
@@ -295,6 +316,8 @@ async def _stream_final(
     state: dict[str, object],
 ) -> AsyncIterator[EvidenceTurnEvent]:
     state["generation_count"] = int(state["generation_count"]) + 1
+    yield EvidenceTurnEvent(kind="plan", stage="answering", plan=plan, metadata=dict(state))
+    yield _stage("answering", state)
     stream = gateway.stream_chat(
         plan["prompt"],
         model,
@@ -304,11 +327,11 @@ async def _stream_final(
         generation_lock=generation_lock,
         response_schema=None,
     )
-    yield _stage("answering", state)
     completed = False
     response_model: str | None = None
     response_context: dict[str, object] | None = None
     error_code: str | None = None
+    saw_answer_text = False
     try:
         async for event in stream:
             event_type = event.get("type") if isinstance(event, Mapping) else None
@@ -317,6 +340,8 @@ async def _stream_final(
                 if not isinstance(text, str):
                     error_code = "invalid_provider_event"
                     break
+                if event_type == "token" and text.strip():
+                    saw_answer_text = True
                 yield EvidenceTurnEvent(kind=event_type, text=text)
                 continue
             if event_type == "done":
@@ -339,7 +364,7 @@ async def _stream_final(
         if close_error is not None:
             error_code = "provider_close_failed"
             completed = False
-    if not completed:
+    if not completed or not saw_answer_text:
         state["outcome"] = "error"
         yield _error(error_code or "incomplete_answer", _PROVIDER_ERROR, state)
         return
@@ -456,7 +481,7 @@ def _validate_lookup_result(
         raise InvalidInput("Selected-document search returned invalid evidence metadata.")
     merged = merge_scoped_sources((), hits, selected_file_ids=set(file_ids), max_sources=MAX_SOURCE_REFERENCES)
     merge_scoped_sources(initial, merged, selected_file_ids=set(file_ids), max_sources=MAX_SOURCE_REFERENCES)
-    mode = mode  # type: ignore[assignment]
+    mode = cast(LookupMode, mode)
     sanitized = None
     if mode == "fallback":
         sanitized = _FALLBACK_WARNING
