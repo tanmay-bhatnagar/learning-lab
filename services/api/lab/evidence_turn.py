@@ -176,7 +176,6 @@ async def run_evidence_turn(
         state["outcome"] = "invalid_action_fallback"
         final_plan = build_final(initial_available, ())
         final_retained = _retained_chunks(final_plan, initial_available)
-        state["final_chunk_ids"] = [str(source["chunk_id"]) for source in final_retained]
         final_images = _merge_images(initial_images, _checked_images(final_plan.get("supplied_images", ())))
         supplied = _union_chunks(initial_retained, final_retained)
         try:
@@ -193,6 +192,8 @@ async def run_evidence_turn(
             context_limit=context_limit,
             generation_lock=generation_lock,
             state=state,
+            final_chunk_ids=[str(source["chunk_id"]) for source in final_retained],
+            retained_new_chunk_ids=[],
         )
         try:
             async for event in final_stream:
@@ -283,8 +284,7 @@ async def run_evidence_turn(
         return
     initial_ids = set(state["initial_available_chunk_ids"])
     final_ids = [str(source["chunk_id"]) for source in final_retained]
-    state["final_chunk_ids"] = final_ids
-    state["retained_new_chunk_ids"] = [
+    retained_new_ids = [
         chunk_id for chunk_id in final_ids if chunk_id in set(returned_ids) and chunk_id not in initial_ids
     ]
     state["outcome"] = "searched"
@@ -296,6 +296,8 @@ async def run_evidence_turn(
         context_limit=context_limit,
         generation_lock=generation_lock,
         state=state,
+        final_chunk_ids=final_ids,
+        retained_new_chunk_ids=retained_new_ids,
     )
     try:
         async for event in final_stream:
@@ -375,8 +377,9 @@ async def _stream_final(
     context_limit: int,
     generation_lock: asyncio.Lock,
     state: dict[str, object],
+    final_chunk_ids: list[str],
+    retained_new_chunk_ids: list[str],
 ) -> AsyncIterator[EvidenceTurnEvent]:
-    yield EvidenceTurnEvent(kind="plan", stage="answering", plan=plan, metadata=dict(state))
     state["generation_count"] = int(state["generation_count"]) + 1
     try:
         stream = gateway.stream_chat(
@@ -392,6 +395,9 @@ async def _stream_final(
         state["outcome"] = "error"
         yield _error("provider_failed", _PROVIDER_ERROR, state)
         return
+    state["final_chunk_ids"] = list(final_chunk_ids)
+    state["retained_new_chunk_ids"] = list(retained_new_chunk_ids)
+    yield EvidenceTurnEvent(kind="plan", stage="answering", plan=plan, metadata=dict(state))
     completed = False
     response_model: str | None = None
     response_context: dict[str, object] | None = None

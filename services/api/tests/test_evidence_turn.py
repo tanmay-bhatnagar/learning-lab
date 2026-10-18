@@ -705,7 +705,7 @@ def test_stopping_at_deciding_stage_closes_the_created_gateway_iterator():
     asyncio.run(scenario())
 
 
-def test_stopping_at_final_plan_does_not_count_an_unstarted_generation():
+def test_final_plan_event_follows_gateway_dispatch_and_counts_the_attempt():
     action = json.dumps({"action": "search_selected", "answer": "", "source_labels": [], "query": "details"})
     gateway = ScriptedGateway([[_token(action), _done()], [_token("unused"), _done()]])
 
