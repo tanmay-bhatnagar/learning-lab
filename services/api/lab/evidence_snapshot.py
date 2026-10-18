@@ -326,10 +326,6 @@ def _source_projection(source: Mapping[str, object]) -> SourceProjection:
     )
 
 
-def image_key(image: SourceImageReference) -> tuple[str, str, str]:
-    return image.source_id, image.file_id, image.asset_name
-
-
 def _validate_image_reference(
     image: object,
     sources_by_id: Mapping[str, SourceProjection],
