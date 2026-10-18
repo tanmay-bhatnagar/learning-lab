@@ -1,0 +1,13 @@
+# Answer-or-search implementation continuation
+
+Date: 18 October 2026. This is a consolidated continuation of the [16 October checkpoints](2026_10_16_evidence_retrieval_implementation.md), preserved separately. The original research, design and discussion reports remain unchanged. Full implementation, small meaningful commits, passing milestone pushes before dependent slices, and isolated end-to-end verification remain authorized.
+
+## Resume state and remaining work
+
+The strict action/source domain and retained prompt helpers were pushed through97aaa6a. Snapshot work is committed locally through980da29: production policy/goal/learner/source checks, validated pinned CV preferences, complete selected CV identity, exact indexed text/location and selected Markdown identity, and compatibility with unrelated proficiency/index changes and read-only schema-v1 index access. The feature is not yet routed. Remaining slices are the finite model/search workflow, shared chat routing and trace metadata, typed browser wire/UI, independent review/repairs, full isolated real parser/model/browser testing, study documentation and final push.
+
+## Snapshot gate and live smoke failure
+
+Snapshot tests now include32boundary cases plus5CV cases. Global Ruff lint/format and engineering checks pass. The full backend run on16October had606passed plus21subtests and one failure in existing test_ollama_live.py: the selected local model returned `ponn` rather than requested `pong`, although terminal completion and assistant save succeeded. This exact failure remains recorded; it is not treated as a passing run. New snapshot/prompt modules are unused by the ordinary route, but source inspection alone cannot establish whether this was provider variation or transport corruption. Tester3 (debug role) owns a bounded read-only reproduction before milestone push. No test expectation is weakened without evidence. The pytest autouse fixture supplies isolated synthetic runtime policy and profile roots; no personal policy/profile is needed for this investigation.
+
+Coder2's additional positive tests at980da29 demonstrate actual unrelated-topic model-derived familiarity add/update leaves effective context unchanged, legacy full-hash passages are bound and checked, schema-v1 SQLite is read without migration, and changed text with an unchanged stored hash is rejected. The semantic CV repair is2032cb3;550b1b1 proves formatter changes preserve identical Python ASTs. Routine formatting should happen during editing before gates; it does not require a permission or handoff solely to run an already-authorized formatter. Any real failing implementation checkpoint is still preserved before dependent repairs.
