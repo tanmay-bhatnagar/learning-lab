@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import base64
 from copy import deepcopy
 
 import pytest
@@ -11,6 +12,9 @@ from lab.evidence_prompt import (
     prioritize_evidence_sources,
 )
 from lab.errors import InvalidInput
+
+_PNG_A = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\xcf\xc0\x00\x00\x03\x01\x01\x00\xc9\xfe\x92\xef\x00\x00\x00\x00IEND\xaeB`\x82"
+_PNG_B = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc``\xf8\x0f\x00\x01\x03\x01\x00\x08\x89\xc2\xec\x00\x00\x00\x00IEND\xaeB`\x82"
 
 
 def _source(chunk_id: str, text: str) -> dict[str, object]:
@@ -244,10 +248,7 @@ def test_initial_prompt_accepts_a_source_excerpt_prefix_with_ellipsis_and_asset_
 
 
 def test_initial_prompt_records_hashes_only_for_images_actually_supplied_in_evidence_messages():
-    import base64
-
-    image_bytes = b"synthetic image bytes supplied to the model"
-    encoded_image = base64.b64encode(image_bytes).decode("ascii")
+    encoded_image = base64.b64encode(_PNG_A).decode("ascii")
     source = {**_source("chunk-a", "Synthetic source with a referenced image."), "asset_ids": ["figure-a.png"]}
     kwargs = _prompt_kwargs([source])
     kwargs["evidence"] = [{**kwargs["evidence"][0], "images": [encoded_image]}]
@@ -263,7 +264,7 @@ def test_initial_prompt_records_hashes_only_for_images_actually_supplied_in_evid
     assert reference.source_id == "chunk-a"
     assert reference.file_id == source["file_id"]
     assert reference.asset_name == "figure-a.png"
-    assert reference.content_sha256 == hashlib.sha256(image_bytes).hexdigest()
+    assert reference.content_sha256 == hashlib.sha256(_PNG_A).hexdigest()
     assert encoded_image not in repr(reference)
 
 
@@ -278,6 +279,43 @@ def test_initial_prompt_does_not_claim_citation_assets_without_supplied_image_by
         selected_file_ids={str(source["file_id"])},
     )
 
+    assert plan["supplied_images"] == ()
+
+
+@pytest.mark.parametrize("asset_names", [[], ["figure-a.png", "figure-b.png"]])
+def test_initial_prompt_rejects_mismatch_between_supplied_image_count_and_cited_asset_names(asset_names):
+    source = {**_source("chunk-a", "Synthetic image evidence."), "asset_ids": ["figure-a.png", "figure-b.png"]}
+    kwargs = _prompt_kwargs([source])
+    kwargs["evidence"] = [{**kwargs["evidence"][0], "images": [base64.b64encode(_PNG_A).decode("ascii")]}]
+    kwargs["citations"] = [{**_citation(source), "assets": asset_names}]
+
+    with pytest.raises(InvalidInput):
+        build_initial_evidence_prompt(
+            prompt_kwargs=kwargs,
+            source_chunks=[source],
+            selected_file_ids={str(source["file_id"])},
+        )
+
+
+def test_initial_prompt_image_references_follow_only_sources_retained_by_budget():
+    small = _source("chunk-small", "Short retained source.")
+    large_text = "Large source text that should be removed by the prompt budget. " * 1200
+    large = {**_source("chunk-large", large_text), "asset_ids": ["figure-large.png"]}
+    kwargs = _prompt_kwargs([small, large])
+    kwargs["context_limit"] = 4096
+    kwargs["evidence"][1] = {
+        **kwargs["evidence"][1],
+        "images": [base64.b64encode(_PNG_A).decode("ascii")],
+    }
+    kwargs["citations"][1] = {**kwargs["citations"][1], "assets": ["figure-large.png"]}
+
+    plan = build_initial_evidence_prompt(
+        prompt_kwargs=kwargs,
+        source_chunks=[small, large],
+        selected_file_ids={str(small["file_id"]), str(large["file_id"])},
+    )
+
+    assert {reference.source_id for reference in plan["source_manifest"]} == {"chunk-small"}
     assert plan["supplied_images"] == ()
 
 

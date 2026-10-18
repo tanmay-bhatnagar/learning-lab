@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import sqlite3
@@ -20,6 +21,9 @@ from lab.index import TopicIndex
 from lab.profile_store import ProfileStore
 from lab.retrieval import evidence_messages
 from lab.storage import Store, write_json, write_text
+
+_PNG_A = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\xcf\xc0\x00\x00\x03\x01\x01\x00\xc9\xfe\x92\xef\x00\x00\x00\x00IEND\xaeB`\x82"
+_PNG_B = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc``\xf8\x0f\x00\x01\x03\x01\x00\x08\x89\xc2\xec\x00\x00\x00\x00IEND\xaeB`\x82"
 
 
 @pytest.fixture
@@ -394,11 +398,8 @@ def _image_evidence_plan(workspace, *, include_images):
 
 
 def test_supplied_image_bytes_change_invalidates_snapshot(snapshot_workspace):
-    import base64
-
     asset_path = snapshot_workspace["store"].file_path(snapshot_workspace["topic_id"], "figure-1")
-    first_image = b"synthetic image bytes supplied in evidence"
-    asset_path.write_bytes(first_image)
+    asset_path.write_bytes(_PNG_A)
     plan = _image_evidence_plan(snapshot_workspace, include_images=True)
     captured = _capture(snapshot_workspace, selected_file_ids=("paper",))
     bound = bind_retained_sources(
@@ -406,9 +407,9 @@ def test_supplied_image_bytes_change_invalidates_snapshot(snapshot_workspace):
         [snapshot_workspace["chunk"]],
         supplied_images=plan["supplied_images"],
     )
-    assert base64.b64encode(first_image).decode("ascii") not in repr(bound)
+    assert base64.b64encode(_PNG_A).decode("ascii") not in repr(bound)
 
-    asset_path.write_bytes(b"different image bytes supplied later")
+    asset_path.write_bytes(_PNG_B)
 
     with pytest.raises(Conflict):
         _revalidate(snapshot_workspace, bound)
