@@ -791,6 +791,52 @@ def test_final_gateway_factory_failure_does_not_claim_prepared_sources_were_supp
     assert error.metadata["retained_new_chunk_ids"] == []
 
 
+def test_stopping_at_final_plan_closes_the_dispatched_gateway_iterator():
+    action = json.dumps({"action": "search_selected", "answer": "", "source_labels": [], "query": "details"})
+
+    class OwnedStream:
+        closed = False
+
+        def __aiter__(self):
+            async def events():
+                yield _token("unused")
+                yield _done()
+
+            return events()
+
+        async def aclose(self):
+            self.closed = True
+
+    class Gateway:
+        calls = 0
+        final_stream = OwnedStream()
+
+        def stream_chat(self, *_args, **_kwargs):
+            self.calls += 1
+            if self.calls == 1:
+
+                async def first():
+                    yield _token(action)
+                    yield _done()
+
+                return first()
+            return self.final_stream
+
+    async def lookup(_query: str, *, file_ids: tuple[str, ...]):
+        return {"hits": [], "mode": "none"}
+
+    async def scenario():
+        gateway = Gateway()
+        workflow = _workflow(gateway, initial_chunks=[], lookup=lookup)
+        async for event in workflow:
+            if event.kind == "plan":
+                await workflow.aclose()
+                break
+        assert gateway.final_stream.closed
+
+    asyncio.run(scenario())
+
+
 def test_snapshot_conflict_is_a_safe_error_and_stops_all_following_effects():
     from lab.errors import Conflict
 
