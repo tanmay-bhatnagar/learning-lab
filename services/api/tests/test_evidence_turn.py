@@ -730,12 +730,14 @@ def test_search_attempt_is_started_before_search_stage_and_cancelled_when_stoppe
     gateway = ScriptedGateway([[_token(action), _done()]])
     invoked: list[str] = []
     cleaned = False
+    started = asyncio.Event()
 
     def lookup(query: str, *, file_ids: tuple[str, ...]):
         invoked.append(query)
 
         async def waiting():
             nonlocal cleaned
+            started.set()
             try:
                 await asyncio.Event().wait()
             finally:
@@ -747,6 +749,7 @@ def test_search_attempt_is_started_before_search_stage_and_cancelled_when_stoppe
         workflow = _workflow(gateway, initial_chunks=[], lookup=lookup)
         async for event in workflow:
             if event.stage == "searching":
+                await asyncio.wait_for(started.wait(), timeout=1)
                 assert invoked == ["details"]
                 assert event.metadata["lookup_count"] == 1
                 await workflow.aclose()

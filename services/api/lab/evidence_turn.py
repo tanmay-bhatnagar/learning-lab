@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Literal, TypeAlias, cast
 
 from lab.contracts import ModelGateway
-from lab.errors import InvalidInput
+from lab.errors import Conflict, InvalidInput
 from lab.evidence_prompt import EvidencePromptPlan
 from lab.evidence_request import (
     MAX_ACTION_BYTES,
@@ -94,7 +94,7 @@ async def run_evidence_turn(
     """Run one buffered structured decision, at most one scoped search, and one prose answer."""
     try:
         scope = _checked_scope(selected_file_ids)
-    except InvalidInput:
+    except (Conflict, InvalidInput):
         invalid_state = _initial_outcomes()
         invalid_state["outcome"] = "error"
         yield _error(
@@ -118,7 +118,7 @@ async def run_evidence_turn(
     yield _stage("deciding", state)
     try:
         revalidate(initial_retained, supplied_images=initial_images)
-    except InvalidInput:
+    except (Conflict, InvalidInput):
         state["outcome"] = "error"
         yield _error("snapshot_changed", _INVALID_OUTPUT, state)
         return
@@ -181,7 +181,7 @@ async def run_evidence_turn(
         supplied = _union_chunks(initial_retained, final_retained)
         try:
             revalidate(supplied, supplied_images=final_images)
-        except InvalidInput:
+        except (Conflict, InvalidInput):
             state["outcome"] = "error"
             yield _error("snapshot_changed", _INVALID_OUTPUT, state)
             return
@@ -206,16 +206,21 @@ async def run_evidence_turn(
 
     state["action"] = "search_selected"
     state["outcome"] = "in_progress"
-    state["lookup_count"] = 1
     try:
         revalidate(initial_retained, supplied_images=initial_images)
-    except InvalidInput:
+    except (Conflict, InvalidInput):
         state["outcome"] = "error"
         yield _error("snapshot_changed", _INVALID_OUTPUT, state)
         return
-    yield _stage("searching", state)
-    lookup_task = asyncio.create_task(lookup(action.query, file_ids=scope))
+    state["lookup_count"] = 1
     try:
+        lookup_task = asyncio.create_task(lookup(action.query, file_ids=scope))
+    except Exception:  # noqa: BLE001 - retrieval invocation is an effect boundary.
+        state["outcome"] = "error"
+        yield _error("lookup_failed", _LOOKUP_ERROR, state)
+        return
+    try:
+        yield _stage("searching", state)
         result = await lookup_task
     except asyncio.CancelledError:
         lookup_task.cancel()
@@ -224,10 +229,28 @@ async def run_evidence_turn(
         except asyncio.CancelledError:
             pass
         raise
+    except GeneratorExit:
+        lookup_task.cancel()
+        try:
+            await lookup_task
+        except asyncio.CancelledError:
+            pass
+        except Exception:  # noqa: BLE001 - cleanup must not mask generator closure.
+            pass
+        raise
     except Exception:  # noqa: BLE001 - retrieval is an effect boundary; never surface provider warning text.
         state["outcome"] = "error"
         yield _error("lookup_failed", _LOOKUP_ERROR, state)
         return
+    finally:
+        if not lookup_task.done():
+            lookup_task.cancel()
+            try:
+                await lookup_task
+            except asyncio.CancelledError:
+                pass
+            except Exception:  # noqa: BLE001 - cleanup must not mask the retrieval failure.
+                pass
 
     try:
         returned, mode, search_warning = _validate_lookup_result(result, scope, initial_available)
@@ -254,7 +277,7 @@ async def run_evidence_turn(
     all_supplied = _union_chunks(initial_retained, final_retained)
     try:
         revalidate(all_supplied, supplied_images=final_images)
-    except InvalidInput:
+    except (Conflict, InvalidInput):
         state["outcome"] = "error"
         yield _error("snapshot_changed", _INVALID_OUTPUT, state)
         return
