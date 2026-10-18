@@ -672,3 +672,102 @@ def test_cancellation_during_final_stream_closes_it_and_releases_lock():
         assert not lock.locked()
 
     asyncio.run(scenario())
+
+
+def test_stopping_at_deciding_stage_closes_the_created_gateway_iterator():
+    class OwnedStream:
+        closed = False
+
+        def __aiter__(self):
+            async def events():
+                yield _token("unused")
+                yield _done()
+
+            return events()
+
+        async def aclose(self):
+            self.closed = True
+
+    class Gateway:
+        stream = OwnedStream()
+
+        def stream_chat(self, *_args, **_kwargs):
+            return self.stream
+
+    async def scenario():
+        gateway = Gateway()
+        workflow = _workflow(gateway, initial_chunks=[])
+        assert (await anext(workflow)).stage == "deciding"
+        assert (await anext(workflow)).stage == "deciding"
+        await workflow.aclose()
+        assert gateway.stream.closed
+
+    asyncio.run(scenario())
+
+
+def test_stopping_at_final_plan_does_not_count_an_unstarted_generation():
+    action = json.dumps({"action": "search_selected", "answer": "", "source_labels": [], "query": "details"})
+    gateway = ScriptedGateway([[_token(action), _done()], [_token("unused"), _done()]])
+
+    async def lookup(_query: str, *, file_ids: tuple[str, ...]):
+        return {"hits": [], "mode": "none"}
+
+    async def scenario():
+        workflow = _workflow(gateway, initial_chunks=[], lookup=lookup)
+        async for event in workflow:
+            if event.kind == "plan":
+                assert event.metadata["generation_count"] == 1
+                assert len(gateway.calls) == 1
+                await workflow.aclose()
+                return
+        pytest.fail("Expected a final plan event")
+
+    asyncio.run(scenario())
+
+
+def test_search_attempt_is_started_before_search_stage_and_cancelled_when_stopped():
+    action = json.dumps({"action": "search_selected", "answer": "", "source_labels": [], "query": "details"})
+    gateway = ScriptedGateway([[_token(action), _done()]])
+    invoked: list[str] = []
+    cleaned = False
+
+    def lookup(query: str, *, file_ids: tuple[str, ...]):
+        invoked.append(query)
+
+        async def waiting():
+            nonlocal cleaned
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cleaned = True
+
+        return waiting()
+
+    async def scenario():
+        workflow = _workflow(gateway, initial_chunks=[], lookup=lookup)
+        async for event in workflow:
+            if event.stage == "searching":
+                assert invoked == ["details"]
+                assert event.metadata["lookup_count"] == 1
+                await workflow.aclose()
+                return
+        pytest.fail("Expected a searching stage")
+
+    asyncio.run(scenario())
+    assert cleaned
+
+
+def test_snapshot_conflict_is_a_safe_error_and_stops_all_following_effects():
+    from lab.errors import Conflict
+
+    gateway = ScriptedGateway([[_token(_answer_action("unused")), _done()]])
+
+    def revalidate(_sources, *, supplied_images):
+        raise Conflict("private snapshot identity")
+
+    events = asyncio.run(_collect(_workflow(gateway, initial_chunks=[], revalidate=revalidate)))
+
+    assert gateway.calls == []
+    error = next(event for event in events if event.kind == "error")
+    assert error.error_code == "snapshot_changed"
+    assert "private snapshot identity" not in str(error)
