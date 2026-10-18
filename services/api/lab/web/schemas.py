@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, StrictBool, field_validator
 
 
 class TopicInput(BaseModel):
@@ -45,6 +45,7 @@ class ChatInput(BaseModel):
     model: str = Field(min_length=1, max_length=200)
     think: bool | str | None = None
     context_limit: int = Field(default=32768, ge=1024, le=32768)
+    extra_search: StrictBool = False
 
 
 class SectionSummaryInput(BaseModel):

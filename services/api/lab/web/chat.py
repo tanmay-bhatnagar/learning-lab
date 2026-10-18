@@ -14,7 +14,10 @@ from fastapi import APIRouter
 from lab.chat_prompt import build_chat_prompt
 from lab.contracts import Session
 from lab.chat_session import append_assistant_message, append_user_message, history_messages, with_session_context
-from lab.errors import Conflict, DomainError
+from lab.errors import Conflict, DomainError, InvalidInput
+from lab.evidence_prompt import build_initial_evidence_prompt
+from lab.evidence_request import MAX_SOURCE_REFERENCES
+from lab.evidence_snapshot import capture_prompt_context
 from lab.learner_context import load_learner_context
 from lab.query_traces import (
     duration,
@@ -39,6 +42,31 @@ from lab.web.schemas import ChatInput
 from lab.web.settings_store import load_settings
 
 logger = logging.getLogger(__name__)
+
+_INITIAL_FALLBACK_WARNING = "Selected-document search used bounded opening passages because no query match was found."
+_INITIAL_NO_HITS_WARNING = "No indexed passages were returned from the selected documents."
+_INITIAL_KEYWORD_WARNING = "Semantic search was unavailable; keyword results were used."
+
+
+def _empty_evidence_search() -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "requested": True,
+        "action": None,
+        "outcome": "in_progress",
+        "generation_count": 0,
+        "lookup_count": 0,
+        "initial_available_chunk_ids": [],
+        "initial_chunk_ids": [],
+        "returned_chunk_ids": [],
+        "new_chunk_ids": [],
+        "retained_new_chunk_ids": [],
+        "final_chunk_ids": [],
+        "declared_source_labels": [],
+        "search_mode": None,
+        "search_warning": None,
+        "warning": None,
+    }
 
 
 def router(deps: AppDeps) -> APIRouter:
@@ -97,6 +125,8 @@ def router(deps: AppDeps) -> APIRouter:
             now=datetime.now(UTC).isoformat(),
             trace_id=trace_id,
         )
+        if body.extra_search:
+            record["evidence_search"] = _empty_evidence_search()
         record["selected_file_ids"] = list(dict.fromkeys(body.file_ids))
         trace_file = trace_path(deps.store.topic(topic))
         insert_started(trace_file, record)
@@ -133,6 +163,9 @@ def router(deps: AppDeps) -> APIRouter:
             return isinstance(exc, DomainError) and exc.status_code < 500
 
         current = None
+        evidence_snapshot = None
+        evidence_initial_chunks: tuple[dict[str, object], ...] = ()
+        evidence_scope: tuple[str, ...] = ()
         try:
             current = load_settings(deps.store)
             trace_state["record"] = {
@@ -185,6 +218,33 @@ def router(deps: AppDeps) -> APIRouter:
                         {"role": "user", "content": f"UNTRUSTED ATTACHMENT ({record['name']}):\n{content}"}
                     )
             indexed_ids = [record["id"] for record in selected_records if record.get("index_status") == "ready"]
+            if body.extra_search:
+                if not indexed_ids:
+                    raise InvalidInput("Select at least one indexed document to enable additional evidence search.")
+                captured = capture_prompt_context(
+                    store=deps.store,
+                    profile_store=deps.profile_store,
+                    topic_id=topic,
+                    conversation_id=conversation_id,
+                    selected_file_ids=set(body.file_ids),
+                    runtime_policy_path=deps.config.runtime_policy_path,
+                )
+                evidence_snapshot = captured.snapshot
+                evidence_scope = tuple(indexed_ids)
+                context = captured.prompt_context
+                runtime_policy = context["runtime_policy"]
+                learner_context = {
+                    "learner_context": context["learner_context"],
+                    "cv_text": context["cv_text"],
+                    "cv_name": context["cv_name"],
+                }
+                attachments = [
+                    {
+                        "role": "user",
+                        "content": f"UNTRUSTED ATTACHMENT ({next(item['name'] for item in selected_records if item['id'] == file_id)}):\n{content}",
+                    }
+                    for file_id, content in context["attachments"].items()
+                ]
             search_result: dict[str, object] = {"hits": [], "mode": "none"}
             path = deps.store.file_path(topic, "retrieval.sqlite")
             retrieval_started = time.monotonic()
@@ -216,6 +276,8 @@ def router(deps: AppDeps) -> APIRouter:
                 citations=[],
                 retrieval_ms=retrieval_ms,
             )
+            if body.extra_search:
+                trace_state["record"]["evidence_search"] = _empty_evidence_search()
             vision = False
             if search_result.get("hits"):
                 try:
@@ -232,13 +294,26 @@ def router(deps: AppDeps) -> APIRouter:
                 search_result.get("hits", []),
                 include_images=vision,
             )
+            retrieval_warning = search_result.get("warning")
+            if body.extra_search:
+                retrieval_warning = (
+                    _INITIAL_FALLBACK_WARNING
+                    if search_result.get("mode") == "fallback"
+                    else _INITIAL_NO_HITS_WARNING
+                    if search_result.get("mode") == "none"
+                    else _INITIAL_KEYWORD_WARNING
+                    if search_result.get("mode") == "keyword" and retrieval_warning
+                    else None
+                )
             retrieval_record: dict[str, object] = {
                 "mode": search_result.get("mode", "none"),
-                "warning": search_result.get("warning"),
+                "warning": retrieval_warning,
                 "citations": citations,
             }
+            if body.extra_search:
+                retrieval_record["evidence_search"] = _empty_evidence_search()
             topic_metadata = read_json(deps.store.topic(topic) / "topic.json", {})
-            plan = build_chat_prompt(
+            prompt_kwargs = dict(
                 history=history_messages(session),
                 evidence=evidence,
                 citations=citations,
@@ -251,6 +326,15 @@ def router(deps: AppDeps) -> APIRouter:
                 retrieval_record=retrieval_record,
                 **learner_context,
             )
+            if body.extra_search:
+                plan = build_initial_evidence_prompt(
+                    prompt_kwargs=prompt_kwargs,
+                    source_chunks=search_result.get("hits", []),
+                    selected_file_ids=set(evidence_scope),
+                )
+                evidence_initial_chunks = tuple(search_result.get("hits", []))
+            else:
+                plan = build_chat_prompt(**prompt_kwargs)
             session = append_user_message(session, body.message, body.file_ids)
             save(session)
             trace_state["record"]["user_saved"] = True
