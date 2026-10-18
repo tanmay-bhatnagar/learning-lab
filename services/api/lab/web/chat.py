@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import time
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 
 from anyio import CancelScope
@@ -15,9 +16,14 @@ from lab.chat_prompt import build_chat_prompt
 from lab.contracts import Session
 from lab.chat_session import append_assistant_message, append_user_message, history_messages, with_session_context
 from lab.errors import Conflict, DomainError, InvalidInput
-from lab.evidence_prompt import build_initial_evidence_prompt
-from lab.evidence_request import MAX_SOURCE_REFERENCES
-from lab.evidence_snapshot import capture_prompt_context
+from lab.evidence_prompt import build_final_evidence_prompt, build_initial_evidence_prompt
+from lab.evidence_request import MAX_SOURCE_REFERENCES, merge_scoped_sources
+from lab.evidence_snapshot import (
+    bind_retained_sources,
+    capture_prompt_context,
+    revalidate_evidence_snapshot,
+)
+from lab.evidence_turn import EvidenceTurnEvent, run_evidence_turn
 from lab.learner_context import load_learner_context
 from lab.query_traces import (
     duration,
@@ -166,6 +172,8 @@ def router(deps: AppDeps) -> APIRouter:
         evidence_snapshot = None
         evidence_initial_chunks: tuple[dict[str, object], ...] = ()
         evidence_scope: tuple[str, ...] = ()
+        evidence_prompt_kwargs: dict[str, object] | None = None
+        evidence_vision = False
         try:
             current = load_settings(deps.store)
             trace_state["record"] = {
@@ -195,16 +203,11 @@ def router(deps: AppDeps) -> APIRouter:
             )
             raise
         try:
-            runtime_policy = load_runtime_policy(deps.config.runtime_policy_path)
             session = deps.store.session(topic, conversation_id)
             validated_summary_imports(session, conversation_id)
             validated_prerequisite_imports(session, conversation_id)
-            learner_context = load_learner_context(
-                deps.store,
-                deps.profile_store,
-                topic,
-                conversation_id,
-            )
+            runtime_policy = None
+            learner_context = None
             attachments: list[dict[str, object]] = []
             selected_records = []
             for file_id in dict.fromkeys(body.file_ids):
@@ -212,7 +215,7 @@ def router(deps: AppDeps) -> APIRouter:
                 if record["status"] != "ready":
                     raise Conflict(f"Attachment {record['name']} is not ready; check its conversion error.")
                 selected_records.append(record)
-                if record.get("index_status") != "ready":
+                if record.get("index_status") != "ready" and not body.extra_search:
                     content = read_bytes(deps.store.file_path(topic, record["markdown_name"])).decode("utf-8")
                     attachments.append(
                         {"role": "user", "content": f"UNTRUSTED ATTACHMENT ({record['name']}):\n{content}"}
@@ -230,7 +233,7 @@ def router(deps: AppDeps) -> APIRouter:
                     runtime_policy_path=deps.config.runtime_policy_path,
                 )
                 evidence_snapshot = captured.snapshot
-                evidence_scope = tuple(indexed_ids)
+                evidence_scope = tuple(sorted(captured.snapshot.indexed_file_ids))
                 context = captured.prompt_context
                 runtime_policy = context["runtime_policy"]
                 learner_context = {
@@ -241,10 +244,20 @@ def router(deps: AppDeps) -> APIRouter:
                 attachments = [
                     {
                         "role": "user",
-                        "content": f"UNTRUSTED ATTACHMENT ({next(item['name'] for item in selected_records if item['id'] == file_id)}):\n{content}",
+                        "content": f"UNTRUSTED ATTACHMENT ({next(item['name'] for item in context['files'] if item['id'] == file_id)}):\n{content}",
                     }
                     for file_id, content in context["attachments"].items()
                 ]
+                learning_goal = context["learning_goal"]
+            else:
+                runtime_policy = load_runtime_policy(deps.config.runtime_policy_path)
+                learner_context = load_learner_context(
+                    deps.store,
+                    deps.profile_store,
+                    topic,
+                    conversation_id,
+                )
+                learning_goal = read_json(deps.store.topic(topic) / "topic.json", {}).get("learning_goal", "")
             search_result: dict[str, object] = {"hits": [], "mode": "none"}
             path = deps.store.file_path(topic, "retrieval.sqlite")
             retrieval_started = time.monotonic()
@@ -312,7 +325,6 @@ def router(deps: AppDeps) -> APIRouter:
             }
             if body.extra_search:
                 retrieval_record["evidence_search"] = _empty_evidence_search()
-            topic_metadata = read_json(deps.store.topic(topic) / "topic.json", {})
             prompt_kwargs = dict(
                 history=history_messages(session),
                 evidence=evidence,
@@ -320,19 +332,30 @@ def router(deps: AppDeps) -> APIRouter:
                 attachments=attachments,
                 question=body.message,
                 active_topic=topic,
-                learning_goal=topic_metadata.get("learning_goal", ""),
+                learning_goal=learning_goal,
                 runtime_policy=runtime_policy,
                 context_limit=body.context_limit,
                 retrieval_record=retrieval_record,
                 **learner_context,
             )
             if body.extra_search:
+                evidence_prompt_kwargs = prompt_kwargs
                 plan = build_initial_evidence_prompt(
                     prompt_kwargs=prompt_kwargs,
                     source_chunks=search_result.get("hits", []),
                     selected_file_ids=set(evidence_scope),
                 )
                 evidence_initial_chunks = tuple(search_result.get("hits", []))
+                evidence_metadata = _empty_evidence_search()
+                evidence_metadata["initial_available_chunk_ids"] = [
+                    str(source["chunk_id"]) for source in evidence_initial_chunks
+                ]
+                evidence_metadata["initial_chunk_ids"] = [source.source_id for source in plan["source_manifest"]]
+                evidence_metadata["final_chunk_ids"] = list(evidence_metadata["initial_chunk_ids"])
+                plan["retrieval_record"]["evidence_search"] = evidence_metadata
+                retrieval_record["evidence_search"] = evidence_metadata
+                trace_state["record"]["evidence_search"] = evidence_metadata
+                evidence_vision = vision
             else:
                 plan = build_chat_prompt(**prompt_kwargs)
             session = append_user_message(session, body.message, body.file_ids)
@@ -389,7 +412,17 @@ def router(deps: AppDeps) -> APIRouter:
         first_output: float | None = None
         prompt = plan["prompt"]
         prompt_context = plan["prompt_context"]
-        retrieval_record = plan["retrieval_record"]
+        retrieval_record = dict(plan["retrieval_record"])
+        evidence_metadata = retrieval_record.get("evidence_search") if body.extra_search else None
+        latest_search_result = search_result
+        total_retrieval_ms = retrieval_ms
+
+        def update_evidence_metadata(metadata: dict[str, object]) -> None:
+            nonlocal evidence_metadata
+            evidence_metadata = dict(metadata)
+            retrieval_record["evidence_search"] = dict(metadata)
+            assistant["retrieval"] = dict(retrieval_record)
+            trace_state["record"]["evidence_search"] = dict(metadata)
 
         async def finish() -> None:
             nonlocal finished, trace_finalize_failed
@@ -399,6 +432,11 @@ def router(deps: AppDeps) -> APIRouter:
             with CancelScope(shield=True):
                 try:
                     save_failure: BaseException | None = None
+                    if body.extra_search and not complete:
+                        assert isinstance(evidence_metadata, dict)
+                        incomplete_metadata = dict(evidence_metadata)
+                        incomplete_metadata["outcome"] = "cancelled" if outcome["status"] == "cancelled" else "error"
+                        update_evidence_metadata(incomplete_metadata)
                     if stream is not None and hasattr(stream, "aclose"):
                         try:
                             await stream.aclose()
@@ -456,20 +494,187 @@ def router(deps: AppDeps) -> APIRouter:
 
         async def events():
             nonlocal complete, first_output, stream, trace_finalize_failed
+            nonlocal prompt, prompt_context, retrieval_record, evidence_snapshot
+            nonlocal latest_search_result, total_retrieval_ms
 
             def line(event: dict) -> str:
                 return json.dumps(event, ensure_ascii=False) + "\n"
 
             try:
-                stream = deps.model_backend.stream_chat(
-                    prompt,
-                    body.model,
-                    body.think,
-                    body.context_limit,
-                    context_metadata=prompt_context,
-                    generation_lock=deps.model_generation_lock,
-                )
+                if body.extra_search:
+                    assert evidence_snapshot is not None
+                    assert evidence_prompt_kwargs is not None
+
+                    async def evidence_lookup(query: str, *, file_ids: tuple[str, ...]) -> dict[str, object]:
+                        nonlocal latest_search_result, total_retrieval_ms
+                        if file_ids != evidence_scope:
+                            raise InvalidInput("Additional search scope no longer matches the captured selection.")
+                        lookup_started = time.monotonic()
+                        search_fn = deps.retriever or search
+                        latest_search_result = await search_fn(
+                            deps.store,
+                            topic,
+                            query,
+                            file_ids=list(evidence_scope),
+                            limit=current.retrieval_top_k,
+                            embedding_model=current.embedding_model,
+                            embedder=deps.embedder(),
+                        )
+                        total_retrieval_ms += time.monotonic() - lookup_started
+                        return latest_search_result
+
+                    def build_final(
+                        initial_hits: Sequence[Mapping[str, object]],
+                        additional_hits: Sequence[Mapping[str, object]],
+                    ):
+                        combined_hits = merge_scoped_sources(
+                            initial_hits,
+                            additional_hits,
+                            selected_file_ids=set(evidence_scope),
+                            max_sources=MAX_SOURCE_REFERENCES,
+                        )
+                        final_evidence, final_citations = evidence_messages(
+                            deps.store,
+                            topic,
+                            combined_hits,
+                            include_images=evidence_vision,
+                        )
+                        mode = latest_search_result.get("mode", "none")
+                        final_warning = (
+                            _INITIAL_FALLBACK_WARNING
+                            if mode == "fallback"
+                            else _INITIAL_NO_HITS_WARNING
+                            if mode == "none"
+                            else _INITIAL_KEYWORD_WARNING
+                            if mode == "keyword" and latest_search_result.get("warning")
+                            else None
+                        )
+                        final_retrieval_record = {
+                            "mode": mode,
+                            "warning": final_warning,
+                            "citations": final_citations,
+                            "evidence_search": dict(evidence_metadata or {}),
+                        }
+                        final_kwargs = {
+                            **evidence_prompt_kwargs,
+                            "evidence": final_evidence,
+                            "citations": final_citations,
+                            "retrieval_record": final_retrieval_record,
+                        }
+                        return build_final_evidence_prompt(
+                            prompt_kwargs=final_kwargs,
+                            initial_chunks=initial_hits,
+                            additional_chunks=additional_hits,
+                            selected_file_ids=set(evidence_scope),
+                            max_sources=current.retrieval_top_k,
+                        )
+
+                    def guard_snapshot(
+                        sources: Sequence[Mapping[str, object]],
+                        *,
+                        supplied_images: Sequence[object],
+                    ) -> None:
+                        nonlocal evidence_snapshot
+                        candidate = bind_retained_sources(
+                            evidence_snapshot,
+                            sources,
+                            supplied_images=supplied_images,
+                        )
+                        revalidate_evidence_snapshot(
+                            candidate,
+                            store=deps.store,
+                            profile_store=deps.profile_store,
+                            runtime_policy_path=deps.config.runtime_policy_path,
+                        )
+                        evidence_snapshot = candidate
+
+                    stream = run_evidence_turn(
+                        gateway=deps.model_backend,
+                        initial_plan=plan,
+                        initial_chunks=evidence_initial_chunks,
+                        selected_file_ids=evidence_scope,
+                        model=body.model,
+                        think=body.think,
+                        context_limit=body.context_limit,
+                        generation_lock=deps.model_generation_lock,
+                        lookup=evidence_lookup,
+                        build_final=build_final,
+                        revalidate=guard_snapshot,
+                    )
+                else:
+                    stream = deps.model_backend.stream_chat(
+                        prompt,
+                        body.model,
+                        body.think,
+                        body.context_limit,
+                        context_metadata=prompt_context,
+                        generation_lock=deps.model_generation_lock,
+                    )
+                last_evidence_stage = None
                 async for event in stream:
+                    if body.extra_search:
+                        workflow_event: EvidenceTurnEvent = event
+                        if workflow_event.kind == "stage":
+                            metadata = workflow_event.metadata or {}
+                            update_evidence_metadata(metadata)
+                            if workflow_event.stage != last_evidence_stage:
+                                last_evidence_stage = workflow_event.stage
+                                status_event = {"type": "evidence_status", "stage": workflow_event.stage}
+                                warning = metadata.get("warning") or metadata.get("search_warning")
+                                if isinstance(warning, str):
+                                    status_event["warning"] = warning
+                                yield line(status_event)
+                            continue
+                        if workflow_event.kind == "plan":
+                            metadata = workflow_event.metadata or {}
+                            update_evidence_metadata(metadata)
+                            if workflow_event.plan is None:
+                                raise RuntimeError("Evidence workflow omitted its final prompt plan.")
+                            final_plan = workflow_event.plan
+                            prompt = final_plan["prompt"]
+                            prompt_context = final_plan["prompt_context"]
+                            retrieval_record = dict(final_plan["retrieval_record"])
+                            retrieval_record["evidence_search"] = dict(metadata)
+                            assistant["retrieval"] = dict(retrieval_record)
+                            combined_hits = merge_scoped_sources(
+                                evidence_initial_chunks,
+                                latest_search_result.get("hits", []),
+                                selected_file_ids=set(evidence_scope),
+                                max_sources=MAX_SOURCE_REFERENCES,
+                            )
+                            trace_state["record"] = retrieval_fields(
+                                trace_state["record"],
+                                selected_file_ids=list(dict.fromkeys(body.file_ids)),
+                                search_result={**latest_search_result, "hits": list(combined_hits)},
+                                retained_ids={item["chunk_id"] for item in final_plan["citations"]},
+                                citations=final_plan["citations"],
+                                retrieval_ms=total_retrieval_ms,
+                            )
+                            trace_state["record"]["evidence_search"] = dict(metadata)
+                            continue
+                        if workflow_event.kind == "done":
+                            event = {
+                                "type": "done",
+                                "model": workflow_event.model,
+                                "context": workflow_event.context or {},
+                            }
+                        elif workflow_event.kind == "error":
+                            metadata = dict(workflow_event.metadata or {})
+                            metadata["outcome"] = "error"
+                            update_evidence_metadata(metadata)
+                            outcome.update(
+                                status="error",
+                                stage="generation",
+                                error={
+                                    "stage": "generation",
+                                    "code": workflow_event.error_code or "evidence_failed",
+                                    "exception_type": "EvidenceWorkflowError",
+                                    "summary": "The additional evidence workflow could not complete.",
+                                },
+                            )
+                            event = {"type": "error", "message": workflow_event.text or "Evidence search failed."}
+                        else:
+                            event = {"type": workflow_event.kind, "text": workflow_event.text or ""}
                     kind = event.get("type")
                     if kind in {"token", "thinking"}:
                         if first_output is None:
