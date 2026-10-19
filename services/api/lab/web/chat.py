@@ -7,45 +7,27 @@ import json
 import logging
 import time
 from collections.abc import Mapping, Sequence
-from datetime import UTC, datetime
-
 from anyio import CancelScope
 from fastapi import APIRouter
 
 from lab.chat_prompt import build_chat_prompt
 from lab.contracts import Session
-from lab.chat_session import append_assistant_message, append_user_message, history_messages, with_session_context
-from lab.errors import Conflict, DomainError, InvalidInput
+from lab.chat_session import append_assistant_message, with_session_context
+from lab.errors import InvalidInput
 from lab.evidence_prompt import build_final_evidence_prompt, build_initial_evidence_prompt
 from lab.evidence_request import MAX_SOURCE_REFERENCES, merge_scoped_sources
-from lab.evidence_snapshot import (
-    bind_retained_sources,
-    capture_prompt_context,
-    revalidate_evidence_snapshot,
-)
+from lab.evidence_snapshot import bind_retained_sources, revalidate_evidence_snapshot
 from lab.evidence_turn import EvidenceTurnEvent, run_evidence_turn
-from lab.learner_context import load_learner_context
-from lab.query_traces import (
-    duration,
-    finalize as finalize_trace,
-    finalize_record,
-    insert_started,
-    list_traces,
-    new_trace_id,
-    retrieval_fields,
-    started_record,
-    trace_path,
-)
-from lab.retrieval import evidence_messages, search
-from lab.runtime_policy import load_runtime_policy
-from lab.storage import read_bytes, read_json
-from lab.summary_import import validated_summary_imports
+from lab.query_traces import duration, finalize as finalize_trace, list_traces, retrieval_fields, trace_path
 from lab.prerequisite_import import validated_prerequisite_imports
+from lab.retrieval import evidence_messages, search
+from lab.summary_import import validated_summary_imports
 from lab.web.deps import AppDeps
 from lab.web.locks import acquire_topic_lock, topic_lock
 from lab.web.middleware import FinalizedStreamingResponse
 from lab.web.schemas import ChatInput
 from lab.web.settings_store import load_settings
+from lab.workflows.chat import admit_chat, build_chat_graphs
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +58,7 @@ def _empty_evidence_search() -> dict[str, object]:
 
 
 def router(deps: AppDeps) -> APIRouter:
+    chat_graphs = build_chat_graphs()
     routes = APIRouter()
 
     @routes.get("/api/topics/{topic}/messages")
@@ -116,48 +99,48 @@ def router(deps: AppDeps) -> APIRouter:
         }
 
     async def stream_chat(topic: str, conversation_id: str, body: ChatInput):
-        deps.store.topic(topic)
-        started = time.monotonic()
-        trace_id = new_trace_id()
-        record = started_record(
+        async def acquire_lease():
+            return await acquire_topic_lock(deps.locks, topic, reject_if_busy=True)
+
+        admitted = await admit_chat(
+            store=deps.store,
+            profile_store=deps.profile_store,
+            model_backend=deps.model_backend,
+            retriever=deps.retriever,
+            embedder=deps.embedder(),
+            runtime_policy_path=deps.config.runtime_policy_path,
+            acquire_lease=acquire_lease,
+            load_settings_fn=load_settings,
             topic_id=topic,
             conversation_id=conversation_id,
-            message_chars=len(body.message),
+            message=body.message,
+            file_ids=body.file_ids,
             model=body.model,
             think=body.think,
             context_limit=body.context_limit,
-            embedding_model=None,
-            retrieval_top_k=None,
-            now=datetime.now(UTC).isoformat(),
-            trace_id=trace_id,
+            extra_search=body.extra_search,
+            admission_graph=chat_graphs.admission,
+            build_chat_prompt=build_chat_prompt,
+            build_initial_evidence_prompt=build_initial_evidence_prompt,
+            finalize_trace_fn=finalize_trace,
         )
-        if body.extra_search:
-            record["evidence_search"] = _empty_evidence_search()
-        record["selected_file_ids"] = list(dict.fromkeys(body.file_ids))
-        trace_file = trace_path(deps.store.topic(topic))
-        insert_started(trace_file, record)
-        trace_state = {"record": record, "done": False}
+        lease = admitted.lease
+        session = admitted.session
+        plan = admitted.plan
+        search_result = admitted.search_result
+        retrieval_ms = admitted.retrieval_ms
+        current = admitted.current_settings
+        trace = admitted.trace
+        started = admitted.started_monotonic
+        trace_id = trace.trace_id
+        evidence_snapshot = admitted.evidence_snapshot
+        evidence_initial_chunks = admitted.evidence_initial_chunks
+        evidence_scope = admitted.evidence_scope
+        evidence_prompt_kwargs = admitted.evidence_prompt_kwargs
+        evidence_vision = admitted.evidence_vision
 
         def persist_trace(status: str, stage: str, *, error: dict[str, str] | None = None, **updates: object) -> bool:
-            if trace_state["done"]:
-                return False
-            final = finalize_record(
-                trace_state["record"],
-                status=status,
-                now=datetime.now(UTC).isoformat(),
-                stage=stage,
-                total_ms=(time.monotonic() - started) * 1000,
-                error=error,
-                **updates,
-            )
-            try:
-                changed = finalize_trace(trace_file, final)
-            except Exception as exc:
-                logger.error("Query trace finalization failed for %s (%s)", trace_id, type(exc).__name__)
-                raise
-            if changed:
-                trace_state["done"] = True
-            return changed
+            return trace.persist(status, stage, error=error, **updates)
 
         def save(session: Session) -> None:
             if conversation_id == "default":
@@ -165,238 +148,6 @@ def router(deps: AppDeps) -> APIRouter:
             else:
                 deps.store.save_session(topic, session, conversation_id)
 
-        def rejected(exc: BaseException) -> bool:
-            return isinstance(exc, DomainError) and exc.status_code < 500
-
-        current = None
-        evidence_snapshot = None
-        evidence_initial_chunks: tuple[dict[str, object], ...] = ()
-        evidence_scope: tuple[str, ...] = ()
-        evidence_prompt_kwargs: dict[str, object] | None = None
-        evidence_vision = False
-        try:
-            current = load_settings(deps.store)
-            trace_state["record"] = {
-                **trace_state["record"],
-                "embedding_model": current.embedding_model,
-                "retrieval_top_k": current.retrieval_top_k,
-            }
-            lease = await acquire_topic_lock(deps.locks, topic, reject_if_busy=True)
-        except BaseException as exc:
-            status = (
-                "cancelled"
-                if isinstance(exc, (asyncio.CancelledError, GeneratorExit))
-                else "rejected"
-                if rejected(exc)
-                else "error"
-            )
-            code = "topic_busy" if isinstance(exc, Conflict) else "preflight_failed"
-            persist_trace(
-                status,
-                "preflight",
-                error={
-                    "stage": "preflight",
-                    "code": code,
-                    "exception_type": type(exc).__name__,
-                    "summary": "Chat could not enter preflight.",
-                },
-            )
-            raise
-        try:
-            session = deps.store.session(topic, conversation_id)
-            validated_summary_imports(session, conversation_id)
-            validated_prerequisite_imports(session, conversation_id)
-            runtime_policy = None
-            learner_context = None
-            attachments: list[dict[str, object]] = []
-            selected_records = []
-            for file_id in dict.fromkeys(body.file_ids):
-                record = deps.store.file(topic, file_id)
-                if record["status"] != "ready":
-                    raise Conflict(f"Attachment {record['name']} is not ready; check its conversion error.")
-                selected_records.append(record)
-                if record.get("index_status") != "ready" and not body.extra_search:
-                    content = read_bytes(deps.store.file_path(topic, record["markdown_name"])).decode("utf-8")
-                    attachments.append(
-                        {"role": "user", "content": f"UNTRUSTED ATTACHMENT ({record['name']}):\n{content}"}
-                    )
-            indexed_ids = [record["id"] for record in selected_records if record.get("index_status") == "ready"]
-            if body.extra_search:
-                if not indexed_ids:
-                    raise InvalidInput("Select at least one indexed document to enable additional evidence search.")
-                captured = capture_prompt_context(
-                    store=deps.store,
-                    profile_store=deps.profile_store,
-                    topic_id=topic,
-                    conversation_id=conversation_id,
-                    selected_file_ids=set(body.file_ids),
-                    runtime_policy_path=deps.config.runtime_policy_path,
-                )
-                evidence_snapshot = captured.snapshot
-                evidence_scope = tuple(sorted(captured.snapshot.indexed_file_ids))
-                context = captured.prompt_context
-                runtime_policy = context["runtime_policy"]
-                learner_context = {
-                    "learner_context": context["learner_context"],
-                    "cv_text": context["cv_text"],
-                    "cv_name": context["cv_name"],
-                }
-                attachments = [
-                    {
-                        "role": "user",
-                        "content": f"UNTRUSTED ATTACHMENT ({next(item['name'] for item in context['files'] if item['id'] == file_id)}):\n{content}",
-                    }
-                    for file_id, content in context["attachments"].items()
-                ]
-                learning_goal = context["learning_goal"]
-            else:
-                runtime_policy = load_runtime_policy(deps.config.runtime_policy_path)
-                learner_context = load_learner_context(
-                    deps.store,
-                    deps.profile_store,
-                    topic,
-                    conversation_id,
-                )
-                learning_goal = read_json(deps.store.topic(topic) / "topic.json", {}).get("learning_goal", "")
-            search_result: dict[str, object] = {"hits": [], "mode": "none"}
-            path = deps.store.file_path(topic, "retrieval.sqlite")
-            retrieval_started = time.monotonic()
-            search_file_ids = list(evidence_scope) if body.extra_search else indexed_ids
-            if path.exists() and search_file_ids:
-                search_fn = deps.retriever or search
-                search_result = await search_fn(
-                    deps.store,
-                    topic,
-                    body.message,
-                    file_ids=search_file_ids,
-                    limit=current.retrieval_top_k,
-                    embedding_model=current.embedding_model,
-                    embedder=deps.embedder(),
-                )
-            elif search_file_ids:
-                names = ", ".join(
-                    record["name"]
-                    for record in (context["files"] if body.extra_search else selected_records)
-                    if record.get("index_status") == "ready"
-                )
-                raise Conflict(
-                    f"Indexed evidence is unavailable for {names}: the topic retrieval index is missing. "
-                    "Restore retrieval.sqlite or re-upload the selected files before chatting.",
-                )
-            retrieval_ms = (time.monotonic() - retrieval_started) * 1000
-            trace_state["record"] = retrieval_fields(
-                trace_state["record"],
-                selected_file_ids=list(dict.fromkeys(body.file_ids)),
-                search_result=search_result,
-                retained_ids=set(),
-                citations=[],
-                retrieval_ms=retrieval_ms,
-            )
-            if body.extra_search:
-                trace_state["record"]["evidence_search"] = _empty_evidence_search()
-            vision = False
-            if search_result.get("hits") or body.extra_search:
-                try:
-                    available = await deps.model_backend.list_models()
-                    vision = any(
-                        item.get("id") == body.model and item.get("vision") is True
-                        for item in available.get("models", [])
-                    )
-                except Exception:  # noqa: BLE001 - vision is optional; any model-list failure falls back to text evidence
-                    vision = False
-            evidence, citations = evidence_messages(
-                deps.store,
-                topic,
-                search_result.get("hits", []),
-                include_images=vision,
-            )
-            retrieval_warning = search_result.get("warning")
-            if body.extra_search:
-                retrieval_warning = (
-                    _INITIAL_FALLBACK_WARNING
-                    if search_result.get("mode") == "fallback"
-                    else _INITIAL_NO_HITS_WARNING
-                    if search_result.get("mode") == "none"
-                    else _INITIAL_KEYWORD_WARNING
-                    if search_result.get("mode") == "keyword" and retrieval_warning
-                    else None
-                )
-            retrieval_record: dict[str, object] = {
-                "mode": search_result.get("mode", "none"),
-                "warning": retrieval_warning,
-                "citations": citations,
-            }
-            if body.extra_search:
-                retrieval_record["evidence_search"] = _empty_evidence_search()
-            prompt_kwargs = dict(
-                history=history_messages(session),
-                evidence=evidence,
-                citations=citations,
-                attachments=attachments,
-                question=body.message,
-                active_topic=topic,
-                learning_goal=learning_goal,
-                runtime_policy=runtime_policy,
-                context_limit=body.context_limit,
-                retrieval_record=retrieval_record,
-                **learner_context,
-            )
-            if body.extra_search:
-                evidence_prompt_kwargs = prompt_kwargs
-                plan = build_initial_evidence_prompt(
-                    prompt_kwargs=prompt_kwargs,
-                    source_chunks=search_result.get("hits", []),
-                    selected_file_ids=set(evidence_scope),
-                )
-                evidence_initial_chunks = tuple(search_result.get("hits", []))
-                evidence_metadata = _empty_evidence_search()
-                evidence_metadata["initial_available_chunk_ids"] = [
-                    str(source["chunk_id"]) for source in evidence_initial_chunks
-                ]
-                plan["retrieval_record"]["evidence_search"] = evidence_metadata
-                retrieval_record["evidence_search"] = evidence_metadata
-                trace_state["record"]["evidence_search"] = evidence_metadata
-                evidence_vision = vision
-            else:
-                plan = build_chat_prompt(**prompt_kwargs)
-            session = append_user_message(session, body.message, body.file_ids)
-            save(session)
-            trace_state["record"]["user_saved"] = True
-            trace_state["record"]["user_message_index"] = len(session["messages"]) - 1
-            elapsed_preflight = (time.monotonic() - started) * 1000
-            retained_ids = set() if body.extra_search else {citation["chunk_id"] for citation in plan["citations"]}
-            trace_state["record"] = retrieval_fields(
-                trace_state["record"],
-                selected_file_ids=list(dict.fromkeys(body.file_ids)),
-                search_result=search_result,
-                retained_ids=retained_ids,
-                citations=[] if body.extra_search else citations,
-                retrieval_ms=retrieval_ms,
-            )
-            trace_state["record"]["preflight_ms"] = duration(elapsed_preflight)
-            trace_state["record"]["prompt_budget"] = plan["prompt_context"].get("limit")
-        except BaseException as exc:
-            lease.release()
-            status = (
-                "cancelled"
-                if isinstance(exc, (asyncio.CancelledError, GeneratorExit))
-                else "rejected"
-                if rejected(exc)
-                else "error"
-            )
-            persist_trace(
-                status,
-                "preflight",
-                error={
-                    "stage": "preflight",
-                    "code": "preflight_failed",
-                    "exception_type": type(exc).__name__,
-                    "summary": "Chat preflight did not complete.",
-                },
-            )
-            raise
-
-        lease.hand_off()
         assistant = {
             "role": "assistant",
             "content": "",
@@ -426,7 +177,7 @@ def router(deps: AppDeps) -> APIRouter:
             evidence_metadata = dict(metadata)
             retrieval_record["evidence_search"] = dict(metadata)
             assistant["retrieval"] = dict(retrieval_record)
-            trace_state["record"]["evidence_search"] = dict(metadata)
+            trace.record["evidence_search"] = dict(metadata)
 
         def record_initial_supply(metadata: dict[str, object]) -> None:
             supplied_ids = {item for item in metadata.get("initial_chunk_ids", []) if isinstance(item, str)}
@@ -435,15 +186,15 @@ def router(deps: AppDeps) -> APIRouter:
             initial_citations = [citation for citation in plan["citations"] if citation.get("chunk_id") in supplied_ids]
             retrieval_record["citations"] = initial_citations
             assistant["retrieval"] = dict(retrieval_record)
-            trace_state["record"] = retrieval_fields(
-                trace_state["record"],
+            trace.record = retrieval_fields(
+                trace.record,
                 selected_file_ids=list(dict.fromkeys(body.file_ids)),
                 search_result=search_result,
                 retained_ids=supplied_ids,
                 citations=initial_citations,
                 retrieval_ms=total_retrieval_ms,
             )
-            trace_state["record"]["evidence_search"] = dict(metadata)
+            trace.record["evidence_search"] = dict(metadata)
 
         async def finish() -> None:
             nonlocal finished, trace_finalize_failed
@@ -480,8 +231,8 @@ def router(deps: AppDeps) -> APIRouter:
                         session_updated = append_assistant_message(session, assistant)
                         try:
                             save(session_updated)
-                            trace_state["record"]["assistant_saved"] = True
-                            trace_state["record"]["assistant_message_index"] = len(session_updated["messages"]) - 1
+                            trace.record["assistant_saved"] = True
+                            trace.record["assistant_message_index"] = len(session_updated["messages"]) - 1
                         except Exception as exc:  # noqa: BLE001 - record failed answer persistence before releasing the lease
                             save_failure = exc
                             outcome.update(
@@ -495,7 +246,7 @@ def router(deps: AppDeps) -> APIRouter:
                                 },
                             )
                             logger.error("Assistant save failed for query %s (%s)", trace_id, type(exc).__name__)
-                    if not trace_state["done"] and not trace_finalize_failed:
+                    if not trace.done and not trace_finalize_failed:
                         try:
                             persist_trace(
                                 outcome["status"],
@@ -503,8 +254,8 @@ def router(deps: AppDeps) -> APIRouter:
                                 error=outcome["error"],
                                 output_chars=len(assistant["content"]),
                                 thinking_chars=len(assistant["thinking"]),
-                                assistant_saved=complete or trace_state["record"].get("assistant_saved", False),
-                                assistant_message_index=trace_state["record"].get("assistant_message_index"),
+                                assistant_saved=complete or trace.record.get("assistant_saved", False),
+                                assistant_message_index=trace.record.get("assistant_message_index"),
                                 generation_ms=duration((time.monotonic() - generation_started) * 1000),
                                 first_output_ms=duration((first_output - started) * 1000) if first_output else None,
                             )
@@ -669,15 +420,15 @@ def router(deps: AppDeps) -> APIRouter:
                                 selected_file_ids=set(evidence_scope),
                                 max_sources=MAX_SOURCE_REFERENCES,
                             )
-                            trace_state["record"] = retrieval_fields(
-                                trace_state["record"],
+                            trace.record = retrieval_fields(
+                                trace.record,
                                 selected_file_ids=list(dict.fromkeys(body.file_ids)),
                                 search_result={**latest_search_result, "hits": list(combined_hits)},
                                 retained_ids={item["chunk_id"] for item in final_plan["citations"]},
                                 citations=final_plan["citations"],
                                 retrieval_ms=total_retrieval_ms,
                             )
-                            trace_state["record"]["evidence_search"] = dict(metadata)
+                            trace.record["evidence_search"] = dict(metadata)
                             continue
                         if workflow_event.kind == "done":
                             metadata = dict(workflow_event.metadata or {})
@@ -745,8 +496,8 @@ def router(deps: AppDeps) -> APIRouter:
                             merged_context,
                         )
                         save(session_updated)
-                        trace_state["record"]["assistant_saved"] = True
-                        trace_state["record"]["assistant_message_index"] = len(session_updated["messages"]) - 1
+                        trace.record["assistant_saved"] = True
+                        trace.record["assistant_message_index"] = len(session_updated["messages"]) - 1
                         complete = True
                         trace_updates = {
                             "actual_model": actual_model,

@@ -88,11 +88,15 @@ class GraphRun:
 
     def _ensure_task(self) -> asyncio.Task[dict[str, Any]]:
         if self._task is None:
+            if self._cancelled:
+                raise asyncio.CancelledError("graph run was cancelled")
             self._task = asyncio.create_task(self._execute())
         return self._task
 
     async def events(self) -> AsyncIterator[Mapping[str, Any]]:
         """Yield queued graph events, then terminal events after the graph task completes."""
+        if self._cancelled and self._task is None:
+            return
         task = self._ensure_task()
         getter: asyncio.Task[Mapping[str, Any]] | None = None
         try:
@@ -133,6 +137,8 @@ class GraphRun:
 
     async def result(self) -> dict[str, Any]:
         """Return the graph output after awaiting completion."""
+        if self._cancelled and self._task is None:
+            raise asyncio.CancelledError("graph run was cancelled")
         task = self._ensure_task()
         return await asyncio.shield(task)
 
