@@ -137,13 +137,37 @@ export const citationSchema = z.looseObject({
   assets: z.array(z.string()),
   text: z.string().nullish(),
   chunk_index: z.number().nullish(),
+  source_label: z.string().nullish(),
 });
 export type Citation = z.infer<typeof citationSchema>;
+
+export const evidenceSearchMetadataSchema = z
+  .object({
+    schema_version: z.literal(1),
+    requested: z.literal(true),
+    action: z.enum(['answer', 'search_selected', 'invalid']).nullable(),
+    outcome: z.enum(['in_progress', 'direct_answer', 'searched', 'invalid_action_fallback', 'error', 'cancelled']),
+    generation_count: z.number().int().nonnegative(),
+    lookup_count: z.number().int().nonnegative(),
+    initial_available_chunk_ids: z.array(z.string()),
+    initial_chunk_ids: z.array(z.string()),
+    returned_chunk_ids: z.array(z.string()),
+    new_chunk_ids: z.array(z.string()),
+    retained_new_chunk_ids: z.array(z.string()),
+    final_chunk_ids: z.array(z.string()),
+    declared_source_labels: z.array(z.string()),
+    search_mode: retrievalTraceModeSchema.nullable(),
+    search_warning: z.string().nullable(),
+    warning: z.string().nullable(),
+  })
+  .strict();
+export type EvidenceSearchMetadata = z.infer<typeof evidenceSearchMetadataSchema>;
 
 export const messageRetrievalSchema = z.looseObject({
   mode: retrievalTraceModeSchema,
   warning: z.string().nullish(),
   citations: z.array(citationSchema),
+  evidence_search: evidenceSearchMetadataSchema.nullish(),
 });
 export type MessageRetrieval = z.infer<typeof messageRetrievalSchema>;
 
@@ -272,6 +296,11 @@ export const markdownResponseSchema = z.looseObject({
 export const streamEventSchema = z.discriminatedUnion('type', [
   z.looseObject({ type: z.literal('thinking'), text: z.string().nullish() }),
   z.looseObject({ type: z.literal('token'), text: z.string().nullish() }),
+  z.looseObject({
+    type: z.literal('evidence_status'),
+    stage: z.enum(['deciding', 'searching', 'answering']),
+    warning: z.string().nullish(),
+  }),
   z.looseObject({
     type: z.literal('done'),
     context: contextSchema.nullish(),

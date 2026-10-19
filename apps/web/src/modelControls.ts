@@ -73,6 +73,7 @@ export function chatRequest(
   preferences: Record<string, boolean | string>,
   message: string,
   fileIds: string[],
+  extraSearch = false,
 ) {
   return {
     message,
@@ -80,5 +81,6 @@ export function chatRequest(
     model: settings.model,
     think: thinkingValue(model, preferences),
     context_limit: settings.context_limit,
+    ...(extraSearch ? { extra_search: true } : {}),
   };
 }
