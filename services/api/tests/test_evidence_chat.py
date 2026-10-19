@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
 import json
 
@@ -645,3 +646,61 @@ def test_opted_in_cv_off_does_not_read_corrupt_cv_text(tmp_path):
     assert response.status_code == 200
     assert len(model.calls) == 1
     assert "DO-NOT-READ-CV-TEXT" not in json.dumps(model.calls, ensure_ascii=False)
+
+
+def test_followup_image_uses_selected_model_vision_even_when_initial_search_is_empty(tmp_path):
+    class VisionModel(EvidenceModel):
+        def __init__(self):
+            super().__init__(
+                [json.dumps({"action": "search_selected", "answer": "", "source_labels": [], "query": "figure"})]
+            )
+            self.model_list_calls = 0
+
+        async def list_models(self):
+            self.model_list_calls += 1
+            return {"models": [{"id": "local", "vision": True}]}
+
+    png = (
+        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+        b"\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\xcf\xc0\x00\x00"
+        b"\x03\x01\x01\x00\xc9\xfe\x92\xef\x00\x00\x00\x00IEND\xaeB`\x82"
+    )
+    model = VisionModel()
+    app = _app(tmp_path, model)
+    client = TestClient(app)
+    topic, record = _topic_with_index(client)
+    asset_path = app.state.deps.store.file_path(topic, "figure.png")
+    asset_path.write_bytes(png)
+    from lab.index import TopicIndex
+
+    with TopicIndex(app.state.deps.store.file_path(topic, "retrieval.sqlite")) as index:
+        indexed = index.get_chunks(file_ids=[record["id"]])
+        indexed[0]["asset_ids"] = ["figure.png"]
+        index.replace_file(record["id"], indexed)
+    retrieve_calls = 0
+
+    async def empty_then_image(store, selected_topic, query, *, file_ids, limit, embedding_model, embedder):
+        nonlocal retrieve_calls
+        retrieve_calls += 1
+        if retrieve_calls == 1:
+            return {"hits": [], "mode": "none"}
+        with TopicIndex(store.file_path(selected_topic, "retrieval.sqlite")) as index:
+            chunk = index.get_chunks(file_ids=file_ids)[0]
+        return {"hits": [chunk], "mode": "hybrid"}
+
+    app.state.deps.retriever = empty_then_image
+    response = client.post(
+        f"/api/topics/{topic}/chat",
+        json={
+            "message": "Explain the figure.",
+            "file_ids": [record["id"]],
+            "model": "local",
+            "extra_search": True,
+        },
+    )
+
+    assert response.status_code == 200
+    assert retrieve_calls == 2
+    assert model.model_list_calls == 1
+    final_messages = model.calls[-1]["messages"]
+    assert any(message.get("images") == [base64.b64encode(png).decode("ascii")] for message in final_messages)
