@@ -22,3 +22,52 @@ Date started: 20 October 2026. Consolidated, coordinator-maintained checkpoint r
 | 15a. Summary/prerequisite seams | `b75d110` | Removed the legacy active-summary dict and `_LegacyActiveRegistration`; registration callbacks are now required. Removed the `write_attempt` injections; workflows call the store writers directly, and tests patch the real lookup sites. Kept the clock/ID factories, which have production defaults. Only fixture and monkeypatch wiring changed in older suites; no assertion line changed. | Summary/prerequisite suites 94 passed; full suite green. |
 | 15b. Evidence helpers, mechanical | `db965b3` | 18 pure helpers/constants moved verbatim from `lab/evidence_turn.py` to `lab/evidence_result.py`; private names used across modules became public. No other change. | AST proof (local `gate15_ast_proof.py`): 18/18 definitions equivalent after renaming; full suite 844 + 21. |
 | 15c. Legacy orchestration removed | gate-15c commit | Deleted `lab/evidence_turn.py` and `tests/test_evidence_turn.py`. Each old test is migrated to `test_workflow_chat_evidence_graph.py` or HTTP opt-in tests; the per-test map is in the coordinator review. Chat prompt-builder and trace-finalizer seams removed: workflows call the owning modules, and a new engineering check plus an AST test forbid any `lab.web` import under `lab/workflows`, including function-level imports. **Review caught a second opt-in regression in the migration:** a final provider stream ending without `done` was recorded as `cancelled` with no client error. Restored to the baseline (`error` event, outcome `error`, trace `incomplete_answer`), and the migrated test was restored to the legacy expectation. Lookup errors again skip the merge; the final chunk IDs are applied only after the final stream opens. **Characterization file:** two approved wiring-only edits (an import path for two message constants; one monkeypatch target, `lab.query_traces.finalize`), with no assertion changed. | Differential HTTP harness (local `optin_parity_harness.py`), 18 opt-in scenarios × baseline `3136086` vs new: 18/18 identical after normalizing timings and random IDs. Full suite 845 + 21. |
+| 16. Verification and docs | `d2a6d95`, gate-16 commit | Summary router now declares its destinations, so the compiled topology draws both branches. New [workflow study path](../../workflows.md), with Mermaid transcribed from the compiled graphs; architecture, extra-search, proficiency, R1 snapshot and system map reconciled. | See the completion summary below. |
+
+## Completion summary
+
+The pivot is complete on `dev`. Chat (ordinary and opt-in extra search), section summaries and prerequisites run as request-scoped LangGraph admission and execution graphs. `lab/evidence_turn.py` and the legacy orchestration seams are deleted. Nothing under `lab/workflows` imports `lab.web`.
+
+**Verification (coordinator, gate 16).**
+
+- Static and unit checks: engineering check, Ruff (both configurations), Python format, web lint and format, backend 845 passed plus 21 subtests, web 236, production build, and `verify_workspace` (see the final gate run in the gate-16 commit message).
+- The OpenAPI schema is byte-identical to the pre-pivot baseline (37 paths).
+- Real isolated browser journey (headless Chromium; Docling; `qwen3.5:4b-q8_0`; public Janus-Pro PDF; disposable workspace and synthetic CV). Each step below was observed:
+  - upload: 13 pages, hybrid index;
+  - ordinary chat with 6 sources;
+  - opt-in direct answer, and an opt-in search ("added 3 new passages");
+  - Stop: incomplete answer and a cancelled trace;
+  - document map built, then the Conclusion summary generated and imported;
+  - CV selected, then prerequisites generated.
+  - The server log had no 5xx responses, no tracebacks and no LangSmith traffic.
+- Timing against baseline `dd9774d` on the same model:
+  - Header latency was 0.35–0.44 s on both.
+  - With fresh sessions, first-token latency was 7.2–7.9 s on both.
+  - Streaming rate was 121–124 chars/s new versus 121–130 baseline.
+  - In the sequential same-session runs, the new server's first token was about 0.6 s later. Each new run followed a baseline run, so it had a longer history. That ordering confounds the comparison; it does not show graph overhead.
+  - These are single-machine observations, not a benchmark.
+
+**Deviations from the plan.**
+
+- The chat event sink has capacity 1 rather than a larger buffer. This preserves the pre-pivot backpressure on token delivery.
+- Chat publication is split into prepare (graph) and commit (request path, on delivery); see gate 7 and the amended contract.
+- Two wiring-only edits to the frozen characterization file were approved (gate 15c).
+
+**Regressions caught by review and fixed before push.**
+
+- Final-token disconnect saved a complete answer: gates 7–10.
+- Opt-in missing `done` was recorded as cancelled: gate 15c.
+- `cancel_and_wait` swallowed caller cancellation: fixed in the gate-7 review.
+
+**Limits.**
+
+- No checkpointer, interrupts, tools, approvals or restart recovery.
+- Answer quality and semantic claim support are not assessed.
+- The differential harness covers 18 scripted opt-in scenarios, not every provider failure timing.
+
+**Pre-existing defect found during browser use, not caused by the pivot.** Clicking Stop with the mouse before response headers arrive can submit the form again and return `409 topic_busy`.
+
+- How it happens: the aborted fetch rejects first. React then restores the draft and re-renders the same button as `type="submit"`, before the click's activation behavior runs.
+- What the user sees: "signal is aborted without reason", and the turn disappears from the UI. The server, meanwhile, has saved the user message and records the turn as cancelled.
+- The Vite dev proxy delays headers until about the first token, which widens the window.
+- This is left for a separate fix.

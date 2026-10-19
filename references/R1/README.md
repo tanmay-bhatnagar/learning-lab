@@ -1,6 +1,6 @@
 # R1 current state
 
-Completion status reconciled with the ordered roadmap on 5 October 2026; historical validation is labeled below. The [interactive system map](system-map.html) has two layers; select a block to see its components. [Editable diagram source](system-map.fragment.html). The full ordered plan remains in [R1.md](../../../R1.md).
+Completion status reconciled with the ordered roadmap on 20 October 2026; historical validation is labeled below. The [interactive system map](system-map.html) has two layers; select a block to see its components. [Editable diagram source](system-map.fragment.html). The full ordered plan remains in [R1.md](../../../R1.md).
 
 ## Built
 
@@ -13,13 +13,16 @@ Completion status reconciled with the ordered roadmap on 5 October 2026; histori
 - Multiple saved conversations per topic, developer query traces, and a three-public-paper retrieval/trace baseline with simulated generation.
 - Shared runtime learning policy loaded before every chat and section-summary request, independent of selected model; visible policy-read and context-fit failures.
 - On-demand single-PDF outlines, complete-section local summaries, source inspection, and immutable imports into the selected existing main conversation. [Implementation and decision history](../../docs/reports/document-map/2026_10_05_document_map_implementation.md).
+- Personalized section prerequisites from a selected CV, and optional per-message extra document search (one app-executed lookup at most) in chat. See [proficiency](../../docs/proficiency.md) and [extra document search](../../docs/evidence_search.md).
+- Request-scoped LangGraph admission and execution graphs for chat, section summaries and prerequisites, with unchanged HTTP contracts. See the [workflow study path](../../docs/workflows.md).
 
 ## R1 still to build
 
+Order 6 (inferred prerequisites) is complete. The LangGraph part of orders 7–8 is complete; graphs are request-scoped with no checkpointer, tools or interrupts.
+
 | Order | Work |
 | --- | --- |
-| 6 | Inferred prerequisites; the approved on-demand outline/summary/import increment is implemented. |
-| 7–8 | LangGraph workflow, retrieval tools, tool-call validation and scoped approvals. |
+| 7–8 | Retrieval tools, tool-call validation and scoped approvals on the LangGraph workflows. |
 | 9–10 | Understanding checks, topic progress memory and restart recovery. |
 | 11–12 | Full R1 acceptance demonstration, then context compaction. |
 

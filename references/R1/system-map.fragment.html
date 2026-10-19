@@ -69,15 +69,15 @@
       ['Vision input path','partial','Retrieved figure images for vision-capable models'],
       ['Shared learning policy loading','built','Read full configured AGENTS.md before each chat and summary; fail visibly'],
       ['Mac + Jetson split','planned','Decide placement after model/latency tests']]},
-    {id:'agent', title:'Agent workflow', status:'planned', x:456, y:245, parts:[
-      ['LangGraph state machine','planned','Route, retrieve, reason, respond'],
+    {id:'agent', title:'Agent workflow', status:'partial', x:456, y:245, parts:[
+      ['LangGraph state machine','built','Request-scoped admission and execution graphs for chat, summaries and prerequisites'],
       ['Retrieval tools','planned','Search and read neighbouring chunks'],
       ['Tool-call validation','planned','Check schema, topic scope and limits'],
       ['Interrupt & approval','planned','Pause before actions outside the topic'],
       ['Restart checkpoint','planned','Resume an interrupted workflow']]},
     {id:'learning', title:'Learning functions', status:'partial', x:236, y:245, parts:[
-      ['Explain & investigate','partial','Basic grounded chat exists; agent tools remain'],
-      ['Map the material','partial','On-demand sections and cited summaries built; inferred prerequisites pending'],
+      ['Explain & investigate','partial','Grounded chat with optional extra document search; agent tools remain'],
+      ['Map the material','built','On-demand sections, cited summaries and personalized prerequisites'],
       ['Check understanding','planned','Ask, assess, hint, save attempts'],
       ['Coding experiments','planned','Later release: controlled code tools'],
       ['Web research','planned','Later release: external sources with provenance']]},
