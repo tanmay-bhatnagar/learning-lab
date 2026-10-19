@@ -705,6 +705,69 @@ def test_stopping_at_deciding_stage_closes_the_created_gateway_iterator():
     asyncio.run(scenario())
 
 
+def test_initial_sources_are_not_reported_supplied_before_gateway_factory_returns():
+    initial = _chunk("initial-1", "Prepared initial passage.")
+    gateway = ScriptedGateway([[_token(_answer_action("Supported answer.")), _done()]])
+
+    async def scenario():
+        workflow = _workflow(gateway, initial_chunks=[initial])
+        prepared = await anext(workflow)
+        assert prepared.stage == "deciding"
+        assert prepared.metadata["initial_available_chunk_ids"] == ["initial-1"]
+        assert prepared.metadata["initial_chunk_ids"] == []
+        assert prepared.metadata["final_chunk_ids"] == []
+        dispatched = await anext(workflow)
+        assert dispatched.stage == "deciding"
+        assert dispatched.metadata["generation_count"] == 1
+        assert dispatched.metadata["initial_chunk_ids"] == ["initial-1"]
+        assert dispatched.metadata["final_chunk_ids"] == ["initial-1"]
+        await workflow.aclose()
+
+    asyncio.run(scenario())
+    assert len(gateway.calls) == 1
+
+
+def test_initial_snapshot_conflict_does_not_claim_prepared_sources_were_supplied():
+    initial = _chunk("initial-1", "Prepared initial passage.")
+    gateway = ScriptedGateway([[_token("unused"), _done()]])
+    revalidated: list[tuple[str, ...]] = []
+
+    def revalidate(sources, *, supplied_images):
+        revalidated.append(tuple(source["chunk_id"] for source in sources))
+        raise Conflict("snapshot changed")
+
+    events = asyncio.run(_collect(_workflow(gateway, initial_chunks=[initial], revalidate=revalidate)))
+
+    error = next(event for event in events if event.kind == "error")
+    assert revalidated == [("initial-1",)]
+    assert gateway.calls == []
+    assert error.metadata["generation_count"] == 0
+    assert error.metadata["initial_available_chunk_ids"] == ["initial-1"]
+    assert error.metadata["initial_chunk_ids"] == []
+    assert error.metadata["final_chunk_ids"] == []
+
+
+def test_initial_gateway_factory_failure_counts_attempt_without_claiming_sources():
+    initial = _chunk("initial-1", "Prepared initial passage.")
+
+    class Gateway:
+        calls = 0
+
+        def stream_chat(self, *_args, **_kwargs):
+            self.calls += 1
+            raise RuntimeError("private gateway failure")
+
+    gateway = Gateway()
+    events = asyncio.run(_collect(_workflow(gateway, initial_chunks=[initial])))
+
+    error = next(event for event in events if event.kind == "error")
+    assert gateway.calls == 1
+    assert error.metadata["generation_count"] == 1
+    assert error.metadata["initial_available_chunk_ids"] == ["initial-1"]
+    assert error.metadata["initial_chunk_ids"] == []
+    assert error.metadata["final_chunk_ids"] == []
+
+
 def test_final_plan_event_follows_gateway_dispatch_and_counts_the_attempt():
     action = json.dumps({"action": "search_selected", "answer": "", "source_labels": [], "query": "details"})
     gateway = ScriptedGateway([[_token(action), _done()], [_token("unused"), _done()]])
