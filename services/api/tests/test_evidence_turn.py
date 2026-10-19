@@ -8,6 +8,7 @@ import json
 
 import pytest
 
+from lab.errors import Conflict
 from lab.evidence_request import MAX_ACTION_BYTES, SourceImageReference, build_source_manifest
 
 

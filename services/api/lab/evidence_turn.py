@@ -111,8 +111,6 @@ async def run_evidence_turn(
     state = {
         **_initial_outcomes(),
         "initial_available_chunk_ids": [str(source["chunk_id"]) for source in initial_available],
-        "initial_chunk_ids": [str(source["chunk_id"]) for source in initial_retained],
-        "final_chunk_ids": [str(source["chunk_id"]) for source in initial_retained],
     }
 
     yield _stage("deciding", state)
@@ -137,6 +135,8 @@ async def run_evidence_turn(
         state["outcome"] = "error"
         yield _error("provider_failed", _PROVIDER_ERROR, state)
         return
+    state["initial_chunk_ids"] = [str(source["chunk_id"]) for source in initial_retained]
+    state["final_chunk_ids"] = list(state["initial_chunk_ids"])
     try:
         yield _stage("deciding", state)
         first = await _consume_decision(decision_stream)
