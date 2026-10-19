@@ -261,20 +261,23 @@ def router(deps: AppDeps) -> APIRouter:
             search_result: dict[str, object] = {"hits": [], "mode": "none"}
             path = deps.store.file_path(topic, "retrieval.sqlite")
             retrieval_started = time.monotonic()
-            if path.exists() and indexed_ids:
+            search_file_ids = list(evidence_scope) if body.extra_search else indexed_ids
+            if path.exists() and search_file_ids:
                 search_fn = deps.retriever or search
                 search_result = await search_fn(
                     deps.store,
                     topic,
                     body.message,
-                    file_ids=indexed_ids,
+                    file_ids=search_file_ids,
                     limit=current.retrieval_top_k,
                     embedding_model=current.embedding_model,
                     embedder=deps.embedder(),
                 )
-            elif indexed_ids:
+            elif search_file_ids:
                 names = ", ".join(
-                    record["name"] for record in selected_records if record.get("index_status") == "ready"
+                    record["name"]
+                    for record in (context["files"] if body.extra_search else selected_records)
+                    if record.get("index_status") == "ready"
                 )
                 raise Conflict(
                     f"Indexed evidence is unavailable for {names}: the topic retrieval index is missing. "
@@ -432,11 +435,6 @@ def router(deps: AppDeps) -> APIRouter:
             with CancelScope(shield=True):
                 try:
                     save_failure: BaseException | None = None
-                    if body.extra_search and not complete:
-                        assert isinstance(evidence_metadata, dict)
-                        incomplete_metadata = dict(evidence_metadata)
-                        incomplete_metadata["outcome"] = "cancelled" if outcome["status"] == "cancelled" else "error"
-                        update_evidence_metadata(incomplete_metadata)
                     if stream is not None and hasattr(stream, "aclose"):
                         try:
                             await stream.aclose()
@@ -453,6 +451,13 @@ def router(deps: AppDeps) -> APIRouter:
                             )
                             logger.error("Chat stream cleanup failed for %s (%s)", trace_id, type(exc).__name__)
                     if not complete:
+                        if body.extra_search:
+                            assert isinstance(evidence_metadata, dict)
+                            incomplete_metadata = dict(evidence_metadata)
+                            incomplete_metadata["outcome"] = (
+                                "cancelled" if outcome["status"] == "cancelled" else "error"
+                            )
+                            update_evidence_metadata(incomplete_metadata)
                         assistant["incomplete"] = True
                         session_updated = append_assistant_message(session, assistant)
                         try:
@@ -520,7 +525,7 @@ def router(deps: AppDeps) -> APIRouter:
                             embedding_model=current.embedding_model,
                             embedder=deps.embedder(),
                         )
-                        total_retrieval_ms += time.monotonic() - lookup_started
+                        total_retrieval_ms += (time.monotonic() - lookup_started) * 1000
                         return latest_search_result
 
                     def build_final(
@@ -653,6 +658,8 @@ def router(deps: AppDeps) -> APIRouter:
                             trace_state["record"]["evidence_search"] = dict(metadata)
                             continue
                         if workflow_event.kind == "done":
+                            metadata = dict(workflow_event.metadata or {})
+                            update_evidence_metadata(metadata)
                             event = {
                                 "type": "done",
                                 "model": workflow_event.model,

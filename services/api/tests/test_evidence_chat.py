@@ -126,6 +126,38 @@ def _retriever(calls):
     return retrieve
 
 
+def _search_retriever(calls):
+    async def retrieve(store, topic, query, *, file_ids, limit, embedding_model, embedder):
+        calls.append((query, tuple(file_ids)))
+        record = store.file(topic, file_ids[0])
+        text = (
+            "Calibration\nThe calibration value is exactly 42."
+            if len(calls) == 1
+            else "Validation\nThe validation value is exactly 84."
+        )
+        chunk_index = 0 if len(calls) == 1 else 1
+        return {
+            "hits": [
+                {
+                    "chunk_id": f"{record['id']}:text:{chunk_index:06d}",
+                    "file_id": record["id"],
+                    "file_name": record["name"],
+                    "chunk_index": chunk_index,
+                    "text": text,
+                    "headings": ["Calibration" if chunk_index == 0 else "Validation"],
+                    "pages": [1],
+                    "bboxes": [],
+                    "asset_ids": [],
+                    "content_hash": hashlib.sha256(text.encode()).hexdigest(),
+                    "trace": {},
+                }
+            ],
+            "mode": "hybrid",
+        }
+
+    return retrieve
+
+
 def test_chat_input_exposes_a_strict_opt_in_flag():
     from lab.web.schemas import ChatInput
 
@@ -203,3 +235,118 @@ def test_opted_out_chat_keeps_legacy_single_generation_without_status(tmp_path):
     assert model.calls[0]["response_schema"] is None
     assert all(event["type"] != "evidence_status" for event in events)
     assert "evidence_search" not in events[-1]["retrieval"]
+
+
+def test_search_action_uses_only_captured_selection_and_saves_actual_evidence(tmp_path):
+    model = EvidenceModel(
+        [
+            json.dumps(
+                {
+                    "action": "search_selected",
+                    "answer": "",
+                    "source_labels": [],
+                    "query": "validation value",
+                }
+            )
+        ]
+    )
+    calls = []
+    app = _app(tmp_path, model)
+    app.state.deps.retriever = _search_retriever(calls)
+    client = TestClient(app)
+    topic, record = _topic_with_index(client)
+
+    response = client.post(
+        f"/api/topics/{topic}/chat",
+        json={
+            "message": "What value was validated?",
+            "file_ids": [record["id"]],
+            "model": "local",
+            "extra_search": True,
+        },
+    )
+
+    events = [json.loads(line) for line in response.text.splitlines()]
+    done = events[-1]
+    metadata = done["retrieval"]["evidence_search"]
+    assert response.status_code == 200
+    assert [event["stage"] for event in events if event["type"] == "evidence_status"] == [
+        "deciding",
+        "searching",
+        "answering",
+    ]
+    assert [call["response_schema"] is not None for call in model.calls] == [True, False]
+    assert calls == [
+        ("What value was validated?", (record["id"],)),
+        ("validation value", (record["id"],)),
+    ]
+    assert done["type"] == "done"
+    assert metadata["outcome"] == "searched"
+    assert metadata["lookup_count"] == 1
+    assert metadata["new_chunk_ids"] == [f"{record['id']}:text:000001"]
+    assert metadata["retained_new_chunk_ids"] == [f"{record['id']}:text:000001"]
+    assert metadata["final_chunk_ids"] == [
+        f"{record['id']}:text:000000",
+        f"{record['id']}:text:000001",
+    ]
+    assert [citation["chunk_id"] for citation in done["retrieval"]["citations"]] == metadata["final_chunk_ids"]
+    trace = client.get(f"/api/topics/{topic}/query-traces").json()["traces"][0]
+    assert trace["evidence_search"] == metadata
+    assert trace["retained_chunk_ids"] == metadata["final_chunk_ids"]
+
+
+def test_invalid_structured_action_falls_back_to_one_ordinary_answer(tmp_path):
+    model = EvidenceModel(["not valid structured output"])
+    app = _app(tmp_path, model)
+    app.state.deps.retriever = _retriever([])
+    client = TestClient(app)
+    topic, record = _topic_with_index(client)
+
+    response = client.post(
+        f"/api/topics/{topic}/chat",
+        json={
+            "message": "Explain the value.",
+            "file_ids": [record["id"]],
+            "model": "local",
+            "extra_search": True,
+        },
+    )
+
+    events = [json.loads(line) for line in response.text.splitlines()]
+    done = events[-1]
+    assert response.status_code == 200
+    assert len(model.calls) == 2
+    assert [event["stage"] for event in events if event["type"] == "evidence_status"] == [
+        "deciding",
+        "answering",
+    ]
+    assert done["type"] == "done"
+    assert done["retrieval"]["evidence_search"]["outcome"] == "invalid_action_fallback"
+    assert done["retrieval"]["evidence_search"]["warning"]
+
+
+def test_named_conversation_supports_the_same_explicit_opt_in(tmp_path):
+    model = EvidenceModel(
+        [json.dumps({"action": "answer", "answer": "Grounded in E1.", "source_labels": ["E1"], "query": ""})]
+    )
+    app = _app(tmp_path, model)
+    app.state.deps.retriever = _retriever([])
+    client = TestClient(app)
+    topic, record = _topic_with_index(client)
+    conversation = client.post(f"/api/topics/{topic}/conversations", json={"title": "Evidence"}).json()["id"]
+
+    response = client.post(
+        f"/api/topics/{topic}/conversations/{conversation}/chat",
+        json={
+            "message": "What does E1 say?",
+            "file_ids": [record["id"]],
+            "model": "local",
+            "extra_search": True,
+        },
+    )
+
+    done = [json.loads(line) for line in response.text.splitlines()][-1]
+    assert response.status_code == 200
+    assert done["retrieval"]["evidence_search"]["outcome"] == "direct_answer"
+    saved = client.get(f"/api/topics/{topic}/conversations/{conversation}/messages").json()["messages"]
+    assert saved[-1]["retrieval"] == done["retrieval"]
