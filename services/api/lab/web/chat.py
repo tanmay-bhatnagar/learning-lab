@@ -295,7 +295,7 @@ def router(deps: AppDeps) -> APIRouter:
             if body.extra_search:
                 trace_state["record"]["evidence_search"] = _empty_evidence_search()
             vision = False
-            if search_result.get("hits"):
+            if search_result.get("hits") or body.extra_search:
                 try:
                     available = await deps.model_backend.list_models()
                     vision = any(

@@ -704,3 +704,147 @@ def test_followup_image_uses_selected_model_vision_even_when_initial_search_is_e
     assert model.model_list_calls == 1
     final_messages = model.calls[-1]["messages"]
     assert any(message.get("images") == [base64.b64encode(png).decode("ascii")] for message in final_messages)
+
+
+def test_opted_in_final_provider_close_failure_is_saved_as_incomplete(tmp_path):
+    class CloseFailureModel(EvidenceModel):
+        def stream_chat(
+            self,
+            messages,
+            model,
+            think=None,
+            context_limit=8192,
+            context_metadata=None,
+            *,
+            generation_lock,
+            response_schema=None,
+        ):
+            if response_schema is not None:
+                return super().stream_chat(
+                    messages,
+                    model,
+                    think,
+                    context_limit,
+                    context_metadata,
+                    generation_lock=generation_lock,
+                    response_schema=response_schema,
+                )
+            self.calls.append({"messages": messages, "response_schema": None})
+
+            async def stream():
+                async with generation_lock:
+                    try:
+                        yield {"type": "token", "text": "Partial answer."}
+                        yield {"type": "done", "model": model, "context": {"used": 10, "limit": context_limit}}
+                    finally:
+                        raise RuntimeError("private close failure")
+
+            return stream()
+
+    model = CloseFailureModel(
+        [json.dumps({"action": "search_selected", "answer": "", "source_labels": [], "query": "more detail"})]
+    )
+    app = _app(tmp_path, model)
+    app.state.deps.retriever = _retriever([])
+    client = TestClient(app)
+    topic, record = _topic_with_index(client)
+
+    response = client.post(
+        f"/api/topics/{topic}/chat",
+        json={
+            "message": "Explain this source.",
+            "file_ids": [record["id"]],
+            "model": "local",
+            "extra_search": True,
+        },
+    )
+
+    events = [json.loads(line) for line in response.text.splitlines()]
+    saved = client.get(f"/api/topics/{topic}/messages").json()["messages"][-1]
+    trace = client.get(f"/api/topics/{topic}/query-traces").json()["traces"][0]
+    assert events[-1]["type"] == "error"
+    assert "private close failure" not in response.text
+    assert saved.get("incomplete") is True
+    assert saved["content"] == "Partial answer."
+    assert saved["retrieval"]["evidence_search"]["outcome"] == "error"
+    assert trace["status"] == "error"
+    assert not app.state.deps.locks[topic].locked()
+
+
+def test_opted_in_trace_finalize_failure_is_reported_after_answer_save(tmp_path, monkeypatch):
+    import lab.web.chat as chat_module
+
+    def fail_finalize(*_args, **_kwargs):
+        raise OSError("private trace store detail")
+
+    monkeypatch.setattr(chat_module, "finalize_trace", fail_finalize)
+    model = EvidenceModel(
+        [json.dumps({"action": "answer", "answer": "Grounded.", "source_labels": ["E1"], "query": ""})]
+    )
+    app = _app(tmp_path, model)
+    app.state.deps.retriever = _retriever([])
+    client = TestClient(app, raise_server_exceptions=False)
+    topic, record = _topic_with_index(client)
+
+    response = client.post(
+        f"/api/topics/{topic}/chat",
+        json={
+            "message": "Explain this source.",
+            "file_ids": [record["id"]],
+            "model": "local",
+            "extra_search": True,
+        },
+    )
+
+    saved = client.get(f"/api/topics/{topic}/messages").json()["messages"][-1]
+    assert response.status_code == 200
+    assert "query trace could not be finalized" in response.text
+    assert '"type": "done"' not in response.text
+    assert "private trace store detail" not in response.text
+    assert saved["content"] == "Grounded."
+    assert saved["retrieval"]["evidence_search"]["outcome"] == "direct_answer"
+    trace = client.get(f"/api/topics/{topic}/query-traces").json()["traces"][0]
+    assert trace["status"] == "started"
+
+
+def test_opted_in_assistant_save_failure_finishes_trace_and_keeps_user_turn(tmp_path):
+    model = EvidenceModel(
+        [json.dumps({"action": "answer", "answer": "Grounded.", "source_labels": ["E1"], "query": ""})]
+    )
+    app = _app(tmp_path, model)
+    app.state.deps.retriever = _retriever([])
+    original_save = app.state.deps.store.save_session
+    failed = False
+
+    def fail_once(topic, session, conversation_id="default"):
+        nonlocal failed
+        if not failed and any(message["role"] == "assistant" for message in session["messages"]):
+            failed = True
+            raise OSError("private session file detail")
+        return original_save(topic, session, conversation_id)
+
+    app.state.deps.store.save_session = fail_once
+    client = TestClient(app)
+    topic, record = _topic_with_index(client)
+
+    response = client.post(
+        f"/api/topics/{topic}/chat",
+        json={
+            "message": "Explain this source.",
+            "file_ids": [record["id"]],
+            "model": "local",
+            "extra_search": True,
+        },
+    )
+
+    events = [json.loads(line) for line in response.text.splitlines()]
+    messages = client.get(f"/api/topics/{topic}/messages").json()["messages"]
+    trace = client.get(f"/api/topics/{topic}/query-traces").json()["traces"][0]
+    assert response.status_code == 200
+    assert events[-1]["type"] == "error"
+    assert "private session file detail" not in response.text
+    assert [message["role"] for message in messages[-2:]] == ["user", "assistant"]
+    assert messages[-1].get("incomplete") is True
+    assert messages[-1]["retrieval"]["evidence_search"]["outcome"] == "error"
+    assert trace["status"] == "error"
+    assert trace["assistant_saved"] is True
