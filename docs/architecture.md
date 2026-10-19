@@ -1,6 +1,6 @@
 # Architecture and ownership
 
-Current backend state on `dev` as of 19 October 2026; the optional extra-search browser controls are still being implemented. See the [interactive R1 map](../references/R1/system-map.html) for the system and its planned blocks, and the [R1 snapshot](../references/R1/README.md) for validation and remaining work.
+Current implementation on `dev` as of 19 October 2026 includes optional per-message extra document search. See the [interactive R1 map](../references/R1/system-map.html) for the system and its planned blocks, and the [R1 snapshot](../references/R1/README.md) for validation and remaining work.
 
 ## Runtime path
 
@@ -50,7 +50,7 @@ Personal topics and their PDFs live in `../Learning/<topic>/`, outside this Git 
 - Chat requests produce local diagnostic metadata in `query_traces.sqlite`, including rejection, completion, error and cancellation outcomes. A bounded topic-scoped developer API exposes records; no new learner screen or external telemetry is involved. [Trace contract](query_traces.md). The [retrieval evaluation suite](../evals/retrieval/README.md) measures source-anchor coverage, retrieval and retained evidence while checking trace consistency. Generation is simulated; answer quality is unassessed.
 - Indexed Docling files support keyword and local embedding retrieval with a trace. Cited evidence is limited to passages retained in the model prompt. Saved citation page links open the topic-scoped original PDF at the cited page when supported by the browser viewer; invalid or out-of-range targets are shown unavailable.
 - Each topic can store a validated user-authored learning goal. Chat supplies it as learning context, separate from retrieved evidence. Extraction diagnostics persist parser-reported failures and suspected limitations; a clean diagnostic run and legacy parser records remain fidelity-unassessed.
-- Chat defaults to one retrieval pass followed by model streaming. Explicit `extra_search:true` optionally lets the same selected model return one complete buffered answer or request one app-scoped additional document lookup and one final streamed answer. Maximum two generations/one extra lookup; no arbitrary model tools, LangGraph, repeated loop or side conversation. Browser opt-in/progress controls and full actual-application verification remain pending. See [the study walkthrough](evidence_search.md).
+- Chat defaults to one retrieval pass followed by model streaming. Explicit `extra_search:true` optionally lets the same selected model return one complete buffered answer or request one app-scoped additional document lookup and one final streamed answer. Maximum two generations/one extra lookup; no arbitrary model tools, LangGraph, repeated loop or side conversation. The browser offers per-message opt-in, separate transient progress and saved outcome disclosure alongside labeled source links. See [the study walkthrough](evidence_search.md).
 - Topic and path validation is implemented. It is not an execution sandbox for future code, browser or device tools.
 - The model adapter can send retrieved figure images to a vision-capable local model. General multimodal R2 behavior and Mac–Jetson deployment are not implemented.
 
