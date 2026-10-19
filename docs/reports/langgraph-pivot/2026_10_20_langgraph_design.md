@@ -2,7 +2,7 @@
 
 Date: 20 October 2026. Separate coordinator-filed design report from the configured design agent (`gpt-6.1-sol`, medium, read-only), following the [completed research](2026_10_20_langgraph_research.md) at `ad0ae27`. Application baseline inspected: `63d0e84`. Consolidated implementation plan: [pivot_to_langgraph.md](pivot_to_langgraph.md).
 
-The designer acknowledged the entire Code-root policy, assignment and design skill, read the research and relevant implementations, and changed no files, Git state, dependencies, services or models. This is a proposed design, not runtime proof. The coordinator has organized the handoff here and clarified that admission writes occur exactly once inside admission, not again in the HTTP adapter.
+The designer acknowledged the entire Code-root policy, assignment and design skill, read the research and relevant implementations, and changed no files, Git state, dependencies, services or models. This is a proposed design, not runtime proof. The coordinator has organized the handoff here and clarified that admission writes occur once inside admission, not again in the HTTP adapter. The consolidated plan further makes terminal emission wait for graph completion and publication, rather than emit done inside a still-running node; it also stages route cutover until every branch of that path is ready. These are coordinator integration clarifications, not claims that the designer tested those mechanisms.
 
 ## Selected architecture and alternatives
 
