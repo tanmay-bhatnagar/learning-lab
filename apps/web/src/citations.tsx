@@ -32,7 +32,11 @@ function CitationCard({
     <article className="citation-card" aria-labelledby={`citation-${citation.chunk_id}-${index}`}>
       <header className="citation-card-header">
         <h4 id={`citation-${citation.chunk_id}-${index}`}>
-          {citation.source_label && <span className="citation-source-label">{citation.source_label}</span>}
+          {citation.source_label && (
+            <>
+              <span className="citation-source-label">{citation.source_label}</span>{' '}
+            </>
+          )}
           {citation.file_name}
         </h4>
         <p className="citation-card-meta">

@@ -992,9 +992,13 @@ describe('App characterization', () => {
   });
 
   test('clears extra-search progress after a stream error', async () => {
+    let failSearch: (() => void) | undefined;
     installFakeApi({
       stream: async function* () {
         yield { type: 'evidence_status', stage: 'searching' };
+        await new Promise<void>((resolve) => {
+          failSearch = resolve;
+        });
         yield { type: 'error', message: 'Synthetic search failure.' };
       },
     });
@@ -1006,6 +1010,7 @@ describe('App characterization', () => {
     await user.click(screen.getByRole('button', { name: 'Send message' }));
 
     await screen.findByRole('status', { name: 'Extra search progress' });
+    failSearch?.();
     await waitFor(() =>
       expect(screen.queryByRole('status', { name: 'Extra search progress' })).not.toBeInTheDocument(),
     );
@@ -1053,6 +1058,8 @@ describe('App characterization', () => {
     await user.click(screen.getByRole('button', { name: 'Send message' }));
     await screen.findByRole('status', { name: 'Extra search progress' });
 
+    await user.click(screen.getByRole('button', { name: 'Stop response' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Topic B' })).toBeEnabled());
     await user.click(screen.getByRole('button', { name: 'Topic B' }));
     await waitFor(() => expect(screen.getByRole('heading', { name: 'Topic B' })).toBeInTheDocument());
     expect(screen.queryByRole('status', { name: 'Extra search progress' })).not.toBeInTheDocument();

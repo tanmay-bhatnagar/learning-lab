@@ -63,4 +63,66 @@ describe('extra-search answer presentation', () => {
     expect(screen.getByRole('heading', { name: /E2.*validation\.pdf/i })).toBeInTheDocument();
     expect(screen.getAllByRole('link', { name: 'Page 1' })).toHaveLength(2);
   });
+
+  test.each([
+    ['duplicates', 'already found for this question'],
+    ['no results', 'found no additional passages'],
+    ['trimmed', 'none fit in the final answer context'],
+  ])('describes %s without claiming source support', (_name, description) => {
+    const message = structuredClone(savedAnswer(searchCapture));
+    const metadata = message.retrieval?.evidence_search;
+    if (!metadata) throw new Error('Search capture has no saved metadata.');
+    const firstInitial = metadata.initial_available_chunk_ids[0];
+    const newId = metadata.new_chunk_ids[0];
+    if (!firstInitial || !newId) throw new Error('Search capture is missing source identities.');
+
+    if (_name === 'duplicates') {
+      metadata.returned_chunk_ids = [firstInitial];
+      metadata.new_chunk_ids = [];
+      metadata.retained_new_chunk_ids = [];
+      metadata.final_chunk_ids = [firstInitial];
+    } else if (_name === 'no results') {
+      metadata.returned_chunk_ids = [];
+      metadata.new_chunk_ids = [];
+      metadata.retained_new_chunk_ids = [];
+      metadata.final_chunk_ids = [firstInitial];
+    } else {
+      metadata.retained_new_chunk_ids = [];
+      metadata.final_chunk_ids = [firstInitial];
+    }
+
+    renderAnswer(message);
+    expect(screen.getByLabelText('Extra search summary')).toHaveTextContent(description);
+    expect(screen.getByLabelText('Extra search summary')).not.toHaveTextContent(/used|supported/i);
+  });
+
+  test.each([
+    ['cancelled', 1, 'Response stopped during an extra search after 1 search check.'],
+    ['error', 0, 'Response did not finish before an extra search.'],
+  ] as const)('reports %s using the actual number of search checks', (_outcome, checks, description) => {
+    const message = structuredClone(savedAnswer(searchCapture));
+    const metadata = message.retrieval?.evidence_search;
+    if (!metadata) throw new Error('Search capture has no saved metadata.');
+    metadata.outcome = _outcome;
+    metadata.lookup_count = checks;
+    metadata.warning = null;
+
+    renderAnswer(message);
+    expect(screen.getByLabelText('Extra search summary')).toHaveTextContent(description);
+  });
+
+  test('translates invalid-action fallback without showing internal planning warnings', () => {
+    const message = savedAnswer(searchCapture);
+    const metadata = message.retrieval?.evidence_search;
+    if (!metadata) throw new Error('Search capture has no saved metadata.');
+    metadata.outcome = 'invalid_action_fallback';
+    metadata.warning = 'The structured planning response was unusable; no additional search was performed.';
+    metadata.lookup_count = 0;
+
+    renderAnswer(message);
+    expect(screen.getByLabelText('Extra search summary')).toHaveTextContent(
+      'The extra search request could not be used, so no extra search was made.',
+    );
+    expect(screen.getByLabelText('Extra search summary')).not.toHaveTextContent(/structured planning response/i);
+  });
 });
