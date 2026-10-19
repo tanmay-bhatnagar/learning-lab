@@ -410,6 +410,70 @@ def test_disconnect_before_iteration_does_not_claim_prepared_evidence(tmp_path, 
     assert trace["evidence_search"]["final_chunk_ids"] == []
 
 
+@pytest.mark.parametrize(
+    ("stage", "action", "expected_calls", "expected_generation_count", "expected_lookup_count"),
+    [
+        ("deciding", "search_selected", 0, 0, 0),
+        ("searching", "search_selected", 1, 1, 1),
+        ("answering", "search_selected", 2, 2, 1),
+    ],
+)
+def test_disconnect_at_each_workflow_stage_saves_cancelled_metadata(
+    tmp_path, stage, action, expected_calls, expected_generation_count, expected_lookup_count
+):
+    model = EvidenceModel([json.dumps({"action": action, "answer": "", "source_labels": [], "query": "more evidence"})])
+    app = _app(tmp_path, model)
+    app.state.deps.retriever = _retriever([])
+    client = TestClient(app)
+    topic, record = _topic_with_index(client)
+    body = json.dumps(
+        {
+            "message": "Explain this source.",
+            "file_ids": [record["id"]],
+            "model": "local",
+            "extra_search": True,
+        }
+    ).encode()
+    received = False
+    observed_stages = []
+
+    async def receive():
+        nonlocal received
+        if not received:
+            received = True
+            return {"type": "http.request", "body": body, "more_body": False}
+        await asyncio.Future()
+
+    async def send(message):
+        if message["type"] == "http.response.body" and message.get("body"):
+            for raw_line in message["body"].splitlines():
+                event = json.loads(raw_line)
+                if event.get("type") == "evidence_status":
+                    observed_stages.append(event["stage"])
+                    if event["stage"] == stage:
+                        raise OSError("client stopped at workflow stage")
+
+    app.user_middleware = [item for item in app.user_middleware if item.cls.__name__ != "BaseHTTPMiddleware"]
+    app.middleware_stack = None
+    try:
+        asyncio.run(app(_chat_scope(topic, body, "2.3"), receive, send))
+    except OSError:
+        pass
+
+    assert stage in observed_stages
+    assert len(model.calls) == expected_calls
+    saved = client.get(f"/api/topics/{topic}/messages").json()["messages"]
+    assert saved[-1].get("incomplete") is True
+    metadata = saved[-1]["retrieval"]["evidence_search"]
+    assert metadata["outcome"] == "cancelled"
+    assert metadata["generation_count"] == expected_generation_count
+    assert metadata["lookup_count"] == expected_lookup_count
+    trace = client.get(f"/api/topics/{topic}/query-traces").json()["traces"][0]
+    assert trace["status"] == "cancelled"
+    assert trace["stage"] == stage
+    assert not app.state.deps.locks[topic].locked()
+
+
 def test_initial_gateway_factory_failure_does_not_claim_prepared_evidence(tmp_path):
     class FailingFactory(EvidenceModel):
         def stream_chat(

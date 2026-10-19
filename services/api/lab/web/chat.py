@@ -640,6 +640,8 @@ def router(deps: AppDeps) -> APIRouter:
                         if workflow_event.kind == "stage":
                             metadata = workflow_event.metadata or {}
                             update_evidence_metadata(metadata)
+                            if workflow_event.stage is not None:
+                                outcome["stage"] = workflow_event.stage
                             if workflow_event.stage == "deciding" and metadata.get("generation_count", 0) == 1:
                                 record_initial_supply(metadata)
                             if workflow_event.stage != last_evidence_stage:
