@@ -5,9 +5,10 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
-from anyio import CancelScope
+from anyio import CancelScope, create_task_group
 from fastapi import HTTPException, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
+from starlette.requests import ClientDisconnect
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 
@@ -52,13 +53,47 @@ class FinalizedStreamingResponse(StreamingResponse):
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         try:
-            await super().__call__(scope, receive, send)
+            spec_version = tuple(map(int, scope.get("asgi", {}).get("spec_version", "2.0").split(".")))
+            if spec_version < (2, 4):
+                await super().__call__(scope, receive, send)
+            else:
+                await self._stream_with_disconnect_listener(receive, send)
         finally:
             with CancelScope(shield=True):
                 try:
                     await self.body_iterator.aclose()
                 finally:
                     await self.on_close()
+
+    async def _stream_with_disconnect_listener(self, receive: Receive, send: Send) -> None:
+        completed = False
+        try:
+            async with create_task_group() as tasks:
+
+                async def stream_response() -> None:
+                    nonlocal completed
+                    try:
+                        await self.stream_response(send)
+                    except OSError as exc:
+                        raise ClientDisconnect() from exc
+                    else:
+                        completed = True
+                    finally:
+                        tasks.cancel_scope.cancel()
+
+                async def listen_for_disconnect() -> None:
+                    await self.listen_for_disconnect(receive)
+                    tasks.cancel_scope.cancel()
+
+                tasks.start_soon(stream_response)
+                tasks.start_soon(listen_for_disconnect)
+        except BaseExceptionGroup as group:
+            if len(group.exceptions) != 1:
+                raise
+            raise group.exceptions[0] from group
+
+        if completed and self.background is not None:
+            await self.background()
 
 
 def browser_boundary_middleware(
