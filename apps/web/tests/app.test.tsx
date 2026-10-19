@@ -36,6 +36,13 @@ async function openConversationTab(user: ReturnType<typeof userEvent.setup>) {
   await user.click(within(tabs).getByRole('button', { name: /Conversation/i }));
 }
 
+async function enableExtraSearch(user: ReturnType<typeof userEvent.setup>) {
+  await openFilesTab(user);
+  await user.click(screen.getByRole('checkbox', { name: 'Include paper-a.pdf in chat' }));
+  await openConversationTab(user);
+  await user.click(screen.getByRole('checkbox', { name: 'Allow extra search' }));
+}
+
 function fileInput() {
   return document.querySelector('input[type="file"]') as HTMLInputElement;
 }
@@ -949,6 +956,106 @@ describe('App characterization', () => {
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/Prompt does not fit/i));
     expect(composer).toHaveValue('Keep the opt-in on if preflight rejects.');
     expect(extraSearch).toBeChecked();
+  });
+
+  test('shows extra-search stages separately from thinking and clears them on completion', async () => {
+    installFakeApi({
+      stream: async function* () {
+        yield { type: 'evidence_status', stage: 'deciding' };
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        yield { type: 'thinking', text: 'private model reasoning' };
+        yield { type: 'evidence_status', stage: 'searching' };
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        yield { type: 'evidence_status', stage: 'answering' };
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        yield { type: 'token', text: 'Answer is ready.' };
+        yield { type: 'done', model: 'qwen3.5:9b-q4_K_M', retrieval: { mode: 'none', citations: [] } };
+      },
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    await waitForAppReady();
+    await enableExtraSearch(user);
+    await user.type(screen.getByRole('textbox', { name: 'Message' }), 'Ask the selected document.');
+    await user.click(screen.getByRole('button', { name: 'Send message' }));
+
+    const progress = await screen.findByRole('status', { name: 'Extra search progress' });
+    expect(progress).toHaveTextContent('Checking the selected documents');
+    await waitFor(() => expect(progress).toHaveTextContent('Searching the selected documents'));
+    expect(progress).toHaveAttribute('aria-live', 'polite');
+    expect(progress).not.toHaveTextContent('private model reasoning');
+    await waitFor(() => expect(progress).toHaveTextContent('Preparing an answer'));
+    await waitFor(() =>
+      expect(screen.queryByRole('status', { name: 'Extra search progress' })).not.toBeInTheDocument(),
+    );
+    expect(screen.getByText('private model reasoning')).toBeInTheDocument();
+  });
+
+  test('clears extra-search progress after a stream error', async () => {
+    installFakeApi({
+      stream: async function* () {
+        yield { type: 'evidence_status', stage: 'searching' };
+        yield { type: 'error', message: 'Synthetic search failure.' };
+      },
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    await waitForAppReady();
+    await enableExtraSearch(user);
+    await user.type(screen.getByRole('textbox', { name: 'Message' }), 'Ask the selected document.');
+    await user.click(screen.getByRole('button', { name: 'Send message' }));
+
+    await screen.findByRole('status', { name: 'Extra search progress' });
+    await waitFor(() =>
+      expect(screen.queryByRole('status', { name: 'Extra search progress' })).not.toBeInTheDocument(),
+    );
+    expect(screen.getByRole('alert')).toHaveTextContent('Synthetic search failure.');
+  });
+
+  test('clears extra-search progress when the user stops a search', async () => {
+    installFakeApi({
+      stream: async function* (_body, signal) {
+        yield { type: 'evidence_status', stage: 'searching' };
+        await new Promise<void>((resolve) => {
+          signal.addEventListener('abort', () => resolve(), { once: true });
+        });
+      },
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    await waitForAppReady();
+    await enableExtraSearch(user);
+    await user.type(screen.getByRole('textbox', { name: 'Message' }), 'Stop this search.');
+    await user.click(screen.getByRole('button', { name: 'Send message' }));
+
+    await screen.findByRole('status', { name: 'Extra search progress' });
+    expect(screen.getByRole('button', { name: 'Stop response' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Stop response' }));
+    await waitFor(() =>
+      expect(screen.queryByRole('status', { name: 'Extra search progress' })).not.toBeInTheDocument(),
+    );
+  });
+
+  test('clears old extra-search progress when the topic changes', async () => {
+    installFakeApi({
+      stream: async function* (_body, signal) {
+        yield { type: 'evidence_status', stage: 'searching' };
+        await new Promise<void>((resolve) => {
+          signal.addEventListener('abort', () => resolve(), { once: true });
+        });
+      },
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    await waitForAppReady();
+    await enableExtraSearch(user);
+    await user.type(screen.getByRole('textbox', { name: 'Message' }), 'Ask the selected document.');
+    await user.click(screen.getByRole('button', { name: 'Send message' }));
+    await screen.findByRole('status', { name: 'Extra search progress' });
+
+    await user.click(screen.getByRole('button', { name: 'Topic B' }));
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Topic B' })).toBeInTheDocument());
+    expect(screen.queryByRole('status', { name: 'Extra search progress' })).not.toBeInTheDocument();
   });
 
   test('older model refresh response cannot replace the latest completed model list', async () => {
