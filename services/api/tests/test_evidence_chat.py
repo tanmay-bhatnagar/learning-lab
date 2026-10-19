@@ -85,6 +85,28 @@ def _app(tmp_path, model=None):
     )
 
 
+def _chat_scope(topic: str, body: bytes, spec_version: str) -> dict[str, object]:
+    path = f"/api/topics/{topic}/chat"
+    return {
+        "type": "http",
+        "asgi": {"version": "3.0", "spec_version": spec_version},
+        "http_version": "1.1",
+        "method": "POST",
+        "scheme": "http",
+        "path": path,
+        "raw_path": path.encode(),
+        "query_string": b"",
+        "root_path": "",
+        "headers": [
+            (b"host", b"testserver"),
+            (b"content-type", b"application/json"),
+            (b"content-length", str(len(body)).encode()),
+        ],
+        "client": ("127.0.0.1", 50000),
+        "server": ("testserver", 80),
+    }
+
+
 def _topic_with_index(client: TestClient):
     topic = client.post("/api/topics", json={"name": "Evidence chat"}).json()["id"]
     uploaded = client.post(
@@ -338,3 +360,99 @@ def test_named_conversation_supports_the_same_explicit_opt_in(tmp_path):
     assert done["retrieval"]["evidence_search"]["outcome"] == "direct_answer"
     saved = client.get(f"/api/topics/{topic}/conversations/{conversation}/messages").json()["messages"]
     assert saved[-1]["retrieval"] == done["retrieval"]
+
+
+@pytest.mark.parametrize("spec_version", ["2.3", "2.4"])
+def test_disconnect_before_iteration_does_not_claim_prepared_evidence(tmp_path, spec_version):
+    model = EvidenceModel(
+        [json.dumps({"action": "answer", "answer": "Grounded.", "source_labels": ["E1"], "query": ""})]
+    )
+    app = _app(tmp_path, model)
+    app.state.deps.retriever = _retriever([])
+    client = TestClient(app)
+    topic, record = _topic_with_index(client)
+    body = json.dumps(
+        {
+            "message": "Explain this source.",
+            "file_ids": [record["id"]],
+            "model": "local",
+            "extra_search": True,
+        }
+    ).encode()
+    received = False
+
+    async def receive():
+        nonlocal received
+        if not received:
+            received = True
+            return {"type": "http.request", "body": body, "more_body": False}
+        return {"type": "http.disconnect"}
+
+    async def send(message):
+        if message["type"] == "http.response.start":
+            raise OSError("client disconnected before reading stream")
+
+    try:
+        asyncio.run(app(_chat_scope(topic, body, spec_version), receive, send))
+    except OSError:
+        pass
+
+    assert model.calls == []
+    saved = client.get(f"/api/topics/{topic}/messages").json()["messages"]
+    assistant = saved[-1]
+    metadata = assistant["retrieval"]["evidence_search"]
+    assert assistant.get("incomplete") is True
+    assert assistant["retrieval"]["citations"] == []
+    assert metadata["initial_chunk_ids"] == []
+    assert metadata["final_chunk_ids"] == []
+    trace = client.get(f"/api/topics/{topic}/query-traces").json()["traces"][0]
+    assert trace["retained_chunks"] == []
+    assert trace["evidence_search"]["final_chunk_ids"] == []
+
+
+def test_initial_gateway_factory_failure_does_not_claim_prepared_evidence(tmp_path):
+    class FailingFactory(EvidenceModel):
+        def stream_chat(
+            self,
+            messages,
+            model,
+            think=None,
+            context_limit=8192,
+            context_metadata=None,
+            *,
+            generation_lock,
+            response_schema=None,
+        ):
+            self.calls.append({"messages": messages, "response_schema": response_schema})
+            raise RuntimeError("private provider detail")
+
+    model = FailingFactory()
+    app = _app(tmp_path, model)
+    app.state.deps.retriever = _retriever([])
+    client = TestClient(app)
+    topic, record = _topic_with_index(client)
+
+    response = client.post(
+        f"/api/topics/{topic}/chat",
+        json={
+            "message": "Explain this source.",
+            "file_ids": [record["id"]],
+            "model": "local",
+            "extra_search": True,
+        },
+    )
+
+    events = [json.loads(line) for line in response.text.splitlines()]
+    saved = client.get(f"/api/topics/{topic}/messages").json()["messages"]
+    assistant = saved[-1]
+    metadata = assistant["retrieval"]["evidence_search"]
+    assert response.status_code == 200
+    assert events[-1]["type"] == "error"
+    assert "private provider detail" not in response.text
+    assert assistant.get("incomplete") is True
+    assert assistant["retrieval"]["citations"] == []
+    assert metadata["initial_chunk_ids"] == []
+    assert metadata["final_chunk_ids"] == []
+    trace = client.get(f"/api/topics/{topic}/query-traces").json()["traces"][0]
+    assert trace["retained_chunks"] == []
+    assert trace["evidence_search"]["final_chunk_ids"] == []
