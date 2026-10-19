@@ -505,20 +505,20 @@ def test_failed_retry_keeps_previous_completed_assessment_current(tmp_path):
 
 
 def test_final_result_write_failure_leaves_registered_rows_inactive_and_keeps_old_result(tmp_path, monkeypatch):
-    import lab.web.prerequisites as prerequisite_routes
+    from lab.prerequisite_store import write_prerequisite_attempt
+    from tests.test_workflow_prerequisite_execution import _patch_prerequisite_writes
 
     model = PrerequisiteFakeModel()
     client, topic, outline, model, _cv = _prepared(tmp_path, model=model)
     section = outline["sections"][0]
     first = _events(client.post(_generate_url(topic, section["id"]), json=_request(outline)))[-1]["assessment"]
-    write_attempt = prerequisite_routes.write_prerequisite_attempt
 
     def fail_completed_write(*args, assessment=None, **kwargs):
         if assessment is not None:
             raise OSError("synthetic final assessment write failure")
-        return write_attempt(*args, assessment=assessment, **kwargs)
+        return write_prerequisite_attempt(*args, assessment=assessment, **kwargs)
 
-    monkeypatch.setattr(prerequisite_routes, "write_prerequisite_attempt", fail_completed_write)
+    _patch_prerequisite_writes(monkeypatch, fail_completed_write)
     failed = _events(client.post(_generate_url(topic, section["id"]), json=_request(outline)))[-1]
 
     state = client.get(f"/api/topics/{topic}/files/paper-1/prerequisites?section_id={section['id']}").json()
@@ -531,19 +531,19 @@ def test_final_result_write_failure_leaves_registered_rows_inactive_and_keeps_ol
 
 
 def test_ambiguous_completed_write_is_recognized_as_published_success(tmp_path, monkeypatch):
-    import lab.web.prerequisites as prerequisite_routes
+    from lab.prerequisite_store import write_prerequisite_attempt
+    from tests.test_workflow_prerequisite_execution import _patch_prerequisite_writes
 
     client, topic, outline, _model, _cv = _prepared(tmp_path)
     section = outline["sections"][0]
-    write_attempt = prerequisite_routes.write_prerequisite_attempt
 
     def publish_then_raise(*args, assessment=None, **kwargs):
-        result = write_attempt(*args, assessment=assessment, **kwargs)
+        result = write_prerequisite_attempt(*args, assessment=assessment, **kwargs)
         if assessment is not None:
             raise OSError("synthetic post-publish acknowledgement loss")
         return result
 
-    monkeypatch.setattr(prerequisite_routes, "write_prerequisite_attempt", publish_then_raise)
+    _patch_prerequisite_writes(monkeypatch, publish_then_raise)
     events = _events(client.post(_generate_url(topic, section["id"]), json=_request(outline)))
     state = client.get(f"/api/topics/{topic}/files/paper-1/prerequisites?section_id={section['id']}").json()
 
@@ -554,22 +554,22 @@ def test_ambiguous_completed_write_is_recognized_as_published_success(tmp_path, 
 
 
 def test_unreadable_state_after_provider_completion_emits_uncertain_error_without_cleanup(tmp_path, monkeypatch):
-    import lab.web.prerequisites as prerequisite_routes
+    from lab.prerequisite_store import write_prerequisite_attempt
+    from tests.test_workflow_prerequisite_execution import _patch_prerequisite_writes
 
     client, topic, outline, _model, _cv = _prepared(tmp_path)
     section = outline["sections"][0]
     first = _events(client.post(_generate_url(topic, section["id"]), json=_request(outline)))[-1]["assessment"]
     deps = client.app.state.deps
-    write_attempt = prerequisite_routes.write_prerequisite_attempt
 
     def corrupt_after_provider_done(*args, assessment=None, **kwargs):
         if assessment is not None:
             path = deps.store.file_path(topic, "paper-1.prerequisites.json")
             path.write_text("{unreadable", encoding="utf-8")
             raise OSError("synthetic state readback failure")
-        return write_attempt(*args, assessment=assessment, **kwargs)
+        return write_prerequisite_attempt(*args, assessment=assessment, **kwargs)
 
-    monkeypatch.setattr(prerequisite_routes, "write_prerequisite_attempt", corrupt_after_provider_done)
+    _patch_prerequisite_writes(monkeypatch, corrupt_after_provider_done)
     events = _events(client.post(_generate_url(topic, section["id"]), json=_request(outline)))
     profile = deps.profile_store.read_proficiency()
 
@@ -656,7 +656,8 @@ def test_unreadable_prerequisite_state_keeps_unpublished_profile_rows_safe(tmp_p
 
 
 def test_failure_cleanup_preserves_answered_and_noted_rows_written_during_attempt(tmp_path, monkeypatch):
-    import lab.web.prerequisites as prerequisite_routes
+    from lab.prerequisite_store import write_prerequisite_attempt
+    from tests.test_workflow_prerequisite_execution import _patch_prerequisite_writes
 
     client, topic, outline, model, _cv = _prepared(tmp_path)
     response = json.loads(_model_response())
@@ -679,7 +680,6 @@ def test_failure_cleanup_preserves_answered_and_noted_rows_written_during_attemp
         notes="Keep my own note",
         expected_revision=0,
     )
-    write_attempt = prerequisite_routes.write_prerequisite_attempt
 
     def edit_rows_then_fail(*args, assessment=None, **kwargs):
         if assessment is not None:
@@ -696,9 +696,9 @@ def test_failure_cleanup_preserves_answered_and_noted_rows_written_during_attemp
                 expected_revision=profile["revision"],
             )
             raise OSError("synthetic unpublished assessment write failure")
-        return write_attempt(*args, assessment=assessment, **kwargs)
+        return write_prerequisite_attempt(*args, assessment=assessment, **kwargs)
 
-    monkeypatch.setattr(prerequisite_routes, "write_prerequisite_attempt", edit_rows_then_fail)
+    _patch_prerequisite_writes(monkeypatch, edit_rows_then_fail)
     events = _events(client.post(_generate_url(topic, section["id"]), json=_request(outline)))
     profile = deps.profile_store.read_proficiency()
     rows = [entry for entry in profile["entries"] if entry["source_kind"] == "model_requirement"]

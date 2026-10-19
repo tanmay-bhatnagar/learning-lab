@@ -9,12 +9,12 @@ from datetime import UTC, datetime
 from typing import Literal
 
 from lab.document_map_store import get_document_map
+from lab.document_map_summary_store import write_summary_attempt
 from lab.errors import Conflict, InvalidInput
 from lab.section_summary import SavedSummary, saved_source_metadata, validate_source_markers
 
 logger = logging.getLogger(__name__)
 
-WriteAttemptFn = Callable[..., dict[str, object]]
 NowIsoFn = Callable[[], str]
 
 
@@ -79,7 +79,6 @@ class SummaryPublicationBundle:
     requested_model: str
     context_limit: int
     think: bool | str | None
-    write_attempt: WriteAttemptFn
     now_iso: NowIsoFn = field(default=_default_now_iso)
 
 
@@ -156,7 +155,7 @@ async def publish_summary_success(
             think=bundle.think,
         ).model_dump(mode="json")
         completed["finished_at"] = finished_at
-        bundle.write_attempt(bundle.store, bundle.topic, bundle.file_id, completed, summary=summary)
+        write_summary_attempt(bundle.store, bundle.topic, bundle.file_id, completed, summary=summary)
     except (Conflict, InvalidInput) as exc:
         return await publish_summary_failure(
             bundle,
@@ -206,7 +205,7 @@ async def publish_summary_failure(
     failed = _terminal_attempt(bundle, observer, "error", error=message)
     persisted = False
     try:
-        bundle.write_attempt(bundle.store, bundle.topic, bundle.file_id, failed)
+        write_summary_attempt(bundle.store, bundle.topic, bundle.file_id, failed)
         persisted = True
     except Exception as exc:  # noqa: BLE001 - retain generating state when terminal write fails
         logger.error(
@@ -254,7 +253,7 @@ async def publish_summary_cancelled(
     )
     persisted = False
     try:
-        bundle.write_attempt(bundle.store, bundle.topic, bundle.file_id, cancelled)
+        write_summary_attempt(bundle.store, bundle.topic, bundle.file_id, cancelled)
         persisted = True
     except Exception as exc:  # noqa: BLE001 - leave durable generating state for recovery
         logger.error(

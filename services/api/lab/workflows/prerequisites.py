@@ -377,16 +377,12 @@ class PrerequisiteExecutionState(TypedDict, total=False):
     failure_message: str
 
 
-WriteAttemptFn = Callable[..., None]
-
-
 @dataclass(slots=True)
 class PrerequisiteExecutionBundle:
     store: Store
     profile_store: ProfileStore
     model_backend: ModelGateway
     generation_lock: asyncio.Lock
-    write_attempt: WriteAttemptFn
     topic_id: str
     file_id: str
     section_id: str
@@ -605,7 +601,7 @@ async def publish_assessment(
         finished_at=finished_at,
         diagnostic=None,
     )
-    bundle.write_attempt(
+    write_prerequisite_attempt(
         bundle.store,
         bundle.topic_id,
         bundle.file_id,

@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import inspect
 import json
-from collections.abc import Callable
-
 import pytest
 from fastapi.testclient import TestClient
 
@@ -29,16 +27,29 @@ def _admission_context(
     *,
     section_id: str,
     revision: str,
-    write_attempt: Callable[..., object] | None = None,
 ) -> SummaryAdmissionContext:
     deps = client.app.state.deps
-    from lab.document_map_summary_store import write_summary_attempt as default_write
+
+    def list_active_attempt_ids() -> set[str]:
+        return {
+            attempt_id
+            for attempt_id, active in deps.active_document_map_summaries.items()
+            if active.topic == topic and active.file_id == "paper-1"
+        }
+
+    def register_active(attempt_id: str) -> None:
+        from lab.web.deps import ActiveSummary
+
+        deps.active_document_map_summaries[attempt_id] = ActiveSummary(
+            topic=topic,
+            file_id="paper-1",
+            revision=revision,
+            section_id=section_id,
+        )
 
     return SummaryAdmissionContext(
         store=deps.store,
         runtime_policy_path=deps.config.runtime_policy_path,
-        active_document_map_summaries=deps.active_document_map_summaries,
-        write_attempt=write_attempt or default_write,
         topic=topic,
         file_id="paper-1",
         section_id=section_id,
@@ -46,6 +57,8 @@ def _admission_context(
         model="fake",
         context_limit=8192,
         think=None,
+        register_active=register_active,
+        list_active_attempt_ids=list_active_attempt_ids,
     )
 
 
@@ -107,7 +120,12 @@ async def test_admission_oversized_policy_refuses_before_generating_attempt(tmp_
 
 
 @pytest.mark.anyio
-async def test_admission_plan_includes_policy_and_section_not_chat_context(tmp_path, admission_graph) -> None:
+async def test_admission_plan_includes_policy_and_section_not_chat_context(
+    tmp_path, admission_graph, monkeypatch
+) -> None:
+    import lab.workflows.summary as summary_module
+    from lab.document_map_summary_store import write_summary_attempt
+
     client, _, topic, outline, _ = _client(tmp_path)
     section = outline["sections"][0]
     ctx = _admission_context(
@@ -120,9 +138,9 @@ async def test_admission_plan_includes_policy_and_section_not_chat_context(tmp_p
 
     def capture_write(_store, _topic, _file_id, attempt, **_kwargs):
         writes.append(attempt)
-        return attempt
+        return write_summary_attempt(_store, _topic, _file_id, attempt, **_kwargs)
 
-    ctx.write_attempt = capture_write
+    monkeypatch.setattr(summary_module, "write_summary_attempt", capture_write)
     admitted = await run_summary_admission(admission_graph, ctx)
     messages = admitted.plan["messages"]
     payload = json.dumps(messages)

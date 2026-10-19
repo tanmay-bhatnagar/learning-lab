@@ -33,11 +33,16 @@ from tests.test_web_prerequisites import (
 )
 
 
+def _patch_prerequisite_writes(monkeypatch, replacement) -> None:
+    import lab.workflows.prerequisite_publication as prereq_publication
+    import lab.workflows.prerequisites as prereq_workflow
+
+    monkeypatch.setattr(prereq_workflow, "write_prerequisite_attempt", replacement)
+    monkeypatch.setattr(prereq_publication, "write_prerequisite_attempt", replacement)
+
+
 async def _execution_bundle(client, topic, outline, section, body, *, model: PrerequisiteFakeModel):
     deps = client.app.state.deps
-
-    def write_attempt(*args, **kwargs) -> None:
-        write_prerequisite_attempt(*args, **kwargs)
 
     caps = PrerequisiteAdmissionCapabilities(
         store=deps.store,
@@ -65,7 +70,6 @@ async def _execution_bundle(client, topic, outline, section, body, *, model: Pre
         profile_store=deps.profile_store,
         model_backend=model,
         generation_lock=deps.model_generation_lock,
-        write_attempt=write_attempt,
         topic_id=topic,
         file_id="paper-1",
         section_id=section["id"],
@@ -205,18 +209,17 @@ async def test_cv_changed_during_generation_prevents_registration(tmp_path) -> N
 
 
 @pytest.mark.anyio
-async def test_ambiguous_save_recognizes_published_assessment(tmp_path) -> None:
+async def test_ambiguous_save_recognizes_published_assessment(tmp_path, monkeypatch) -> None:
     client, topic, outline, model, _cv = _prepared(tmp_path)
     section = outline["sections"][0]
     bundle = await _execution_bundle(client, topic, outline, section, _request(outline), model=model)
-    original_write = bundle.write_attempt
 
     def publish_then_raise(*args, assessment=None, **kwargs) -> None:
-        original_write(*args, assessment=assessment, **kwargs)
+        write_prerequisite_attempt(*args, assessment=assessment, **kwargs)
         if assessment is not None:
             raise OSError("synthetic post-publish acknowledgement loss")
 
-    bundle.write_attempt = publish_then_raise
+    _patch_prerequisite_writes(monkeypatch, publish_then_raise)
     publish_once = PublishOnce()
     handle = build_prerequisite_graph_run(
         graph=compile_prerequisite_execution_graph(),
@@ -231,21 +234,20 @@ async def test_ambiguous_save_recognizes_published_assessment(tmp_path) -> None:
 
 
 @pytest.mark.anyio
-async def test_unreadable_state_keeps_rows_and_emits_uncertainty(tmp_path) -> None:
+async def test_unreadable_state_keeps_rows_and_emits_uncertainty(tmp_path, monkeypatch) -> None:
     client, topic, outline, model, _cv = _prepared(tmp_path)
     section = outline["sections"][0]
     bundle = await _execution_bundle(client, topic, outline, section, _request(outline), model=model)
     deps = client.app.state.deps
-    original_write = bundle.write_attempt
 
     def corrupt_after_write(*args, assessment=None, **kwargs) -> None:
         if assessment is not None:
             path = deps.store.file_path(topic, "paper-1.prerequisites.json")
             path.write_text("{unreadable", encoding="utf-8")
             raise OSError("synthetic state readback failure")
-        return original_write(*args, assessment=assessment, **kwargs)
+        return write_prerequisite_attempt(*args, assessment=assessment, **kwargs)
 
-    bundle.write_attempt = corrupt_after_write
+    _patch_prerequisite_writes(monkeypatch, corrupt_after_write)
     publish_once = PublishOnce()
     handle = build_prerequisite_graph_run(
         graph=compile_prerequisite_execution_graph(),
@@ -260,7 +262,7 @@ async def test_unreadable_state_keeps_rows_and_emits_uncertainty(tmp_path) -> No
 
 
 @pytest.mark.anyio
-async def test_failure_cleanup_preserves_manual_and_answered_rows(tmp_path) -> None:
+async def test_failure_cleanup_preserves_manual_and_answered_rows(tmp_path, monkeypatch) -> None:
     client, topic, outline, model, _cv = _prepared(tmp_path)
     section = outline["sections"][0]
     deps = client.app.state.deps
@@ -283,7 +285,6 @@ async def test_failure_cleanup_preserves_manual_and_answered_rows(tmp_path) -> N
     )
     model.output = json.dumps(response)
     bundle = await _execution_bundle(client, topic, outline, section, _request(outline), model=model)
-    original_write = bundle.write_attempt
 
     def fail_publication(*args, assessment=None, **kwargs) -> None:
         if assessment is not None:
@@ -298,9 +299,9 @@ async def test_failure_cleanup_preserves_manual_and_answered_rows(tmp_path) -> N
                 expected_revision=profile["revision"],
             )
             raise OSError("synthetic unpublished assessment write failure")
-        return original_write(*args, assessment=assessment, **kwargs)
+        return write_prerequisite_attempt(*args, assessment=assessment, **kwargs)
 
-    bundle.write_attempt = fail_publication
+    _patch_prerequisite_writes(monkeypatch, fail_publication)
     publish_once = PublishOnce()
     handle = build_prerequisite_graph_run(
         graph=compile_prerequisite_execution_graph(),
@@ -331,20 +332,19 @@ async def test_slow_consumer_blocks_producer_without_unbounded_queue() -> None:
 
 
 @pytest.mark.anyio
-async def test_cancellation_during_publication_blocks_on_publish_once(tmp_path) -> None:
+async def test_cancellation_during_publication_blocks_on_publish_once(tmp_path, monkeypatch) -> None:
     client, topic, outline, model, _cv = _prepared(tmp_path)
     section = outline["sections"][0]
     bundle = await _execution_bundle(client, topic, outline, section, _request(outline), model=model)
-    original_write = bundle.write_attempt
     entered = asyncio.Event()
 
     def blocking_write(*args, assessment=None, **kwargs) -> None:
         if assessment is not None:
             entered.set()
             time.sleep(2)
-        return original_write(*args, assessment=assessment, **kwargs)
+        return write_prerequisite_attempt(*args, assessment=assessment, **kwargs)
 
-    bundle.write_attempt = blocking_write
+    _patch_prerequisite_writes(monkeypatch, blocking_write)
     publish_once = PublishOnce()
     handle = build_prerequisite_graph_run(
         graph=compile_prerequisite_execution_graph(),

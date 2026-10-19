@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from lab.document_map_summary_store import write_summary_attempt
 from lab.web.deps import ActiveSummary, AppDeps
 from lab.web.locks import acquire_topic_lock
 from lab.web.middleware import FinalizedStreamingResponse
@@ -54,7 +53,6 @@ def router(deps: AppDeps) -> APIRouter:
             admission_context = SummaryAdmissionContext(
                 store=deps.store,
                 runtime_policy_path=deps.config.runtime_policy_path,
-                write_attempt=write_summary_attempt,
                 topic=topic,
                 file_id=file_id,
                 section_id=section_id,
@@ -85,7 +83,6 @@ def router(deps: AppDeps) -> APIRouter:
             requested_model=body.model,
             context_limit=body.context_limit,
             think=body.think,
-            write_attempt=write_summary_attempt,
         )
         sink = EventSink(allowed_types=SUMMARY_STREAM_EVENT_TYPES)
         execution_context = SummaryExecutionContext(

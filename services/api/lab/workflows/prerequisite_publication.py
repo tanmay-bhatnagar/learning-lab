@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from lab.errors import Conflict, InvalidInput
-from lab.prerequisite_store import get_prerequisite_state, recover_interrupted_attempts
+from lab.prerequisite_store import get_prerequisite_state, recover_interrupted_attempts, write_prerequisite_attempt
 from lab.profile_store import ProfileStore
 from lab.storage import Store
 
@@ -78,7 +78,6 @@ def assessment_id_is_published(state: Mapping[str, object], assessment_id: str) 
     return any(isinstance(item, dict) and item.get("assessment_id") == assessment_id for item in assessments)
 
 
-WriteAttemptFn = Callable[..., None]
 AttemptStatus = str
 
 
@@ -106,7 +105,6 @@ class PrerequisitePublicationOutcome:
 class PrerequisitePublicationRequest:
     store: Store
     profile_store: ProfileStore
-    write_attempt: WriteAttemptFn
     topic_id: str
     file_id: str
     attempt_id: str
@@ -126,7 +124,7 @@ def publish_stream_failure(
         finished_at=request.now(),
         diagnostic=message,
     )
-    request.write_attempt(request.store, request.topic_id, request.file_id, failed)
+    write_prerequisite_attempt(request.store, request.topic_id, request.file_id, failed)
     discard_if_unpublished(
         request.profile_store,
         request.store,
@@ -183,7 +181,7 @@ async def publish_cancelled(
         diagnostic="Generation was cancelled before completion.",
     )
     try:
-        request.write_attempt(request.store, request.topic_id, request.file_id, cancelled)
+        write_prerequisite_attempt(request.store, request.topic_id, request.file_id, cancelled)
         discard_if_unpublished(
             request.profile_store,
             request.store,
@@ -259,7 +257,7 @@ async def publish_after_graph_exception(
             diagnostic=message[:2000],
         )
         try:
-            request.write_attempt(request.store, request.topic_id, request.file_id, failed)
+            write_prerequisite_attempt(request.store, request.topic_id, request.file_id, failed)
             terminal = True
         except Exception as save_exc:  # noqa: BLE001 - retain recovery state when terminal persistence fails
             logger.error(
@@ -312,7 +310,6 @@ def publication_request_from_bundle(bundle: Any) -> PrerequisitePublicationReque
     return PrerequisitePublicationRequest(
         store=bundle.store,
         profile_store=bundle.profile_store,
-        write_attempt=bundle.write_attempt,
         topic_id=bundle.topic_id,
         file_id=bundle.file_id,
         attempt_id=bundle.attempt_id,

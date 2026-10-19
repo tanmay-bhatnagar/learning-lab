@@ -16,7 +16,7 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.runtime import Runtime
 
 from lab.document_map_store import get_document_map
-from lab.document_map_summary_store import recover_interrupted_attempts
+from lab.document_map_summary_store import recover_interrupted_attempts, write_summary_attempt
 from lab.errors import Conflict, InvalidInput
 from lab.runtime_policy import load_runtime_policy
 from lab.section_summary import SummaryPlan, build_section_summary_plan
@@ -50,18 +50,10 @@ SUMMARY_ADMISSION_RECURSION_LIMIT = len(SUMMARY_ADMISSION_NODE_NAMES) + 2
 SUMMARY_EXECUTION_RECURSION_LIMIT = len(SUMMARY_EXECUTION_NODE_NAMES) + 2
 SUMMARY_STREAM_EVENT_TYPES = frozenset({"token", "thinking"})
 
-WriteAttemptFn = Callable[..., dict[str, object]]
 RegisterActiveFn = Callable[[str], None]
 ListActiveAttemptIdsFn = Callable[[], set[str]]
 UnregisterActiveFn = Callable[[str], None]
-
-
-@dataclass(frozen=True, slots=True)
-class _LegacyActiveRegistration:
-    topic: str
-    file_id: str
-    revision: str
-    section_id: str
+RegisterRunFn = Callable[[GraphRun], None]
 
 
 class SummaryAdmissionState(TypedDict, total=False):
@@ -91,30 +83,7 @@ def _now_iso() -> str:
 
 
 def _admission_active_ids(ctx: SummaryAdmissionContext) -> set[str]:
-    if ctx.list_active_attempt_ids is not None:
-        return ctx.list_active_attempt_ids()
-    if ctx.active_document_map_summaries is None:
-        return set()
-    return {
-        attempt_id
-        for attempt_id, active in ctx.active_document_map_summaries.items()
-        if getattr(active, "topic", None) == ctx.topic and getattr(active, "file_id", None) == ctx.file_id
-    }
-
-
-def _admission_register_active(ctx: SummaryAdmissionContext, attempt_id: str) -> None:
-    if ctx.register_active is not None:
-        ctx.register_active(attempt_id)
-        return
-    if ctx.active_document_map_summaries is None:
-        msg = "summary admission requires register_active or active_document_map_summaries"
-        raise RuntimeError(msg)
-    ctx.active_document_map_summaries[attempt_id] = _LegacyActiveRegistration(
-        topic=ctx.topic,
-        file_id=ctx.file_id,
-        revision=ctx.expected_revision,
-        section_id=ctx.section_id,
-    )
+    return ctx.list_active_attempt_ids()
 
 
 @dataclass
@@ -123,7 +92,6 @@ class SummaryAdmissionContext:
 
     store: Store
     runtime_policy_path: Path
-    write_attempt: WriteAttemptFn
     topic: str
     file_id: str
     section_id: str
@@ -131,9 +99,8 @@ class SummaryAdmissionContext:
     model: str
     context_limit: int
     think: bool | str | None
-    active_document_map_summaries: dict[str, object] | None = None
-    register_active: RegisterActiveFn | None = None
-    list_active_attempt_ids: ListActiveAttemptIdsFn | None = None
+    register_active: RegisterActiveFn
+    list_active_attempt_ids: ListActiveAttemptIdsFn
     artifacts: SummaryAdmissionArtifacts = field(default_factory=SummaryAdmissionArtifacts)
     new_id: Callable[[], str] = field(default=_new_attempt_id)
     now_iso: Callable[[], str] = field(default=_now_iso)
@@ -178,8 +145,8 @@ class SummaryStreamHandle:
     observer: SummaryObserver
     unregister_active: UnregisterActiveFn
     release_lease: Callable[[], None]
-    register_run: Callable[[GraphRun], None] | None = None
-    unregister_run: Callable[[GraphRun], None] | None = None
+    register_run: RegisterRunFn
+    unregister_run: RegisterRunFn
     _publication_outcome: SummaryPublicationOutcome | None = None
     _closed: bool = False
 
@@ -205,8 +172,7 @@ class SummaryStreamHandle:
             finally:
                 self.unregister_active(self.attempt_id)
                 self.release_lease()
-                if self.unregister_run is not None:
-                    self.unregister_run(self.run)
+                self.unregister_run(self.run)
 
     async def events(self) -> AsyncIterator[str]:
         import json
@@ -223,8 +189,7 @@ class SummaryStreamHandle:
                 "attempt": self.attempt,
             }
         )
-        if self.register_run is not None:
-            self.register_run(self.run)
+        self.register_run(self.run)
         try:
             async for event in self.run.events():
                 yield line(dict(event))
@@ -298,9 +263,9 @@ async def write_generating_attempt(
         msg = "summary admission write requires a planned generating attempt"
         raise RuntimeError(msg)
     attempt = art.plan["attempt"]
-    ctx.write_attempt(ctx.store, ctx.topic, ctx.file_id, attempt)
+    write_summary_attempt(ctx.store, ctx.topic, ctx.file_id, attempt)
     art.attempt = attempt
-    _admission_register_active(ctx, art.attempt_id)
+    ctx.register_active(art.attempt_id)
     return {}
 
 
@@ -494,8 +459,8 @@ def build_summary_stream_handle(
     execution_context: SummaryExecutionContext,
     unregister_active: UnregisterActiveFn,
     release_lease: Callable[[], None],
-    register_run: Callable[[GraphRun], None] | None = None,
-    unregister_run: Callable[[GraphRun], None] | None = None,
+    register_run: RegisterRunFn,
+    unregister_run: RegisterRunFn,
 ) -> SummaryStreamHandle:
     """Create a GraphRun-backed stream handle after successful admission."""
     handle_holder: list[SummaryStreamHandle] = []

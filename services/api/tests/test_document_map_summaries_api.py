@@ -230,19 +230,19 @@ def test_provider_error_and_premature_eof_are_terminal_failures(tmp_path):
 
 
 def test_terminal_write_failure_never_emits_done_and_releases_topic(tmp_path, monkeypatch):
-    import lab.web.document_map_summaries as summary_routes
+    from lab.document_map_summary_store import write_summary_attempt
     from lab.errors import CorruptData
+    from tests.test_workflow_summary_execution import _patch_summary_writes
 
     client, _, topic, outline, model = _client(tmp_path)
     section = outline["sections"][0]
-    write_attempt = summary_routes.write_summary_attempt
 
     def fail_summary_write(store, write_topic, file_id, attempt, *, summary=None):
         if summary is not None:
             raise CorruptData("synthetic durable write failure")
-        return write_attempt(store, write_topic, file_id, attempt)
+        return write_summary_attempt(store, write_topic, file_id, attempt)
 
-    monkeypatch.setattr(summary_routes, "write_summary_attempt", fail_summary_write)
+    _patch_summary_writes(monkeypatch, fail_summary_write)
     response = client.post(
         _summary_url(topic, outline["revision"], section["id"]),
         json={"revision": outline["revision"], "model": "fake", "context_limit": 8192, "think": None},
@@ -260,7 +260,7 @@ def test_terminal_write_failure_never_emits_done_and_releases_topic(tmp_path, mo
 
 
 def test_initial_attempt_write_failure_does_not_start_model_or_leak_locks(tmp_path, monkeypatch):
-    import lab.web.document_map_summaries as summary_routes
+    import lab.workflows.summary as summary_workflow
     from lab.errors import CorruptData
 
     client, _, topic, outline, model = _client(tmp_path)
@@ -268,7 +268,7 @@ def test_initial_attempt_write_failure_does_not_start_model_or_leak_locks(tmp_pa
     def fail_initial_write(*args, **kwargs):
         raise CorruptData("synthetic initial write failure")
 
-    monkeypatch.setattr(summary_routes, "write_summary_attempt", fail_initial_write)
+    monkeypatch.setattr(summary_workflow, "write_summary_attempt", fail_initial_write)
     response = client.post(
         _summary_url(topic, outline["revision"], outline["sections"][0]["id"]),
         json={"revision": outline["revision"], "model": "fake", "context_limit": 8192, "think": None},

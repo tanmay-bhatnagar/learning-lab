@@ -27,6 +27,14 @@ from tests.test_document_map_summaries_api import (
 )
 
 
+def _patch_summary_writes(monkeypatch, replacement) -> None:
+    import lab.workflows.summary as summary_workflow
+    import lab.workflows.summary_publication as summary_publication
+
+    monkeypatch.setattr(summary_workflow, "write_summary_attempt", replacement)
+    monkeypatch.setattr(summary_publication, "write_summary_attempt", replacement)
+
+
 def test_summary_execution_mermaid_contains_node_names() -> None:
     compiled = compile_summary_execution_graph()
     text = summary_execution_mermaid(compiled)
@@ -122,18 +130,17 @@ def test_execution_map_revision_check_before_publication(tmp_path) -> None:
 
 
 def test_execution_save_before_done_event(tmp_path, monkeypatch) -> None:
-    import lab.web.document_map_summaries as summary_routes
+    from lab.document_map_summary_store import write_summary_attempt
 
     client, _, topic, outline, _ = _client(tmp_path)
-    original_write = summary_routes.write_summary_attempt
     seen: list[str] = []
 
     def tracking_write(store, write_topic, file_id, attempt, *, summary=None):
         if summary is not None:
             seen.append("summary")
-        return original_write(store, write_topic, file_id, attempt, summary=summary)
+        return write_summary_attempt(store, write_topic, file_id, attempt, summary=summary)
 
-    monkeypatch.setattr(summary_routes, "write_summary_attempt", tracking_write)
+    _patch_summary_writes(monkeypatch, tracking_write)
     response = client.post(
         _summary_url(topic, outline["revision"], outline["sections"][0]["id"]),
         json={"revision": outline["revision"], "model": "fake", "context_limit": 8192, "think": None},
@@ -144,17 +151,16 @@ def test_execution_save_before_done_event(tmp_path, monkeypatch) -> None:
 
 
 def test_execution_terminal_write_failure_never_emits_done(tmp_path, monkeypatch) -> None:
-    import lab.web.document_map_summaries as summary_routes
+    from lab.document_map_summary_store import write_summary_attempt
 
     client, _, topic, outline, model = _client(tmp_path)
-    write_attempt = summary_routes.write_summary_attempt
 
     def fail_summary_write(store, write_topic, file_id, attempt, *, summary=None):
         if summary is not None:
             raise CorruptData("synthetic durable write failure")
-        return write_attempt(store, write_topic, file_id, attempt)
+        return write_summary_attempt(store, write_topic, file_id, attempt)
 
-    monkeypatch.setattr(summary_routes, "write_summary_attempt", fail_summary_write)
+    _patch_summary_writes(monkeypatch, fail_summary_write)
     response = client.post(
         _summary_url(topic, outline["revision"], outline["sections"][0]["id"]),
         json={"revision": outline["revision"], "model": "fake", "context_limit": 8192, "think": None},
@@ -234,7 +240,6 @@ async def test_publish_once_completed_not_overwritten_by_cancelled() -> None:
         requested_model="fake",
         context_limit=8192,
         think=None,
-        write_attempt=lambda *args, **kwargs: {},
     )
     observer = SummaryObserver()
     observer.mark_completed(model="fake")
@@ -292,7 +297,6 @@ async def test_execution_slow_consumer_backpressure_and_no_queue_leaks() -> None
         requested_model="fake",
         context_limit=8192,
         think=None,
-        write_attempt=lambda *args, **kwargs: {},
     )
     ctx = SummaryExecutionContext(
         model_backend=object(),

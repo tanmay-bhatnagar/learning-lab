@@ -14,11 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from lab.document_map_store import get_document_map
 from lab.errors import Conflict, InvalidInput, NotFound
-from lab.prerequisite_store import (
-    current_assessment,
-    get_prerequisite_state,
-    write_prerequisite_attempt,
-)
+from lab.prerequisite_store import current_assessment, get_prerequisite_state
 from lab.web.deps import ActivePrerequisite, AppDeps
 from lab.web.locks import acquire_topic_lock, topic_lock_busy
 from lab.web.middleware import FinalizedStreamingResponse
@@ -161,9 +157,6 @@ def router(deps: AppDeps) -> APIRouter:
 
         publish_once: PublishOnce[PrerequisitePublicationOutcome] = PublishOnce()
 
-        def write_attempt(*args, **kwargs) -> None:
-            write_prerequisite_attempt(*args, **kwargs)
-
         def unregister_active(active_attempt_id: str) -> None:
             deps.active_prerequisite_attempts.pop(active_attempt_id, None)
 
@@ -172,7 +165,6 @@ def router(deps: AppDeps) -> APIRouter:
             profile_store=deps.profile_store,
             model_backend=deps.model_backend,
             generation_lock=deps.model_generation_lock,
-            write_attempt=write_attempt,
             topic_id=topic,
             file_id=file_id,
             section_id=section_id,
