@@ -354,7 +354,7 @@ async def publish_failure(
     return {}
 
 
-async def _route_after_stream(state: SummaryExecutionState) -> str:
+async def _route_after_stream(state: SummaryExecutionState) -> Literal["validate_and_publish", "publish_failure"]:
     if state.get("route") == "success":
         return "validate_and_publish"
     return "publish_failure"
