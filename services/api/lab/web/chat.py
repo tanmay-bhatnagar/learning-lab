@@ -776,16 +776,17 @@ def router(deps: AppDeps) -> APIRouter:
                         yield line(event)
                         break
                     elif kind == "error":
-                        outcome.update(
-                            status="error",
-                            stage="generation",
-                            error={
-                                "stage": "generation",
-                                "code": "provider_error",
-                                "exception_type": "ProviderError",
-                                "summary": "Model reported a generation error.",
-                            },
-                        )
+                        if not body.extra_search:
+                            outcome.update(
+                                status="error",
+                                stage="generation",
+                                error={
+                                    "stage": "generation",
+                                    "code": "provider_error",
+                                    "exception_type": "ProviderError",
+                                    "summary": "Model reported a generation error.",
+                                },
+                            )
                         await finish()
                         yield line(event)
                         if trace_finalize_failed:
