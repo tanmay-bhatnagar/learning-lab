@@ -56,7 +56,9 @@ describe('extra-search answer presentation', () => {
     }));
     renderAnswer(message, files);
 
-    expect(screen.getByLabelText('Extra search summary')).toHaveTextContent(/retained 1 additional passage/i);
+    expect(screen.getByLabelText('Extra search summary')).toHaveTextContent(
+      'The extra search added 1 new passage to the context sent for the answer.',
+    );
     expect(screen.getByLabelText('Extra search summary')).not.toHaveTextContent(/used|supported/i);
     fireEvent.click(screen.getByRole('button', { name: /Sources \(2\)/i }));
     expect(screen.getByRole('heading', { name: /E1.*paper\.pdf/i })).toBeInTheDocument();
@@ -97,8 +99,8 @@ describe('extra-search answer presentation', () => {
   });
 
   test.each([
-    ['cancelled', 1, 'Response stopped during an extra search after 1 search check.'],
-    ['error', 0, 'Response did not finish before an extra search.'],
+    ['cancelled', 1, 'The response stopped after 1 extra search attempt.'],
+    ['error', 0, 'The response did not finish before an extra search.'],
   ] as const)('reports %s using the actual number of search checks', (_outcome, checks, description) => {
     const message = structuredClone(savedAnswer(searchCapture));
     const metadata = message.retrieval?.evidence_search;

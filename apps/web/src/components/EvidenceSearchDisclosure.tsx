@@ -26,19 +26,19 @@ function summaryText(summary: EvidenceSearchSummary): string {
     case 'invalid_action_fallback':
       return summary.lookupCount === 0
         ? 'The extra search request could not be used, so no extra search was made.'
-        : `The extra search request could not be used after ${countLabel(summary.lookupCount, 'search check')}.`;
+        : `The extra search request could not be used after ${countLabel(summary.lookupCount, 'extra search attempt')}.`;
     case 'cancelled':
       return summary.lookupCount === 0
         ? 'The response stopped before an extra search.'
-        : `The response stopped during an extra search after ${countLabel(summary.lookupCount, 'search check')}.`;
+        : `The response stopped after ${countLabel(summary.lookupCount, 'extra search attempt')}.`;
     case 'error':
       return summary.lookupCount === 0
         ? 'The response did not finish before an extra search.'
-        : `The response did not finish during an extra search after ${countLabel(summary.lookupCount, 'search check')}.`;
+        : `The response did not finish after ${countLabel(summary.lookupCount, 'extra search attempt')}.`;
     case 'in_progress':
       return summary.lookupCount === 0
         ? 'The response did not finish.'
-        : `The response did not finish after ${countLabel(summary.lookupCount, 'search check')}.`;
+        : `The response did not finish after ${countLabel(summary.lookupCount, 'extra search attempt')}.`;
   }
 }
 
