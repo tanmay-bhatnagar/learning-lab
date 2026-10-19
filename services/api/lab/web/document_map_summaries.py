@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import uuid
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from typing import Literal
@@ -14,16 +13,15 @@ from anyio import CancelScope
 from fastapi import APIRouter
 
 from lab.document_map_store import get_document_map
-from lab.document_map_summary_store import recover_interrupted_attempts, write_summary_attempt
+from lab.document_map_summary_store import write_summary_attempt
 from lab.errors import Conflict, InvalidInput
-from lab.runtime_policy import load_runtime_policy
 from lab.section_summary import (
     SavedSummary,
-    build_section_summary_plan,
     saved_source_metadata,
     validate_source_markers,
 )
-from lab.web.deps import ActiveSummary, AppDeps
+from lab.web.deps import AppDeps
+from lab.workflows.summary import SummaryAdmissionContext, compile_summary_admission_graph, run_summary_admission
 from lab.web.locks import acquire_topic_lock
 from lab.web.middleware import FinalizedStreamingResponse
 from lab.web.schemas import SectionSummaryInput
@@ -34,50 +32,29 @@ AttemptStatus = Literal["completed", "cancelled", "error"]
 
 def router(deps: AppDeps) -> APIRouter:
     routes = APIRouter()
+    summary_admission_graph = compile_summary_admission_graph()
 
     @routes.post("/api/topics/{topic}/files/{file_id}/map/sections/{section_id}/summary")
     async def generate_summary(topic: str, file_id: str, section_id: str, body: SectionSummaryInput):
         lease = await acquire_topic_lock(deps.locks, topic, reject_if_busy=True)
         try:
-            active_ids = {
-                attempt_id
-                for attempt_id, active in deps.active_document_map_summaries.items()
-                if active.topic == topic and active.file_id == file_id
-            }
-            recover_interrupted_attempts(
-                deps.store,
-                topic,
-                file_id,
-                active_attempt_ids=active_ids,
-                finished_at=datetime.now(UTC).isoformat(),
-            )
-            current = get_document_map(deps.store, topic, file_id)
-            if current["status"] != "ready" or current["map"] is None:
-                raise Conflict("Rebuild the document map before generating a summary.")
-            map_record = current["map"]
-            if map_record["revision"] != body.revision:
-                raise Conflict("The selected document map revision changed. Reload it before generating a summary.")
-            runtime_policy = load_runtime_policy(deps.config.runtime_policy_path)
-            attempt_id = uuid.uuid4().hex
-            started_at = datetime.now(UTC).isoformat()
-            plan = build_section_summary_plan(
-                map_record,
-                section_id,
-                runtime_policy=runtime_policy,
+            admission_context = SummaryAdmissionContext(
+                store=deps.store,
+                runtime_policy_path=deps.config.runtime_policy_path,
+                active_document_map_summaries=deps.active_document_map_summaries,
+                write_attempt=write_summary_attempt,
+                topic=topic,
+                file_id=file_id,
+                section_id=section_id,
+                expected_revision=body.revision,
                 model=body.model,
                 context_limit=body.context_limit,
                 think=body.think,
-                attempt_id=attempt_id,
-                started_at=started_at,
             )
-            attempt = plan["attempt"]
-            write_summary_attempt(deps.store, topic, file_id, attempt)
-            deps.active_document_map_summaries[attempt_id] = ActiveSummary(
-                topic=topic,
-                file_id=file_id,
-                revision=body.revision,
-                section_id=section_id,
-            )
+            admitted = await run_summary_admission(summary_admission_graph, admission_context)
+            attempt_id = admitted.attempt_id
+            attempt = admitted.attempt
+            plan = admitted.plan
             lease.hand_off()
         except BaseException:
             lease.release()
