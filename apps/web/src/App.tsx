@@ -97,6 +97,7 @@ export function App() {
     extraSearch,
     extraSearchAvailable,
     setExtraSearchEnabled,
+    searchProgress,
     upload,
     refreshFiles,
     proficiency,
@@ -462,6 +463,7 @@ export function App() {
                 selectedCount={selected.length}
                 extraSearch={extraSearch}
                 extraSearchAvailable={extraSearchAvailable}
+                searchProgress={searchProgress}
                 activeModel={activeModel}
                 modelError={modelError}
                 meter={meter}

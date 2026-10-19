@@ -3,6 +3,7 @@ import { stream } from '../api/client';
 import { conversationChatPath } from '../api/urls';
 import type { Model, Settings } from '../api/types';
 import { chatRequest } from '../modelControls';
+import { foldEvidenceSearchProgress, type EvidenceSearchProgress } from '../domain/evidenceSearch';
 import { aborted, errorText } from '../lib/errors';
 import { applyStreamEvent, failTurn, rejectTurn, startTurn } from '../state/chatStream';
 import type { TopicSession } from './useTopicSession';
@@ -37,6 +38,11 @@ export function useChat(
   }
 
   const extraSearch = extraSearchChoice.scope === scope && extraSearchChoice.enabled && eligibleForExtraSearch;
+  const [searchProgressState, setSearchProgressState] = useState<{
+    scope: string;
+    progress: EvidenceSearchProgress | null;
+  }>({ scope: '', progress: null });
+  const searchProgress = searchProgressState.scope === scope ? searchProgressState.progress : null;
 
   const setExtraSearchEnabled = useCallback(
     (enabled: boolean) => setExtraSearchChoice({ scope, enabled: enabled && eligibleForExtraSearch }),
@@ -89,6 +95,13 @@ export function useChat(
           controller.signal,
           (event) => {
             if (topicRef.current !== target || conversationRef.current !== targetConversation) return;
+            setSearchProgressState((current) => ({
+              scope: `${target}\u0000${targetConversation}`,
+              progress: foldEvidenceSearchProgress(
+                current.scope === `${target}\u0000${targetConversation}` ? current.progress : null,
+                event,
+              ),
+            }));
             if (event.type === 'done') session.dispatch({ type: 'contextChanged', context: event.context || {} });
             session.dispatch({
               type: 'messagesChanged',
@@ -121,6 +134,9 @@ export function useChat(
           value: (previous) => failTurn(previous, stopRequested).messages,
         });
       } finally {
+        setSearchProgressState((current) =>
+          current.scope === `${target}\u0000${targetConversation}` ? { ...current, progress: null } : current,
+        );
         if (streamController.current === controller) {
           streamController.current = null;
           resolveStream.current?.();
@@ -152,5 +168,6 @@ export function useChat(
     extraSearch,
     extraSearchAvailable: eligibleForExtraSearch,
     setExtraSearchEnabled,
+    searchProgress,
   };
 }

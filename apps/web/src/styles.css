@@ -560,6 +560,19 @@ main {
   overflow: auto;
   min-height: 0;
 }
+.extra-search-progress {
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 12px 42px 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #68765b;
+  font-size: 11px;
+}
+.extra-search-progress > span:last-child:not(:first-of-type) {
+  color: #8a6a43;
+}
 .chat-empty {
   max-width: 730px;
   margin: auto;
@@ -821,6 +834,29 @@ main {
 .message-body {
   min-width: 0;
   flex: 1;
+}
+.evidence-search-disclosure {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-left: 2px solid #b9c8a9;
+  background: #f7f8f3;
+  color: #68765b;
+  font-size: 11px;
+  line-height: 1.6;
+}
+.evidence-search-disclosure strong {
+  display: block;
+  color: #58694a;
+  margin-bottom: 3px;
+}
+.evidence-search-disclosure p {
+  margin: 0;
+}
+.evidence-search-disclosure p + p {
+  margin-top: 4px;
+}
+.evidence-search-warning {
+  color: #8a6a43;
 }
 .message-author {
   font-size: 11px;
@@ -1321,6 +1357,7 @@ main {
     gap: 7px;
   }
   .message-list,
+  .extra-search-progress,
   .files-page {
     padding: 25px;
   }
@@ -1437,6 +1474,9 @@ main {
   }
   .message-list {
     padding: 23px 18px;
+  }
+  .extra-search-progress {
+    padding: 12px 18px 0;
   }
   .message {
     gap: 10px;
@@ -1896,6 +1936,17 @@ main {
   font-size: 12px;
   margin: 0 0 4px;
   color: #43513a;
+}
+.citation-source-label {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: #eaf0e3;
+  color: #61744d;
+  font-size: 10px;
+  font-weight: 600;
+  vertical-align: 1px;
 }
 .citation-card-meta {
   font-size: 10px;

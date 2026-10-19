@@ -1,8 +1,10 @@
 import type { LabFile, Message, Model } from '../api/types';
 import type { ContextMeter as Meter } from '../domain/contextMeter';
+import type { EvidenceSearchProgress } from '../domain/evidenceSearch';
 import { Composer } from './Composer';
 import { GoalEditor } from './GoalEditor';
 import { MessageList } from './MessageList';
+import { LoaderCircle } from 'lucide-react';
 
 type Props = {
   messages: Message[];
@@ -21,6 +23,7 @@ type Props = {
   selectedCount: number;
   extraSearch: boolean;
   extraSearchAvailable: boolean;
+  searchProgress: EvidenceSearchProgress | null;
   activeModel?: Model;
   modelError: string;
   meter: Meter;
@@ -41,6 +44,17 @@ type Props = {
   onExtraSearchChange: (enabled: boolean) => void;
 };
 
+function progressLabel(progress: EvidenceSearchProgress): string {
+  switch (progress.stage) {
+    case 'deciding':
+      return 'Checking the selected documents…';
+    case 'searching':
+      return 'Searching the selected documents…';
+    case 'answering':
+      return 'Preparing an answer…';
+  }
+}
+
 export function ChatPanel({
   messages,
   models,
@@ -58,6 +72,7 @@ export function ChatPanel({
   selectedCount,
   extraSearch,
   extraSearchAvailable,
+  searchProgress,
   activeModel,
   modelError,
   meter,
@@ -90,6 +105,13 @@ export function ChatPanel({
         onSubmit={onGoalSubmit}
       />
       <div className="conversation" onScroll={onScroll}>
+        {searchProgress && (
+          <div className="extra-search-progress" role="status" aria-live="polite" aria-label="Extra search progress">
+            <LoaderCircle className="spin" size={14} aria-hidden="true" />
+            <span>{progressLabel(searchProgress)}</span>
+            {searchProgress.warning && <span>{searchProgress.warning}</span>}
+          </div>
+        )}
         <MessageList
           messages={messages}
           models={models}

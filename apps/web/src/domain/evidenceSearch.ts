@@ -11,6 +11,8 @@ export type EvidenceSearchFollowUp = 'none' | 'no_results' | 'duplicates' | 'tri
 
 export type EvidenceSearchSummary = {
   outcome: EvidenceSearchMetadata['outcome'];
+  generationCount: number;
+  lookupCount: number;
   followUp: EvidenceSearchFollowUp;
   initialAvailableCount: number;
   initialRetainedCount: number;
@@ -50,6 +52,8 @@ export function summarizeEvidenceSearch(
 
   return {
     outcome: metadata.outcome,
+    generationCount: metadata.generation_count,
+    lookupCount: metadata.lookup_count,
     followUp,
     initialAvailableCount: metadata.initial_available_chunk_ids.length,
     initialRetainedCount: metadata.initial_chunk_ids.length,

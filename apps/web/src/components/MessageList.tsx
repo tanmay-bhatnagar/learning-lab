@@ -5,6 +5,7 @@ import { MessageSources } from '../citations';
 import { originalPdfUrl } from '../api/urls';
 import { RichText } from './RichText';
 import { PrerequisiteSnapshot } from './PrerequisiteSnapshot';
+import { EvidenceSearchDisclosure } from './EvidenceSearchDisclosure';
 
 type Props = {
   messages: Message[];
@@ -73,6 +74,12 @@ export function MessageList({ messages, models, topic, files, sending, bottomRef
               </details>
             )}
             {message.content && <RichText text={message.content} />}{' '}
+            {message.role === 'assistant' && message.retrieval?.evidence_search && (
+              <EvidenceSearchDisclosure
+                metadata={message.retrieval.evidence_search}
+                citationCount={message.retrieval.citations.length}
+              />
+            )}
             {message.prerequisite_import && (
               <PrerequisiteSnapshot metadata={message.prerequisite_import} topic={topic} files={files} />
             )}

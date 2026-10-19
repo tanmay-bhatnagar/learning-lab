@@ -31,7 +31,10 @@ function CitationCard({
   return (
     <article className="citation-card" aria-labelledby={`citation-${citation.chunk_id}-${index}`}>
       <header className="citation-card-header">
-        <h4 id={`citation-${citation.chunk_id}-${index}`}>{citation.file_name}</h4>
+        <h4 id={`citation-${citation.chunk_id}-${index}`}>
+          {citation.source_label && <span className="citation-source-label">{citation.source_label}</span>}
+          {citation.file_name}
+        </h4>
         <p className="citation-card-meta">
           {headingsLabel(citation.headings)} ·{' '}
           {pages.length

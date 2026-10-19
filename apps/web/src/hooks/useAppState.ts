@@ -304,6 +304,7 @@ export function useAppState() {
     extraSearch: chat.extraSearch,
     extraSearchAvailable: chat.extraSearchAvailable,
     setExtraSearchEnabled: chat.setExtraSearchEnabled,
+    searchProgress: chat.searchProgress,
     upload,
     refreshFiles: session.refreshFiles,
     selectTopic,
