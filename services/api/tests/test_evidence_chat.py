@@ -489,3 +489,95 @@ def test_snapshot_conflict_remains_specific_in_saved_trace(tmp_path, monkeypatch
     assert model.calls == []
     assert trace["status"] == "error"
     assert trace["error"]["code"] == "snapshot_changed"
+
+
+def test_captured_cv_goal_and_proficiency_are_present_in_both_model_prompts(tmp_path):
+    model = EvidenceModel(
+        [
+            json.dumps(
+                {
+                    "action": "search_selected",
+                    "answer": "",
+                    "source_labels": [],
+                    "query": "calibration",
+                }
+            )
+        ]
+    )
+    app = _app(tmp_path, model)
+    client = TestClient(app)
+    topic, record = _topic_with_index(client)
+    goal = "Compare the calibration evidence before learning more statistics."
+    assert client.put(f"/api/topics/{topic}/learning-goal", json={"learning_goal": goal}).status_code == 200
+    cv = app.state.deps.profile_store.register_cv(
+        "Synthetic CV.pdf", b"synthetic CV original", "PINNED-CV-TEXT education and work", {"status": "ready"}
+    )
+    app.state.deps.profile_store.select_cv(cv["id"], expected_revision=1)
+    assert (
+        client.patch(
+            f"/api/topics/{topic}/conversations/default/learner-context",
+            json={"expected_revision": 0, "include_cv": True},
+        ).status_code
+        == 200
+    )
+    assert (
+        client.post(
+            "/api/profile/proficiency/entries",
+            json={
+                "expected_revision": 0,
+                "concept": "Statistics",
+                "comfort": "refresher",
+                "notes": "Review confidence intervals.",
+            },
+        ).status_code
+        == 201
+    )
+    app.state.deps.retriever = _retriever([])
+
+    response = client.post(
+        f"/api/topics/{topic}/chat",
+        json={
+            "message": "What does this evidence support?",
+            "file_ids": [record["id"]],
+            "model": "local",
+            "extra_search": True,
+        },
+    )
+
+    assert response.status_code == 200
+    assert len(model.calls) == 2
+    for call in model.calls:
+        prompt = json.dumps(call["messages"], ensure_ascii=False)
+        assert goal in prompt
+        assert "PINNED-CV-TEXT education and work" in prompt
+        assert "Statistics" in prompt
+        assert "confidence intervals" in prompt
+
+
+def test_opted_in_cv_off_does_not_read_corrupt_cv_text(tmp_path):
+    model = EvidenceModel(
+        [json.dumps({"action": "answer", "answer": "Evidence-only answer.", "source_labels": ["E1"], "query": ""})]
+    )
+    app = _app(tmp_path, model)
+    client = TestClient(app)
+    topic, record = _topic_with_index(client)
+    cv = app.state.deps.profile_store.register_cv(
+        "Opt-out CV.pdf", b"synthetic CV original", "DO-NOT-READ-CV-TEXT", {"status": "ready"}
+    )
+    app.state.deps.profile_store.select_cv(cv["id"], expected_revision=1)
+    app.state.deps.profile_store._text_path(cv["id"]).write_text("tampered CV text", encoding="utf-8")
+    app.state.deps.retriever = _retriever([])
+
+    response = client.post(
+        f"/api/topics/{topic}/chat",
+        json={
+            "message": "Answer from the selected document.",
+            "file_ids": [record["id"]],
+            "model": "local",
+            "extra_search": True,
+        },
+    )
+
+    assert response.status_code == 200
+    assert len(model.calls) == 1
+    assert "DO-NOT-READ-CV-TEXT" not in json.dumps(model.calls, ensure_ascii=False)
