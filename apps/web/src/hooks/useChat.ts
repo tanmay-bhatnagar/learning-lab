@@ -31,13 +31,12 @@ export function useChat(
   const eligibleForExtraSearch = selected.some((id) =>
     session.files.some((file) => file.id === id && file.status === 'ready' && file.index_status === 'ready'),
   );
-  const extraSearch = extraSearchChoice.scope === scope && extraSearchChoice.enabled && eligibleForExtraSearch;
 
-  useEffect(() => {
-    if (extraSearchChoice.enabled && (!eligibleForExtraSearch || extraSearchChoice.scope !== scope)) {
-      setExtraSearchChoice({ scope, enabled: false });
-    }
-  }, [extraSearchChoice, eligibleForExtraSearch, scope]);
+  if (extraSearchChoice.scope !== scope || (extraSearchChoice.enabled && !eligibleForExtraSearch)) {
+    setExtraSearchChoice({ scope, enabled: false });
+  }
+
+  const extraSearch = extraSearchChoice.scope === scope && extraSearchChoice.enabled && eligibleForExtraSearch;
 
   const setExtraSearchEnabled = useCallback(
     (enabled: boolean) => setExtraSearchChoice({ scope, enabled: enabled && eligibleForExtraSearch }),

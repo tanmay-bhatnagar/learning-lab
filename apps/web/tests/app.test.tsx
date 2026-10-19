@@ -883,6 +883,13 @@ describe('App characterization', () => {
     const resetExtraSearch = screen.getByRole('checkbox', { name: 'Allow extra search' });
     expect(resetExtraSearch).not.toBeChecked();
     expect(resetExtraSearch).toBeDisabled();
+
+    await openFilesTab(user);
+    await user.click(screen.getByRole('checkbox', { name: 'Include paper-a.pdf in chat' }));
+    await openConversationTab(user);
+    const reselectedExtraSearch = screen.getByRole('checkbox', { name: 'Allow extra search' });
+    expect(reselectedExtraSearch).not.toBeChecked();
+    expect(reselectedExtraSearch).toBeEnabled();
   });
 
   test('changing topic immediately hides the prior conversation opt-in', async () => {
@@ -902,6 +909,26 @@ describe('App characterization', () => {
     const newTopicExtraSearch = screen.getByRole('checkbox', { name: 'Allow extra search' });
     expect(newTopicExtraSearch).not.toBeChecked();
     expect(newTopicExtraSearch).toBeDisabled();
+  });
+
+  test('changing conversation immediately hides the prior conversation opt-in', async () => {
+    installFakeApi();
+    const user = userEvent.setup();
+    render(<App />);
+    await waitForAppReady();
+
+    await openFilesTab(user);
+    await user.click(screen.getByRole('checkbox', { name: 'Include paper-a.pdf in chat' }));
+    await openConversationTab(user);
+    await user.click(screen.getByRole('checkbox', { name: 'Allow extra search' }));
+    await user.click(screen.getByRole('button', { name: 'New chat' }));
+    await user.type(screen.getByRole('textbox', { name: 'Conversation title' }), 'Second conversation');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(screen.getByRole('option', { name: 'Second conversation' })).toBeInTheDocument());
+
+    const newConversationExtraSearch = screen.getByRole('checkbox', { name: 'Allow extra search' });
+    expect(newConversationExtraSearch).not.toBeChecked();
+    expect(newConversationExtraSearch).toBeDisabled();
   });
 
   test('preflight rejection preserves both the message draft and the opt-in choice', async () => {
