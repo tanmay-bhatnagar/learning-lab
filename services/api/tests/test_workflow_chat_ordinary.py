@@ -57,10 +57,10 @@ def test_execution_graph_callables_are_async():
         assert inspect.iscoroutinefunction(fn), name
 
 
-def test_execution_mermaid_contains_stream_and_publish():
+def test_execution_mermaid_contains_stream_and_prepare_publication():
     mermaid = build_chat_graphs().execution.get_graph().draw_mermaid()
     assert "stream_answer" in mermaid
-    assert "publish" in mermaid
+    assert "prepare_publication" in mermaid
 
 
 def test_recursion_limit_constant():
@@ -210,3 +210,62 @@ async def test_slow_consumer_bounds_producer():
             await run.cancel_and_wait()
             break
     assert count >= 3
+
+
+@pytest.mark.parametrize("spec_version", ["2.3", "2.4"])
+@pytest.mark.parametrize("http_middleware", [True, False])
+def test_disconnect_on_final_token_saves_cancelled_incomplete_ordinary(tmp_path, spec_version, http_middleware):
+    from tests.test_evidence_chat import _chat_scope
+
+    model = FakeModel(token_text="hello world")
+    app = _chat_app(tmp_path, model)
+    if not http_middleware:
+        app.user_middleware = [item for item in app.user_middleware if item.cls.__name__ != "BaseHTTPMiddleware"]
+        app.middleware_stack = None
+    client = TestClient(app)
+    topic = client.post("/api/topics", json={"name": "Ordinary disconnect"}).json()["id"]
+    body = json.dumps(payload()).encode()
+    received = False
+
+    async def receive():
+        nonlocal received
+        if not received:
+            received = True
+            return {"type": "http.request", "body": body, "more_body": False}
+        await asyncio.Future()
+
+    async def send(message):
+        if message["type"] == "http.response.body" and message.get("body"):
+            for raw_line in message["body"].splitlines():
+                if json.loads(raw_line).get("type") == "token":
+                    raise OSError("client stopped on final token")
+
+    from starlette.requests import ClientDisconnect
+
+    try:
+        asyncio.run(app(_chat_scope(topic, body, spec_version), receive, send))
+    except (OSError, ClientDisconnect):
+        pass
+
+    messages = client.get(f"/api/topics/{topic}/messages").json()["messages"]
+    assert messages[-1]["role"] == "assistant"
+    assert messages[-1].get("incomplete") is True
+    assert "hello" in messages[-1]["content"]
+    trace = client.get(f"/api/topics/{topic}/query-traces").json()["traces"][0]
+    assert trace["status"] == "cancelled"
+    assert trace.get("assistant_saved") is True
+
+
+def test_full_read_ordinary_completes_trace_and_assistant(tmp_path):
+    model = FakeModel(token_text="complete answer")
+    client = TestClient(_chat_app(tmp_path, model))
+    topic = client.post("/api/topics", json={"name": "Ordinary complete"}).json()["id"]
+    response = client.post(f"/api/topics/{topic}/chat", json=payload())
+    assert _events(response)[-1]["type"] == "done"
+    messages = client.get(f"/api/topics/{topic}/messages").json()["messages"]
+    assert messages[-1].get("incomplete") is not True
+    from lab.query_traces import list_traces, trace_path
+
+    trace = list_traces(trace_path(client.app.state.deps.store.topic(topic)), conversation_id="default", limit=1)[0]
+    assert trace["status"] == "completed"
+    assert trace.get("assistant_saved") is True

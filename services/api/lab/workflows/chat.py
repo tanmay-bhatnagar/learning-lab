@@ -36,9 +36,9 @@ from lab.runtime_policy import load_runtime_policy
 from lab.storage import read_bytes, read_json
 from lab.summary_import import validated_summary_imports
 from lab.prerequisite_import import validated_prerequisite_imports
-from lab.workflows.chat_publication import ChatPublicationBundle, ChatPublicationOutcome, publish_ordinary_chat
+from lab.workflows.chat_publication import ChatPublicationBundle, ChatPublicationOutcome, prepare_ordinary_publication
 from lab.workflows.events import EventSink, text_fragments
-from lab.workflows.runtime import PublishOnce, invoke_graph
+from lab.workflows.runtime import invoke_graph
 
 logger = logging.getLogger(__name__)
 
@@ -185,7 +185,6 @@ class ChatExecutionContext:
     generation_lock: asyncio.Lock
     sink: EventSink
     observer: Any
-    publish_latch: PublishOnce[ChatPublicationOutcome]
     bundle: ChatPublicationBundle
     prompt: list[dict[str, object]]
     model: str
@@ -199,6 +198,7 @@ class ChatExecutionContext:
 class ChatGraphs:
     admission: Any
     execution: Any
+    optin_execution: Any
 
 
 @dataclass
@@ -533,14 +533,13 @@ async def stream_answer_node(
             ctx.provider_stream = None
 
 
-async def publish_node(_state: ChatExecutionState, runtime: Runtime[ChatExecutionContext]) -> ChatExecutionState:
+async def prepare_publication_node(
+    _state: ChatExecutionState,
+    runtime: Runtime[ChatExecutionContext],
+) -> ChatExecutionState:
     ctx = runtime.context
-
-    async def _publish() -> ChatPublicationOutcome:
-        return await publish_ordinary_chat(ctx.bundle, ctx.observer)
-
-    ctx.publication_outcome = await ctx.publish_latch.run(_publish)
-    return {"stage": "published"}
+    ctx.publication_outcome = await prepare_ordinary_publication(ctx.bundle, ctx.observer)
+    return {"stage": "prepared"}
 
 
 def build_chat_graphs() -> ChatGraphs:
@@ -570,14 +569,17 @@ def build_chat_graphs() -> ChatGraphs:
 
     execution_builder = StateGraph(ChatExecutionState, context_schema=ChatExecutionContext)
     execution_builder.add_node("stream_answer", stream_answer_node)
-    execution_builder.add_node("publish", publish_node)
+    execution_builder.add_node("prepare_publication", prepare_publication_node)
     execution_builder.add_edge(START, "stream_answer")
-    execution_builder.add_edge("stream_answer", "publish")
-    execution_builder.add_edge("publish", END)
+    execution_builder.add_edge("stream_answer", "prepare_publication")
+    execution_builder.add_edge("prepare_publication", END)
+
+    from lab.workflows.chat_evidence import build_optin_execution_graph
 
     return ChatGraphs(
         admission=admission_builder.compile(),
         execution=execution_builder.compile(),
+        optin_execution=build_optin_execution_graph(),
     )
 
 

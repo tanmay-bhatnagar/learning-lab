@@ -6,19 +6,17 @@ import asyncio
 import json
 import logging
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from anyio import CancelScope
 from fastapi import APIRouter
 
 from lab.chat_prompt import build_chat_prompt
 from lab.contracts import Session
-from lab.chat_session import append_assistant_message, with_session_context
 from lab.errors import InvalidInput
 from lab.evidence_prompt import build_final_evidence_prompt, build_initial_evidence_prompt
 from lab.evidence_request import MAX_SOURCE_REFERENCES, merge_scoped_sources
 from lab.evidence_snapshot import bind_retained_sources, revalidate_evidence_snapshot
-from lab.evidence_turn import EvidenceTurnEvent, run_evidence_turn
-from lab.query_traces import duration, finalize as finalize_trace, list_traces, retrieval_fields, trace_path
+from lab.query_traces import finalize as finalize_trace, list_traces, trace_path
 from lab.prerequisite_import import validated_prerequisite_imports
 from lab.retrieval import evidence_messages, search
 from lab.summary_import import validated_summary_imports
@@ -34,10 +32,15 @@ from lab.workflows.chat import (
     admit_chat,
     build_chat_graphs,
 )
+from lab.workflows.chat_evidence import OPTIN_EXECUTION_RECURSION_LIMIT, ChatOptInExecutionContext
 from lab.workflows.chat_publication import (
     ChatObserver,
+    ChatOptInObserver,
+    ChatOptInPublicationBundle,
     ChatPublicationBundle,
-    ensure_ordinary_publication,
+    ChatPublicationOutcome,
+    commit_optin_publication,
+    commit_ordinary_publication,
     emit_late_graph_failure,
 )
 from lab.workflows.events import EventSink
@@ -48,6 +51,42 @@ logger = logging.getLogger(__name__)
 _INITIAL_FALLBACK_WARNING = "Selected-document search used bounded opening passages because no query match was found."
 _INITIAL_NO_HITS_WARNING = "No indexed passages were returned from the selected documents."
 _INITIAL_KEYWORD_WARNING = "Semantic search was unavailable; keyword results were used."
+
+
+CommitFn = Callable[..., Awaitable[ChatPublicationOutcome]]
+
+
+async def _yield_prepared_terminals(
+    *,
+    publish_latch: PublishOnce,
+    prepared: ChatPublicationOutcome | None,
+    commit: CommitFn,
+    bundle: ChatPublicationBundle | ChatOptInPublicationBundle,
+    observer: ChatObserver | ChatOptInObserver,
+    delivered_complete: list[bool],
+    outcome_box: list[ChatPublicationOutcome | None],
+) -> AsyncIterator[dict[str, object]]:
+    """Commit through the request latch once, then yield prepared terminal events."""
+    if prepared is not None and prepared.terminal_events:
+        if any(event.get("type") == "done" for event in prepared.terminal_events):
+            outcome_box[0] = await publish_latch.run(
+                lambda: commit(bundle, observer, prepared=prepared, terminal_delivered=True)
+            )
+            delivered_complete[0] = True
+            for event in outcome_box[0].terminal_events:
+                yield dict(event)
+            return
+        outcome_box[0] = await publish_latch.run(
+            lambda: commit(bundle, observer, prepared=prepared, terminal_delivered=False)
+        )
+        for event in outcome_box[0].terminal_events:
+            yield dict(event)
+        return
+    outcome_box[0] = await publish_latch.run(
+        lambda: commit(bundle, observer, prepared=prepared, terminal_delivered=False)
+    )
+    for event in outcome_box[0].terminal_events:
+        yield dict(event)
 
 
 def _empty_evidence_search() -> dict[str, object]:
@@ -186,7 +225,6 @@ def router(deps: AppDeps) -> APIRouter:
                 generation_lock=deps.model_generation_lock,
                 sink=sink,
                 observer=observer,
-                publish_latch=publish_latch,
                 bundle=publication_bundle,
                 prompt=plan["prompt"],
                 model=body.model,
@@ -194,32 +232,35 @@ def router(deps: AppDeps) -> APIRouter:
                 context_limit=body.context_limit,
             )
 
+            delivered_complete = [False]
+
             async def terminal_events(
                 _graph_outcome: dict[str, object] | None,
                 error: BaseException | None,
             ):
-                publication = execution_context.publication_outcome
-                if publication is None or not publication.published:
+                if error is not None:
                     if isinstance(error, asyncio.CancelledError):
                         observer.mark_cancelled()
-                    elif error is not None:
-                        observer.mark_generation_failed(error)
                     else:
-                        observer.mark_cancelled()
-                    publication = await publish_latch.run(
-                        lambda: ensure_ordinary_publication(
-                            publication_bundle,
-                            observer,
-                            existing=publication,
-                        )
-                    )
-                    execution_context.publication_outcome = publication
-                elif error is not None and publication.complete:
+                        observer.mark_generation_failed(error)
+                prepared = execution_context.publication_outcome
+                outcome_box: list[ChatPublicationOutcome | None] = [prepared]
+                async for event in _yield_prepared_terminals(
+                    publish_latch=publish_latch,
+                    prepared=prepared,
+                    commit=commit_ordinary_publication,
+                    bundle=publication_bundle,
+                    observer=observer,
+                    delivered_complete=delivered_complete,
+                    outcome_box=outcome_box,
+                ):
+                    yield event
+                if outcome_box[0] is not None:
+                    execution_context.publication_outcome = outcome_box[0]
+                publication = execution_context.publication_outcome
+                if error is not None and publication is not None and publication.complete and publication.published:
                     async for item in emit_late_graph_failure(publication=publication, graph_error=error):
                         yield item
-                    return
-                for event in publication.terminal_events:
-                    yield event
 
             graph_run = GraphRun(
                 graph=chat_graphs.execution,
@@ -252,12 +293,14 @@ def router(deps: AppDeps) -> APIRouter:
                                     type(exc).__name__,
                                 )
                         publication_outcome = await publish_latch.run(
-                            lambda: ensure_ordinary_publication(
+                            lambda: commit_ordinary_publication(
                                 publication_bundle,
                                 observer,
-                                existing=execution_context.publication_outcome,
+                                prepared=execution_context.publication_outcome,
+                                terminal_delivered=delivered_complete[0],
                             )
                         )
+                        execution_context.publication_outcome = publication_outcome
                         if publication_outcome.save_failure is not None:
                             raise publication_outcome.save_failure
                     finally:
@@ -282,443 +325,235 @@ def router(deps: AppDeps) -> APIRouter:
                 headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
             )
 
-        assistant = {
-            "role": "assistant",
-            "content": "",
-            "thinking": "",
-            "model": body.model,
-            "retrieval": {
-                **plan["retrieval_record"],
-                **({"citations": []} if body.extra_search else {}),
-            },
-        }
-        complete = False
-        finished = False
-        trace_finalize_failed = False
-        outcome: dict[str, object] = {"status": "cancelled", "stage": "generation", "error": None}
-        stream = None
+        assert evidence_snapshot is not None
+        assert evidence_prompt_kwargs is not None
         generation_started = time.monotonic()
-        first_output: float | None = None
-        prompt = plan["prompt"]
-        prompt_context = plan["prompt_context"]
-        retrieval_record = dict(assistant["retrieval"])
-        evidence_metadata = retrieval_record.get("evidence_search") if body.extra_search else None
         latest_search_result = search_result
         total_retrieval_ms = retrieval_ms
 
-        def update_evidence_metadata(metadata: dict[str, object]) -> None:
-            nonlocal evidence_metadata
-            evidence_metadata = dict(metadata)
-            retrieval_record["evidence_search"] = dict(metadata)
-            assistant["retrieval"] = dict(retrieval_record)
-            trace.record["evidence_search"] = dict(metadata)
-
-        def record_initial_supply(metadata: dict[str, object]) -> None:
-            supplied_ids = {item for item in metadata.get("initial_chunk_ids", []) if isinstance(item, str)}
-            if not supplied_ids:
-                return
-            initial_citations = [citation for citation in plan["citations"] if citation.get("chunk_id") in supplied_ids]
-            retrieval_record["citations"] = initial_citations
-            assistant["retrieval"] = dict(retrieval_record)
-            trace.record = retrieval_fields(
-                trace.record,
-                selected_file_ids=list(dict.fromkeys(body.file_ids)),
-                search_result=search_result,
-                retained_ids=supplied_ids,
-                citations=initial_citations,
-                retrieval_ms=total_retrieval_ms,
+        async def evidence_lookup(query: str, *, file_ids: tuple[str, ...]) -> dict[str, object]:
+            nonlocal latest_search_result, total_retrieval_ms
+            if file_ids != evidence_scope:
+                raise InvalidInput("Additional search scope no longer matches the captured selection.")
+            lookup_started = time.monotonic()
+            search_fn = deps.retriever or search
+            latest_search_result = await search_fn(
+                deps.store,
+                topic,
+                query,
+                file_ids=list(evidence_scope),
+                limit=current.retrieval_top_k,
+                embedding_model=current.embedding_model,
+                embedder=deps.embedder(),
             )
-            trace.record["evidence_search"] = dict(metadata)
+            total_retrieval_ms += (time.monotonic() - lookup_started) * 1000
+            return latest_search_result
+
+        def build_final(
+            initial_hits: Sequence[Mapping[str, object]],
+            additional_hits: Sequence[Mapping[str, object]],
+        ):
+            combined_hits = merge_scoped_sources(
+                initial_hits,
+                additional_hits,
+                selected_file_ids=set(evidence_scope),
+                max_sources=MAX_SOURCE_REFERENCES,
+            )
+            final_evidence, final_citations = evidence_messages(
+                deps.store,
+                topic,
+                combined_hits,
+                include_images=evidence_vision,
+            )
+            mode = latest_search_result.get("mode", "none")
+            final_warning = (
+                _INITIAL_FALLBACK_WARNING
+                if mode == "fallback"
+                else _INITIAL_NO_HITS_WARNING
+                if mode == "none"
+                else _INITIAL_KEYWORD_WARNING
+                if mode == "keyword" and latest_search_result.get("warning")
+                else None
+            )
+            final_retrieval_record = {
+                "mode": mode,
+                "warning": final_warning,
+                "citations": final_citations,
+                "evidence_search": dict(
+                    publication_bundle.trace.record.get("evidence_search")
+                    or plan["retrieval_record"].get("evidence_search")
+                    or _empty_evidence_search()
+                ),
+            }
+            final_kwargs = {
+                **evidence_prompt_kwargs,
+                "evidence": final_evidence,
+                "citations": final_citations,
+                "retrieval_record": final_retrieval_record,
+            }
+            return build_final_evidence_prompt(
+                prompt_kwargs=final_kwargs,
+                initial_chunks=initial_hits,
+                additional_chunks=additional_hits,
+                selected_file_ids=set(evidence_scope),
+                max_sources=current.retrieval_top_k,
+            )
+
+        def guard_snapshot(
+            sources: Sequence[Mapping[str, object]],
+            *,
+            supplied_images: Sequence[object],
+        ) -> None:
+            nonlocal evidence_snapshot
+            candidate = bind_retained_sources(
+                evidence_snapshot,
+                sources,
+                supplied_images=supplied_images,
+            )
+            revalidate_evidence_snapshot(
+                candidate,
+                store=deps.store,
+                profile_store=deps.profile_store,
+                runtime_policy_path=deps.config.runtime_policy_path,
+            )
+            evidence_snapshot = candidate
+
+        observer = ChatOptInObserver(
+            generation_started=generation_started,
+            started_monotonic=started,
+        )
+        publish_latch = PublishOnce()
+        retrieval_record = {**plan["retrieval_record"], "citations": []}
+        publication_bundle = ChatOptInPublicationBundle(
+            session=session,
+            initial_plan=plan,
+            trace=trace,
+            save_session=save,
+            requested_model=body.model,
+            retrieval_record=retrieval_record,
+            trace_id=trace_id,
+            file_ids=body.file_ids,
+            search_result=search_result,
+            total_retrieval_ms=total_retrieval_ms,
+            generation_started=generation_started,
+            started_monotonic=started,
+            initial_chunks=evidence_initial_chunks,
+            evidence_scope=evidence_scope,
+        )
+        sink = EventSink(allowed_types=CHAT_QUEUED_EVENT_TYPES, capacity=1)
+        execution_context = ChatOptInExecutionContext(
+            model_backend=deps.model_backend,
+            generation_lock=deps.model_generation_lock,
+            sink=sink,
+            bundle=publication_bundle,
+            initial_plan=plan,
+            initial_chunks=evidence_initial_chunks,
+            evidence_scope=evidence_scope,
+            model=body.model,
+            think=body.think,
+            context_limit=body.context_limit,
+            lookup=evidence_lookup,
+            build_final=build_final,
+            revalidate=guard_snapshot,
+            observer=observer,
+            file_ids=body.file_ids,
+            latest_search_result=latest_search_result,
+            total_retrieval_ms=total_retrieval_ms,
+        )
+
+        delivered_complete = [False]
+
+        async def terminal_events(
+            _graph_outcome: dict[str, object] | None,
+            error: BaseException | None,
+        ):
+            if error is not None:
+                if isinstance(error, asyncio.CancelledError):
+                    observer.mark_cancelled()
+                else:
+                    observer.set_workflow_error("generation_failed", str(error))
+            prepared = execution_context.publication_outcome
+            outcome_box: list[ChatPublicationOutcome | None] = [prepared]
+            async for event in _yield_prepared_terminals(
+                publish_latch=publish_latch,
+                prepared=prepared,
+                commit=commit_optin_publication,
+                bundle=publication_bundle,
+                observer=observer,
+                delivered_complete=delivered_complete,
+                outcome_box=outcome_box,
+            ):
+                yield event
+            if outcome_box[0] is not None:
+                execution_context.publication_outcome = outcome_box[0]
+            publication = execution_context.publication_outcome
+            if error is not None and publication is not None and publication.complete and publication.published:
+                async for item in emit_late_graph_failure(publication=publication, graph_error=error):
+                    yield item
+
+        graph_run = GraphRun(
+            graph=chat_graphs.optin_execution,
+            state={},
+            context=execution_context,
+            recursion_limit=OPTIN_EXECUTION_RECURSION_LIMIT,
+            sink=sink,
+            terminal_events=terminal_events,
+        )
+        finished = False
 
         async def finish() -> None:
-            nonlocal finished, trace_finalize_failed
+            nonlocal finished
             if finished:
                 return
             finished = True
             with CancelScope(shield=True):
                 try:
-                    save_failure: BaseException | None = None
-                    if stream is not None and hasattr(stream, "aclose"):
+                    await graph_run.cancel_and_wait()
+                    if execution_context.provider_stream is not None and hasattr(
+                        execution_context.provider_stream,
+                        "aclose",
+                    ):
                         try:
-                            await stream.aclose()
-                        except BaseException as exc:  # noqa: BLE001 - shielded cleanup must record every close failure
-                            outcome.update(
-                                status="error",
-                                stage="stream_close",
-                                error={
-                                    "stage": "stream_close",
-                                    "code": "stream_close_failed",
-                                    "exception_type": type(exc).__name__,
-                                    "summary": "Model stream cleanup failed.",
-                                },
+                            await execution_context.provider_stream.aclose()
+                        except Exception as exc:  # noqa: BLE001 - shielded cleanup must not block lease release
+                            logger.error(
+                                "Chat stream cleanup failed for %s (%s)",
+                                trace_id,
+                                type(exc).__name__,
                             )
-                            logger.error("Chat stream cleanup failed for %s (%s)", trace_id, type(exc).__name__)
-                    if not complete:
-                        if body.extra_search:
-                            assert isinstance(evidence_metadata, dict)
-                            incomplete_metadata = dict(evidence_metadata)
-                            incomplete_metadata["outcome"] = (
-                                "cancelled" if outcome["status"] == "cancelled" else "error"
-                            )
-                            update_evidence_metadata(incomplete_metadata)
-                        assistant["incomplete"] = True
-                        session_updated = append_assistant_message(session, assistant)
-                        try:
-                            save(session_updated)
-                            trace.record["assistant_saved"] = True
-                            trace.record["assistant_message_index"] = len(session_updated["messages"]) - 1
-                        except Exception as exc:  # noqa: BLE001 - record failed answer persistence before releasing the lease
-                            save_failure = exc
-                            outcome.update(
-                                status="error",
-                                stage="assistant_save",
-                                error={
-                                    "stage": "assistant_save",
-                                    "code": "assistant_save_failed",
-                                    "exception_type": type(exc).__name__,
-                                    "summary": "Assistant response could not be saved.",
-                                },
-                            )
-                            logger.error("Assistant save failed for query %s (%s)", trace_id, type(exc).__name__)
-                    if not trace.done and not trace_finalize_failed:
-                        try:
-                            persist_trace(
-                                outcome["status"],
-                                outcome["stage"],
-                                error=outcome["error"],
-                                output_chars=len(assistant["content"]),
-                                thinking_chars=len(assistant["thinking"]),
-                                assistant_saved=complete or trace.record.get("assistant_saved", False),
-                                assistant_message_index=trace.record.get("assistant_message_index"),
-                                generation_ms=duration((time.monotonic() - generation_started) * 1000),
-                                first_output_ms=duration((first_output - started) * 1000) if first_output else None,
-                            )
-                        except Exception as exc:  # noqa: BLE001 - report trace persistence failure and still release the lease
-                            trace_finalize_failed = True
-                    if save_failure is not None:
-                        raise save_failure
+                    if not trace.record.get("assistant_saved") and not delivered_complete[0]:
+                        observer.mark_cancelled()
+                        if isinstance(execution_context.evidence_state.get("outcome"), str):
+                            execution_context.evidence_state["outcome"] = "cancelled"
+                        publication_bundle.trace.record["evidence_search"] = dict(execution_context.evidence_state)
+                    publication_outcome = await publish_latch.run(
+                        lambda: commit_optin_publication(
+                            publication_bundle,
+                            observer,
+                            prepared=execution_context.publication_outcome,
+                            terminal_delivered=delivered_complete[0],
+                        )
+                    )
+                    execution_context.publication_outcome = publication_outcome
+                    if publication_outcome.save_failure is not None:
+                        raise publication_outcome.save_failure
                 finally:
+                    deps.active_runs.unregister(graph_run)
                     lease.release()
 
-        async def events():
-            nonlocal complete, first_output, stream, trace_finalize_failed
-            nonlocal prompt, prompt_context, retrieval_record, evidence_snapshot
-            nonlocal latest_search_result, total_retrieval_ms
-
+        async def optin_events():
             def line(event: dict) -> str:
                 return json.dumps(event, ensure_ascii=False) + "\n"
 
             try:
-                if body.extra_search:
-                    assert evidence_snapshot is not None
-                    assert evidence_prompt_kwargs is not None
-
-                    async def evidence_lookup(query: str, *, file_ids: tuple[str, ...]) -> dict[str, object]:
-                        nonlocal latest_search_result, total_retrieval_ms
-                        if file_ids != evidence_scope:
-                            raise InvalidInput("Additional search scope no longer matches the captured selection.")
-                        lookup_started = time.monotonic()
-                        search_fn = deps.retriever or search
-                        latest_search_result = await search_fn(
-                            deps.store,
-                            topic,
-                            query,
-                            file_ids=list(evidence_scope),
-                            limit=current.retrieval_top_k,
-                            embedding_model=current.embedding_model,
-                            embedder=deps.embedder(),
-                        )
-                        total_retrieval_ms += (time.monotonic() - lookup_started) * 1000
-                        return latest_search_result
-
-                    def build_final(
-                        initial_hits: Sequence[Mapping[str, object]],
-                        additional_hits: Sequence[Mapping[str, object]],
-                    ):
-                        combined_hits = merge_scoped_sources(
-                            initial_hits,
-                            additional_hits,
-                            selected_file_ids=set(evidence_scope),
-                            max_sources=MAX_SOURCE_REFERENCES,
-                        )
-                        final_evidence, final_citations = evidence_messages(
-                            deps.store,
-                            topic,
-                            combined_hits,
-                            include_images=evidence_vision,
-                        )
-                        mode = latest_search_result.get("mode", "none")
-                        final_warning = (
-                            _INITIAL_FALLBACK_WARNING
-                            if mode == "fallback"
-                            else _INITIAL_NO_HITS_WARNING
-                            if mode == "none"
-                            else _INITIAL_KEYWORD_WARNING
-                            if mode == "keyword" and latest_search_result.get("warning")
-                            else None
-                        )
-                        final_retrieval_record = {
-                            "mode": mode,
-                            "warning": final_warning,
-                            "citations": final_citations,
-                            "evidence_search": dict(evidence_metadata or {}),
-                        }
-                        final_kwargs = {
-                            **evidence_prompt_kwargs,
-                            "evidence": final_evidence,
-                            "citations": final_citations,
-                            "retrieval_record": final_retrieval_record,
-                        }
-                        return build_final_evidence_prompt(
-                            prompt_kwargs=final_kwargs,
-                            initial_chunks=initial_hits,
-                            additional_chunks=additional_hits,
-                            selected_file_ids=set(evidence_scope),
-                            max_sources=current.retrieval_top_k,
-                        )
-
-                    def guard_snapshot(
-                        sources: Sequence[Mapping[str, object]],
-                        *,
-                        supplied_images: Sequence[object],
-                    ) -> None:
-                        nonlocal evidence_snapshot
-                        candidate = bind_retained_sources(
-                            evidence_snapshot,
-                            sources,
-                            supplied_images=supplied_images,
-                        )
-                        revalidate_evidence_snapshot(
-                            candidate,
-                            store=deps.store,
-                            profile_store=deps.profile_store,
-                            runtime_policy_path=deps.config.runtime_policy_path,
-                        )
-                        evidence_snapshot = candidate
-
-                    stream = run_evidence_turn(
-                        gateway=deps.model_backend,
-                        initial_plan=plan,
-                        initial_chunks=evidence_initial_chunks,
-                        selected_file_ids=evidence_scope,
-                        model=body.model,
-                        think=body.think,
-                        context_limit=body.context_limit,
-                        generation_lock=deps.model_generation_lock,
-                        lookup=evidence_lookup,
-                        build_final=build_final,
-                        revalidate=guard_snapshot,
-                    )
-                last_evidence_stage = None
-                async for event in stream:
-                    if body.extra_search:
-                        workflow_event: EvidenceTurnEvent = event
-                        if workflow_event.kind == "stage":
-                            metadata = workflow_event.metadata or {}
-                            update_evidence_metadata(metadata)
-                            if workflow_event.stage is not None:
-                                outcome["stage"] = workflow_event.stage
-                            if workflow_event.stage == "deciding" and metadata.get("generation_count", 0) == 1:
-                                record_initial_supply(metadata)
-                            if workflow_event.stage != last_evidence_stage:
-                                last_evidence_stage = workflow_event.stage
-                                status_event = {"type": "evidence_status", "stage": workflow_event.stage}
-                                warning = metadata.get("warning") or metadata.get("search_warning")
-                                if isinstance(warning, str):
-                                    status_event["warning"] = warning
-                                yield line(status_event)
-                            continue
-                        if workflow_event.kind == "plan":
-                            metadata = workflow_event.metadata or {}
-                            update_evidence_metadata(metadata)
-                            if workflow_event.plan is None:
-                                raise RuntimeError("Evidence workflow omitted its final prompt plan.")
-                            final_plan = workflow_event.plan
-                            prompt = final_plan["prompt"]
-                            prompt_context = final_plan["prompt_context"]
-                            retrieval_record = dict(final_plan["retrieval_record"])
-                            retrieval_record["evidence_search"] = dict(metadata)
-                            assistant["retrieval"] = dict(retrieval_record)
-                            combined_hits = merge_scoped_sources(
-                                evidence_initial_chunks,
-                                latest_search_result.get("hits", []),
-                                selected_file_ids=set(evidence_scope),
-                                max_sources=MAX_SOURCE_REFERENCES,
-                            )
-                            trace.record = retrieval_fields(
-                                trace.record,
-                                selected_file_ids=list(dict.fromkeys(body.file_ids)),
-                                search_result={**latest_search_result, "hits": list(combined_hits)},
-                                retained_ids={item["chunk_id"] for item in final_plan["citations"]},
-                                citations=final_plan["citations"],
-                                retrieval_ms=total_retrieval_ms,
-                            )
-                            trace.record["evidence_search"] = dict(metadata)
-                            continue
-                        if workflow_event.kind == "done":
-                            metadata = dict(workflow_event.metadata or {})
-                            update_evidence_metadata(metadata)
-                            event = {
-                                "type": "done",
-                                "model": workflow_event.model,
-                                "context": workflow_event.context or {},
-                            }
-                        elif workflow_event.kind == "error":
-                            metadata = dict(workflow_event.metadata or {})
-                            metadata["outcome"] = "error"
-                            update_evidence_metadata(metadata)
-                            outcome.update(
-                                status="error",
-                                stage="generation",
-                                error={
-                                    "stage": "generation",
-                                    "code": workflow_event.error_code or "evidence_failed",
-                                    "exception_type": "EvidenceWorkflowError",
-                                    "summary": "The additional evidence workflow could not complete.",
-                                },
-                            )
-                            event = {"type": "error", "message": workflow_event.text or "Evidence search failed."}
-                        else:
-                            event = {"type": workflow_event.kind, "text": workflow_event.text or ""}
-                    kind = event.get("type")
-                    if kind in {"token", "thinking"}:
-                        if first_output is None:
-                            first_output = time.monotonic()
-                        text = event.get("text", "")
-                        assistant["content" if kind == "token" else "thinking"] += text
-                        yield line({"type": kind, "text": text})
-                    elif kind == "done":
-                        actual_model = event.get("model") if isinstance(event.get("model"), str) else None
-                        assistant["model"] = actual_model or body.model
-                        cleanup_error = None
-                        if stream is not None and hasattr(stream, "aclose"):
-                            try:
-                                await stream.aclose()
-                            except Exception as exc:  # noqa: BLE001 - capture provider cleanup without changing a completed answer
-                                cleanup_error = {
-                                    "stage": "stream_close",
-                                    "code": "stream_close_failed",
-                                    "exception_type": type(exc).__name__,
-                                    "summary": "Model stream cleanup failed.",
-                                }
-                                logger.error("Chat stream cleanup failed for %s (%s)", trace_id, type(exc).__name__)
-                            stream = None
-                        merged_context = {
-                            **event.get("context", {}),
-                            "truncated_messages": prompt_context.get(
-                                "truncated_messages",
-                                event.get("context", {}).get("truncated_messages", 0),
-                            ),
-                        }
-                        event = {
-                            **event,
-                            "model": assistant["model"],
-                            "retrieval": retrieval_record,
-                            "context": merged_context,
-                        }
-                        session_updated = with_session_context(
-                            append_assistant_message(session, assistant),
-                            merged_context,
-                        )
-                        save(session_updated)
-                        trace.record["assistant_saved"] = True
-                        trace.record["assistant_message_index"] = len(session_updated["messages"]) - 1
-                        complete = True
-                        trace_updates = {
-                            "actual_model": actual_model,
-                            "context_used": merged_context.get("used"),
-                            "cleanup_error": cleanup_error,
-                            "final_context": {
-                                key: merged_context[key]
-                                for key in ("used", "limit", "estimated", "truncated_messages")
-                                if key in merged_context
-                            },
-                            "generation_ms": duration((time.monotonic() - generation_started) * 1000),
-                            "first_output_ms": duration((first_output - started) * 1000) if first_output else None,
-                            "output_chars": len(assistant["content"]),
-                            "thinking_chars": len(assistant["thinking"]),
-                        }
-                        try:
-                            persist_trace("completed", "complete", **trace_updates)
-                        except Exception as exc:  # noqa: BLE001 - trace storage failure must be surfaced before done
-                            trace_finalize_failed = True
-                            logger.error("Query trace finalization failed for %s (%s)", trace_id, type(exc).__name__)
-                            yield line(
-                                {
-                                    "type": "error",
-                                    "message": "The answer was saved, but its query trace could not be finalized.",
-                                }
-                            )
-                            outcome.update(status="completed", stage="complete", error=None, **trace_updates)
-                            break
-                        yield line(event)
-                        break
-                    elif kind == "error":
-                        await finish()
-                        yield line(event)
-                        if trace_finalize_failed:
-                            yield line(
-                                {
-                                    "type": "error",
-                                    "message": "The answer was saved, but its query trace could not be finalized.",
-                                }
-                            )
-                        break
-                else:
-                    outcome.update(
-                        status="error",
-                        stage="generation",
-                        error={
-                            "stage": "generation",
-                            "code": "premature_eof",
-                            "exception_type": "IncompleteStream",
-                            "summary": "Model stream ended before completion.",
-                        },
-                    )
-                    await finish()
-                    yield line(
-                        {
-                            "type": "error",
-                            "message": "Model stream ended before completion. Partial output was saved; retry when the local model service is ready.",
-                        }
-                    )
-                    if trace_finalize_failed:
-                        yield line(
-                            {
-                                "type": "error",
-                                "message": "The answer was saved, but its query trace could not be finalized.",
-                            }
-                        )
-            except Exception as exc:  # noqa: BLE001 - stream must always end with done or error event
-                outcome.update(
-                    status="error",
-                    stage="generation",
-                    error={
-                        "stage": "generation",
-                        "code": "generation_failed",
-                        "exception_type": type(exc).__name__,
-                        "summary": "Model generation failed.",
-                    },
-                )
-                await finish()
-                yield line(
-                    {
-                        "type": "error",
-                        "message": f"Chat failed ({type(exc).__name__}). Check the local model service and retry; your message is saved.",
-                    }
-                )
-                if trace_finalize_failed:
-                    yield line(
-                        {
-                            "type": "error",
-                            "message": "The answer was saved, but its query trace could not be finalized.",
-                        }
-                    )
+                deps.active_runs.register(graph_run)
+                async for event in graph_run.events():
+                    yield line(dict(event))
             finally:
                 await finish()
 
         return FinalizedStreamingResponse(
-            events(),
+            optin_events(),
             on_close=finish,
             media_type="application/x-ndjson",
             headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
