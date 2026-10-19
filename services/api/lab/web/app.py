@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from pathlib import Path
 from functools import partial
 
@@ -75,7 +76,12 @@ def create_app(
         parser_map=parser_map,
     )
 
-    app = FastAPI(title="Learning Lab")
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        yield
+        await deps.active_runs.cancel_all()
+
+    app = FastAPI(title="Learning Lab", lifespan=lifespan)
     app.state.deps = deps
 
     @app.exception_handler(DomainError)

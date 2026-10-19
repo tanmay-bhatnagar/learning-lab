@@ -12,6 +12,7 @@ from lab.contracts import FileRecord, IndexedChunk, ModelGateway, StoreProtocol
 from lab.models import OllamaGateway
 from lab.storage import Store
 from lab.profile_store import ProfileStore
+from lab.workflows.runtime import ActiveRuns
 
 ParserFn = Callable[[bytes, str], str]
 StructuredParserFn = Callable[..., tuple[dict[str, object], list[IndexedChunk]]]
@@ -50,6 +51,7 @@ class AppDeps:
     structured_parser: StructuredParserFn | None = None
     retriever: RetrieverFn | None = None
     parser_map: dict[str, ParserFn] | None = None
+    active_runs: ActiveRuns = field(default_factory=ActiveRuns)
 
     def embedder(self) -> Callable[[list[str], str], Awaitable[list[list[float]]]]:
         backend = self.model_backend
