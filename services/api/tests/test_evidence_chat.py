@@ -129,29 +129,14 @@ def _retriever(calls):
 def _search_retriever(calls):
     async def retrieve(store, topic, query, *, file_ids, limit, embedding_model, embedder):
         calls.append((query, tuple(file_ids)))
-        record = store.file(topic, file_ids[0])
-        text = (
-            "Calibration\nThe calibration value is exactly 42."
-            if len(calls) == 1
-            else "Validation\nThe validation value is exactly 84."
-        )
-        chunk_index = 0 if len(calls) == 1 else 1
+        file_id = sorted(file_ids)[min(len(calls) - 1, 1)]
+        from lab.index import TopicIndex
+
+        with TopicIndex(store.file_path(topic, "retrieval.sqlite")) as index:
+            chunk = index.get_chunks(file_ids=[file_id])[0]
+        chunk["trace"] = {}
         return {
-            "hits": [
-                {
-                    "chunk_id": f"{record['id']}:text:{chunk_index:06d}",
-                    "file_id": record["id"],
-                    "file_name": record["name"],
-                    "chunk_index": chunk_index,
-                    "text": text,
-                    "headings": ["Calibration" if chunk_index == 0 else "Validation"],
-                    "pages": [1],
-                    "bboxes": [],
-                    "asset_ids": [],
-                    "content_hash": hashlib.sha256(text.encode()).hexdigest(),
-                    "trace": {},
-                }
-            ],
+            "hits": [chunk],
             "mode": "hybrid",
         }
 
@@ -255,12 +240,18 @@ def test_search_action_uses_only_captured_selection_and_saves_actual_evidence(tm
     app.state.deps.retriever = _search_retriever(calls)
     client = TestClient(app)
     topic, record = _topic_with_index(client)
+    second = client.post(
+        f"/api/topics/{topic}/files",
+        files={"file": ("second.pdf", b"%PDF-1.7\nsecond synthetic evidence", "application/pdf")},
+        data={"parser": "docling"},
+    ).json()
+    selected_ids = tuple(sorted((record["id"], second["id"])))
 
     response = client.post(
         f"/api/topics/{topic}/chat",
         json={
             "message": "What value was validated?",
-            "file_ids": [record["id"]],
+            "file_ids": [record["id"], second["id"]],
             "model": "local",
             "extra_search": True,
         },
@@ -277,22 +268,19 @@ def test_search_action_uses_only_captured_selection_and_saves_actual_evidence(tm
     ]
     assert [call["response_schema"] is not None for call in model.calls] == [True, False]
     assert calls == [
-        ("What value was validated?", (record["id"],)),
-        ("validation value", (record["id"],)),
+        ("What value was validated?", selected_ids),
+        ("validation value", selected_ids),
     ]
     assert done["type"] == "done"
     assert metadata["outcome"] == "searched"
     assert metadata["lookup_count"] == 1
-    assert metadata["new_chunk_ids"] == [f"{record['id']}:text:000001"]
-    assert metadata["retained_new_chunk_ids"] == [f"{record['id']}:text:000001"]
-    assert metadata["final_chunk_ids"] == [
-        f"{record['id']}:text:000000",
-        f"{record['id']}:text:000001",
-    ]
-    assert [citation["chunk_id"] for citation in done["retrieval"]["citations"]] == metadata["final_chunk_ids"]
+    assert metadata["new_chunk_ids"] == [f"{selected_ids[1]}:text:000000"]
+    assert metadata["retained_new_chunk_ids"] == [f"{selected_ids[1]}:text:000000"]
+    assert set(metadata["final_chunk_ids"]) == {f"{file_id}:text:000000" for file_id in selected_ids}
+    assert {citation["chunk_id"] for citation in done["retrieval"]["citations"]} == set(metadata["final_chunk_ids"])
     trace = client.get(f"/api/topics/{topic}/query-traces").json()["traces"][0]
     assert trace["evidence_search"] == metadata
-    assert trace["retained_chunk_ids"] == metadata["final_chunk_ids"]
+    assert {chunk["chunk_id"] for chunk in trace["retained_chunks"]} == set(metadata["final_chunk_ids"])
 
 
 def test_invalid_structured_action_falls_back_to_one_ordinary_answer(tmp_path):
