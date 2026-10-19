@@ -1,12 +1,14 @@
-"""Document-map section summary workflows (admission graph; execution in gate 12)."""
+"""Document-map section summary admission and execution LangGraph workflows."""
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import asyncio
+import logging
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import Any, Literal, TypedDict
 from uuid import uuid4
 
 from langgraph.graph import END, START, StateGraph
@@ -15,12 +17,22 @@ from langgraph.runtime import Runtime
 
 from lab.document_map_store import get_document_map
 from lab.document_map_summary_store import recover_interrupted_attempts
-from lab.errors import Conflict
+from lab.errors import Conflict, InvalidInput
 from lab.runtime_policy import load_runtime_policy
 from lab.section_summary import SummaryPlan, build_section_summary_plan
 from lab.storage import Store
-from lab.web.deps import ActiveSummary
-from lab.workflows.runtime import invoke_graph
+from lab.workflows.events import EventSink, text_fragments
+from lab.workflows.runtime import GraphRun, PublishOnce, invoke_graph
+from lab.workflows.summary_publication import (
+    SummaryObserver,
+    SummaryPublicationBundle,
+    SummaryPublicationOutcome,
+    publish_summary_cancelled,
+    publish_summary_from_observer,
+    publish_summary_success,
+)
+
+logger = logging.getLogger(__name__)
 
 SUMMARY_ADMISSION_NODE_NAMES: tuple[str, ...] = (
     "recover_attempts",
@@ -29,13 +41,35 @@ SUMMARY_ADMISSION_NODE_NAMES: tuple[str, ...] = (
     "plan_fit",
     "write_generating_attempt",
 )
+SUMMARY_EXECUTION_NODE_NAMES: tuple[str, ...] = (
+    "stream_summary",
+    "validate_and_publish",
+    "publish_failure",
+)
 SUMMARY_ADMISSION_RECURSION_LIMIT = len(SUMMARY_ADMISSION_NODE_NAMES) + 2
+SUMMARY_EXECUTION_RECURSION_LIMIT = len(SUMMARY_EXECUTION_NODE_NAMES) + 2
+SUMMARY_STREAM_EVENT_TYPES = frozenset({"token", "thinking"})
 
 WriteAttemptFn = Callable[..., dict[str, object]]
+RegisterActiveFn = Callable[[str], None]
+ListActiveAttemptIdsFn = Callable[[], set[str]]
+UnregisterActiveFn = Callable[[str], None]
+
+
+@dataclass(frozen=True, slots=True)
+class _LegacyActiveRegistration:
+    topic: str
+    file_id: str
+    revision: str
+    section_id: str
 
 
 class SummaryAdmissionState(TypedDict, total=False):
     """Routing state for summary admission (heavy values live in context artifacts)."""
+
+
+class SummaryExecutionState(TypedDict, total=False):
+    route: Literal["success", "failure"]
 
 
 @dataclass
@@ -56,13 +90,39 @@ def _now_iso() -> str:
     return datetime.now(UTC).isoformat()
 
 
+def _admission_active_ids(ctx: SummaryAdmissionContext) -> set[str]:
+    if ctx.list_active_attempt_ids is not None:
+        return ctx.list_active_attempt_ids()
+    if ctx.active_document_map_summaries is None:
+        return set()
+    return {
+        attempt_id
+        for attempt_id, active in ctx.active_document_map_summaries.items()
+        if getattr(active, "topic", None) == ctx.topic and getattr(active, "file_id", None) == ctx.file_id
+    }
+
+
+def _admission_register_active(ctx: SummaryAdmissionContext, attempt_id: str) -> None:
+    if ctx.register_active is not None:
+        ctx.register_active(attempt_id)
+        return
+    if ctx.active_document_map_summaries is None:
+        msg = "summary admission requires register_active or active_document_map_summaries"
+        raise RuntimeError(msg)
+    ctx.active_document_map_summaries[attempt_id] = _LegacyActiveRegistration(
+        topic=ctx.topic,
+        file_id=ctx.file_id,
+        revision=ctx.expected_revision,
+        section_id=ctx.section_id,
+    )
+
+
 @dataclass
 class SummaryAdmissionContext:
     """Per-request capabilities and inputs for summary admission."""
 
     store: Store
     runtime_policy_path: Path
-    active_document_map_summaries: dict[str, ActiveSummary]
     write_attempt: WriteAttemptFn
     topic: str
     file_id: str
@@ -71,9 +131,30 @@ class SummaryAdmissionContext:
     model: str
     context_limit: int
     think: bool | str | None
+    active_document_map_summaries: dict[str, object] | None = None
+    register_active: RegisterActiveFn | None = None
+    list_active_attempt_ids: ListActiveAttemptIdsFn | None = None
     artifacts: SummaryAdmissionArtifacts = field(default_factory=SummaryAdmissionArtifacts)
     new_id: Callable[[], str] = field(default=_new_attempt_id)
     now_iso: Callable[[], str] = field(default=_now_iso)
+
+
+@dataclass
+class SummaryExecutionContext:
+    """Per-request execution capabilities, observer, and publication latch inputs."""
+
+    model_backend: Any
+    generation_lock: asyncio.Lock
+    bundle: SummaryPublicationBundle
+    observer: SummaryObserver
+    sink: EventSink
+    publish_once: PublishOnce[SummaryPublicationOutcome]
+    plan_messages: list[dict[str, object]]
+    prompt_context: dict[str, int | bool]
+    requested_model: str
+    think: bool | str | None
+    context_limit: int
+    publication_outcome: SummaryPublicationOutcome | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,20 +164,83 @@ class SummaryAdmissionResult:
     plan: SummaryPlan
 
 
+@dataclass
+class SummaryStreamHandle:
+    """GraphRun-backed NDJSON stream with started prefix and shielded finish."""
+
+    attempt_id: str
+    revision: str
+    section_id: str
+    attempt: dict[str, object]
+    run: GraphRun
+    publish_once: PublishOnce[SummaryPublicationOutcome]
+    bundle: SummaryPublicationBundle
+    observer: SummaryObserver
+    unregister_active: UnregisterActiveFn
+    release_lease: Callable[[], None]
+    register_run: Callable[[GraphRun], None] | None = None
+    unregister_run: Callable[[GraphRun], None] | None = None
+    _publication_outcome: SummaryPublicationOutcome | None = None
+    _closed: bool = False
+
+    def attach_publication_outcome(self, outcome: SummaryPublicationOutcome | None) -> None:
+        self._publication_outcome = outcome
+
+    async def finish(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        from anyio import CancelScope
+
+        with CancelScope(shield=True):
+            try:
+                await self.run.cancel_and_wait()
+
+                async def publish_cancelled() -> SummaryPublicationOutcome:
+                    return await publish_summary_cancelled(self.bundle, self.observer)
+
+                if self._publication_outcome is None or not self._publication_outcome.terminal_persisted:
+                    outcome = await self.publish_once.run(publish_cancelled)
+                    self._publication_outcome = outcome
+            finally:
+                self.unregister_active(self.attempt_id)
+                self.release_lease()
+                if self.unregister_run is not None:
+                    self.unregister_run(self.run)
+
+    async def events(self) -> AsyncIterator[str]:
+        import json
+
+        def line(event: Mapping[str, object]) -> str:
+            return json.dumps(event, ensure_ascii=False) + "\n"
+
+        yield line(
+            {
+                "type": "started",
+                "attempt_id": self.attempt_id,
+                "revision": self.revision,
+                "section_id": self.section_id,
+                "attempt": self.attempt,
+            }
+        )
+        if self.register_run is not None:
+            self.register_run(self.run)
+        try:
+            async for event in self.run.events():
+                yield line(dict(event))
+        finally:
+            await self.finish()
+
+
 async def recover_attempts(
     _state: SummaryAdmissionState, runtime: Runtime[SummaryAdmissionContext]
 ) -> SummaryAdmissionState:
     ctx = runtime.context
-    active_ids = {
-        attempt_id
-        for attempt_id, active in ctx.active_document_map_summaries.items()
-        if active.topic == ctx.topic and active.file_id == ctx.file_id
-    }
     recover_interrupted_attempts(
         ctx.store,
         ctx.topic,
         ctx.file_id,
-        active_attempt_ids=active_ids,
+        active_attempt_ids=_admission_active_ids(ctx),
         finished_at=ctx.now_iso(),
     )
     return {}
@@ -156,13 +300,129 @@ async def write_generating_attempt(
     attempt = art.plan["attempt"]
     ctx.write_attempt(ctx.store, ctx.topic, ctx.file_id, attempt)
     art.attempt = attempt
-    ctx.active_document_map_summaries[art.attempt_id] = ActiveSummary(
-        topic=ctx.topic,
-        file_id=ctx.file_id,
-        revision=ctx.expected_revision,
-        section_id=ctx.section_id,
-    )
+    _admission_register_active(ctx, art.attempt_id)
     return {}
+
+
+async def _close_provider_stream(stream: AsyncIterator[dict[str, object]] | None) -> None:
+    if stream is not None and hasattr(stream, "aclose"):
+        try:
+            await stream.aclose()
+        except BaseException as exc:  # noqa: BLE001 - provider cleanup must not mask publication
+            logger.error("Section-summary stream cleanup failed (%s)", type(exc).__name__)
+
+
+async def stream_summary(
+    _state: SummaryExecutionState, runtime: Runtime[SummaryExecutionContext]
+) -> SummaryExecutionState:
+    ctx = runtime.context
+    observer = ctx.observer
+    stream = ctx.model_backend.stream_chat(
+        ctx.plan_messages,
+        ctx.requested_model,
+        ctx.think,
+        ctx.context_limit,
+        context_metadata=ctx.prompt_context,
+        generation_lock=ctx.generation_lock,
+    )
+    try:
+        async for provider_event in stream:
+            kind = provider_event.get("type")
+            if kind in {"token", "thinking"}:
+                text = provider_event.get("text")
+                if not isinstance(text, str):
+                    raise InvalidInput("The model stream returned malformed text.")
+                observer.record(kind, text)
+                for fragment in text_fragments(text):
+                    await ctx.sink.send({"type": kind, "attempt_id": ctx.bundle.attempt_id, "text": fragment})
+                continue
+            if kind == "error":
+                message = provider_event.get("message")
+                text = message if isinstance(message, str) and message else "The model could not complete this summary."
+                observer.mark_provider_error(text)
+                return {"route": "failure"}
+            if kind != "done":
+                raise InvalidInput("The model stream returned an unsupported event.")
+            await _close_provider_stream(stream)
+            stream = None
+            actual_model = provider_event.get("model")
+            model_name = actual_model if isinstance(actual_model, str) and actual_model else ctx.requested_model
+            observer.mark_completed(model=model_name)
+            return {"route": "success"}
+        observer.mark_premature_eof()
+        return {"route": "failure"}
+    except asyncio.CancelledError:
+        observer.mark_cancelled()
+        raise
+    except InvalidInput as exc:
+        observer.mark_validation_failure(str(exc))
+        return {"route": "failure"}
+    except Exception as exc:  # noqa: BLE001 - stream boundary maps unknown failures to generic message
+        logger.error("Section-summary stream failed (%s)", type(exc).__name__)
+        observer.mark_validation_failure("The section summary could not be completed.")
+        return {"route": "failure"}
+    finally:
+        await _close_provider_stream(stream)
+
+
+async def validate_and_publish(
+    _state: SummaryExecutionState, runtime: Runtime[SummaryExecutionContext]
+) -> SummaryExecutionState:
+    ctx = runtime.context
+
+    async def publish() -> SummaryPublicationOutcome:
+        return await publish_summary_success(ctx.bundle, ctx.observer)
+
+    ctx.publication_outcome = await ctx.publish_once.run(publish)
+    return {}
+
+
+async def publish_failure(
+    _state: SummaryExecutionState, runtime: Runtime[SummaryExecutionContext]
+) -> SummaryExecutionState:
+    ctx = runtime.context
+
+    async def publish() -> SummaryPublicationOutcome:
+        return await publish_summary_from_observer(ctx.bundle, ctx.observer)
+
+    ctx.publication_outcome = await ctx.publish_once.run(publish)
+    return {}
+
+
+async def _route_after_stream(state: SummaryExecutionState) -> str:
+    if state.get("route") == "success":
+        return "validate_and_publish"
+    return "publish_failure"
+
+
+async def _summary_terminal_events(
+    execution_context: SummaryExecutionContext,
+    publish_once: PublishOnce[SummaryPublicationOutcome],
+    *,
+    outcome: dict[str, Any] | None,
+    error: BaseException | None,
+) -> AsyncIterator[Mapping[str, object]]:
+    if execution_context.publication_outcome is not None:
+        pub = execution_context.publication_outcome
+    elif error is not None and isinstance(error, asyncio.CancelledError):
+
+        async def publish() -> SummaryPublicationOutcome:
+            return await publish_summary_cancelled(execution_context.bundle, execution_context.observer)
+
+        pub = await publish_once.run(publish)
+        execution_context.publication_outcome = pub
+    elif error is not None:
+
+        async def publish() -> SummaryPublicationOutcome:
+            execution_context.observer.mark_validation_failure("The section summary could not be completed.")
+            return await publish_summary_from_observer(execution_context.bundle, execution_context.observer)
+
+        pub = await publish_once.run(publish)
+        execution_context.publication_outcome = pub
+    else:
+        pub = execution_context.publication_outcome or SummaryPublicationOutcome()
+    for event in pub.terminal_events:
+        yield event
 
 
 def compile_summary_admission_graph() -> CompiledStateGraph[SummaryAdmissionState, SummaryAdmissionContext, Any, Any]:
@@ -184,8 +444,26 @@ def compile_summary_admission_graph() -> CompiledStateGraph[SummaryAdmissionStat
     return graph.compile()
 
 
+def compile_summary_execution_graph() -> CompiledStateGraph[SummaryExecutionState, SummaryExecutionContext, Any, Any]:
+    """Build the summary execution graph (compile once per app)."""
+    graph: StateGraph[SummaryExecutionState, SummaryExecutionContext] = StateGraph(
+        SummaryExecutionState, context_schema=SummaryExecutionContext
+    )
+    graph.add_node("stream_summary", stream_summary)
+    graph.add_node("validate_and_publish", validate_and_publish)
+    graph.add_node("publish_failure", publish_failure)
+    graph.add_edge(START, "stream_summary")
+    graph.add_conditional_edges("stream_summary", _route_after_stream)
+    graph.add_edge("validate_and_publish", END)
+    graph.add_edge("publish_failure", END)
+    return graph.compile()
+
+
 def summary_admission_mermaid(compiled: CompiledStateGraph[Any, Any, Any, Any]) -> str:
-    """Return local Mermaid text for the compiled admission topology."""
+    return compiled.get_graph().draw_mermaid()
+
+
+def summary_execution_mermaid(compiled: CompiledStateGraph[Any, Any, Any, Any]) -> str:
     return compiled.get_graph().draw_mermaid()
 
 
@@ -205,3 +483,58 @@ async def run_summary_admission(
         msg = "summary admission finished without attempt artifacts"
         raise RuntimeError(msg)
     return SummaryAdmissionResult(attempt_id=art.attempt_id, attempt=art.attempt, plan=art.plan)
+
+
+def build_summary_stream_handle(
+    *,
+    admitted: SummaryAdmissionResult,
+    revision: str,
+    section_id: str,
+    execution_graph: CompiledStateGraph[Any, Any, Any, Any],
+    execution_context: SummaryExecutionContext,
+    unregister_active: UnregisterActiveFn,
+    release_lease: Callable[[], None],
+    register_run: Callable[[GraphRun], None] | None = None,
+    unregister_run: Callable[[GraphRun], None] | None = None,
+) -> SummaryStreamHandle:
+    """Create a GraphRun-backed stream handle after successful admission."""
+    handle_holder: list[SummaryStreamHandle] = []
+
+    async def terminal_events(
+        outcome: dict[str, Any] | None,
+        error: BaseException | None,
+    ) -> AsyncIterator[Mapping[str, object]]:
+        async for event in _summary_terminal_events(
+            execution_context,
+            execution_context.publish_once,
+            outcome=outcome,
+            error=error,
+        ):
+            yield event
+        if handle_holder:
+            handle_holder[0].attach_publication_outcome(execution_context.publication_outcome)
+
+    run = GraphRun(
+        graph=execution_graph,
+        state={},
+        context=execution_context,
+        recursion_limit=SUMMARY_EXECUTION_RECURSION_LIMIT,
+        sink=execution_context.sink,
+        terminal_events=terminal_events,
+    )
+    handle = SummaryStreamHandle(
+        attempt_id=admitted.attempt_id,
+        revision=revision,
+        section_id=section_id,
+        attempt=admitted.attempt,
+        run=run,
+        publish_once=execution_context.publish_once,
+        bundle=execution_context.bundle,
+        observer=execution_context.observer,
+        unregister_active=unregister_active,
+        release_lease=release_lease,
+        register_run=register_run,
+        unregister_run=unregister_run,
+    )
+    handle_holder.append(handle)
+    return handle
