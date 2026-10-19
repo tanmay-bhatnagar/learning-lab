@@ -456,3 +456,36 @@ def test_initial_gateway_factory_failure_does_not_claim_prepared_evidence(tmp_pa
     trace = client.get(f"/api/topics/{topic}/query-traces").json()["traces"][0]
     assert trace["retained_chunks"] == []
     assert trace["evidence_search"]["final_chunk_ids"] == []
+
+
+def test_snapshot_conflict_remains_specific_in_saved_trace(tmp_path, monkeypatch):
+    from lab.errors import Conflict
+
+    def stale_snapshot(*args, **kwargs):
+        raise Conflict("Captured prompt inputs changed.")
+
+    monkeypatch.setattr("lab.web.chat.revalidate_evidence_snapshot", stale_snapshot)
+    model = EvidenceModel(
+        [json.dumps({"action": "answer", "answer": "Grounded.", "source_labels": ["E1"], "query": ""})]
+    )
+    app = _app(tmp_path, model)
+    app.state.deps.retriever = _retriever([])
+    client = TestClient(app)
+    topic, record = _topic_with_index(client)
+
+    response = client.post(
+        f"/api/topics/{topic}/chat",
+        json={
+            "message": "Explain this source.",
+            "file_ids": [record["id"]],
+            "model": "local",
+            "extra_search": True,
+        },
+    )
+
+    trace = client.get(f"/api/topics/{topic}/query-traces").json()["traces"][0]
+    assert response.status_code == 200
+    assert [json.loads(line) for line in response.text.splitlines()][-1]["type"] == "error"
+    assert model.calls == []
+    assert trace["status"] == "error"
+    assert trace["error"]["code"] == "snapshot_changed"

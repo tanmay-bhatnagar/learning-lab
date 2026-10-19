@@ -353,8 +353,6 @@ def router(deps: AppDeps) -> APIRouter:
                 evidence_metadata["initial_available_chunk_ids"] = [
                     str(source["chunk_id"]) for source in evidence_initial_chunks
                 ]
-                evidence_metadata["initial_chunk_ids"] = [source.source_id for source in plan["source_manifest"]]
-                evidence_metadata["final_chunk_ids"] = list(evidence_metadata["initial_chunk_ids"])
                 plan["retrieval_record"]["evidence_search"] = evidence_metadata
                 retrieval_record["evidence_search"] = evidence_metadata
                 trace_state["record"]["evidence_search"] = evidence_metadata
@@ -366,13 +364,13 @@ def router(deps: AppDeps) -> APIRouter:
             trace_state["record"]["user_saved"] = True
             trace_state["record"]["user_message_index"] = len(session["messages"]) - 1
             elapsed_preflight = (time.monotonic() - started) * 1000
-            retained_ids = {citation["chunk_id"] for citation in plan["citations"]}
+            retained_ids = set() if body.extra_search else {citation["chunk_id"] for citation in plan["citations"]}
             trace_state["record"] = retrieval_fields(
                 trace_state["record"],
                 selected_file_ids=list(dict.fromkeys(body.file_ids)),
                 search_result=search_result,
                 retained_ids=retained_ids,
-                citations=citations,
+                citations=[] if body.extra_search else citations,
                 retrieval_ms=retrieval_ms,
             )
             trace_state["record"]["preflight_ms"] = duration(elapsed_preflight)
@@ -404,7 +402,10 @@ def router(deps: AppDeps) -> APIRouter:
             "content": "",
             "thinking": "",
             "model": body.model,
-            "retrieval": plan["retrieval_record"],
+            "retrieval": {
+                **plan["retrieval_record"],
+                **({"citations": []} if body.extra_search else {}),
+            },
         }
         complete = False
         finished = False
@@ -415,7 +416,7 @@ def router(deps: AppDeps) -> APIRouter:
         first_output: float | None = None
         prompt = plan["prompt"]
         prompt_context = plan["prompt_context"]
-        retrieval_record = dict(plan["retrieval_record"])
+        retrieval_record = dict(assistant["retrieval"])
         evidence_metadata = retrieval_record.get("evidence_search") if body.extra_search else None
         latest_search_result = search_result
         total_retrieval_ms = retrieval_ms
@@ -425,6 +426,23 @@ def router(deps: AppDeps) -> APIRouter:
             evidence_metadata = dict(metadata)
             retrieval_record["evidence_search"] = dict(metadata)
             assistant["retrieval"] = dict(retrieval_record)
+            trace_state["record"]["evidence_search"] = dict(metadata)
+
+        def record_initial_supply(metadata: dict[str, object]) -> None:
+            supplied_ids = {item for item in metadata.get("initial_chunk_ids", []) if isinstance(item, str)}
+            if not supplied_ids:
+                return
+            initial_citations = [citation for citation in plan["citations"] if citation.get("chunk_id") in supplied_ids]
+            retrieval_record["citations"] = initial_citations
+            assistant["retrieval"] = dict(retrieval_record)
+            trace_state["record"] = retrieval_fields(
+                trace_state["record"],
+                selected_file_ids=list(dict.fromkeys(body.file_ids)),
+                search_result=search_result,
+                retained_ids=supplied_ids,
+                citations=initial_citations,
+                retrieval_ms=total_retrieval_ms,
+            )
             trace_state["record"]["evidence_search"] = dict(metadata)
 
         async def finish() -> None:
@@ -622,6 +640,8 @@ def router(deps: AppDeps) -> APIRouter:
                         if workflow_event.kind == "stage":
                             metadata = workflow_event.metadata or {}
                             update_evidence_metadata(metadata)
+                            if workflow_event.stage == "deciding" and metadata.get("generation_count", 0) == 1:
+                                record_initial_supply(metadata)
                             if workflow_event.stage != last_evidence_stage:
                                 last_evidence_stage = workflow_event.stage
                                 status_event = {"type": "evidence_status", "stage": workflow_event.stage}
