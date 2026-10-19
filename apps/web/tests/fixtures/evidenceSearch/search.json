@@ -1,0 +1,196 @@
+{
+  "events": [
+    {
+      "type": "evidence_status",
+      "stage": "deciding"
+    },
+    {
+      "type": "evidence_status",
+      "stage": "searching"
+    },
+    {
+      "type": "evidence_status",
+      "stage": "answering"
+    },
+    {
+      "type": "token",
+      "text": "Grounded answer."
+    },
+    {
+      "type": "done",
+      "model": "local",
+      "context": {
+        "used": 77,
+        "limit": 32768,
+        "estimated": false,
+        "truncated_messages": 0
+      },
+      "retrieval": {
+        "mode": "hybrid",
+        "warning": null,
+        "citations": [
+          {
+            "chunk_id": "c7e7efacbd314763a926c8eeaaffcf49:text:000000",
+            "file_id": "c7e7efacbd314763a926c8eeaaffcf49",
+            "file_name": "validation.pdf",
+            "headings": [
+              "Calibration"
+            ],
+            "pages": [
+              1
+            ],
+            "bboxes": [],
+            "assets": [],
+            "trace": {},
+            "text": "Calibration\nThe calibration value is exactly 42.",
+            "chunk_index": 0,
+            "source_label": "E2"
+          },
+          {
+            "chunk_id": "fd60db81f9d042189c20befbab2ad466:text:000000",
+            "file_id": "fd60db81f9d042189c20befbab2ad466",
+            "file_name": "paper.pdf",
+            "headings": [
+              "Calibration"
+            ],
+            "pages": [
+              1
+            ],
+            "bboxes": [],
+            "assets": [],
+            "trace": {},
+            "text": "Calibration\nThe calibration value is exactly 42.",
+            "chunk_index": 0,
+            "source_label": "E1"
+          }
+        ],
+        "evidence_search": {
+          "schema_version": 1,
+          "requested": true,
+          "action": "search_selected",
+          "outcome": "searched",
+          "generation_count": 2,
+          "lookup_count": 1,
+          "initial_available_chunk_ids": [
+            "c7e7efacbd314763a926c8eeaaffcf49:text:000000"
+          ],
+          "initial_chunk_ids": [
+            "c7e7efacbd314763a926c8eeaaffcf49:text:000000"
+          ],
+          "returned_chunk_ids": [
+            "fd60db81f9d042189c20befbab2ad466:text:000000"
+          ],
+          "new_chunk_ids": [
+            "fd60db81f9d042189c20befbab2ad466:text:000000"
+          ],
+          "retained_new_chunk_ids": [
+            "fd60db81f9d042189c20befbab2ad466:text:000000"
+          ],
+          "final_chunk_ids": [
+            "fd60db81f9d042189c20befbab2ad466:text:000000",
+            "c7e7efacbd314763a926c8eeaaffcf49:text:000000"
+          ],
+          "declared_source_labels": [],
+          "search_mode": "hybrid",
+          "search_warning": null,
+          "warning": null
+        }
+      }
+    }
+  ],
+  "saved": {
+    "messages": [
+      {
+        "role": "user",
+        "content": "What value was validated?",
+        "file_ids": [
+          "fd60db81f9d042189c20befbab2ad466",
+          "c7e7efacbd314763a926c8eeaaffcf49"
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": "Grounded answer.",
+        "thinking": "",
+        "model": "local",
+        "retrieval": {
+          "mode": "hybrid",
+          "warning": null,
+          "citations": [
+            {
+              "chunk_id": "c7e7efacbd314763a926c8eeaaffcf49:text:000000",
+              "file_id": "c7e7efacbd314763a926c8eeaaffcf49",
+              "file_name": "validation.pdf",
+              "headings": [
+                "Calibration"
+              ],
+              "pages": [
+                1
+              ],
+              "bboxes": [],
+              "assets": [],
+              "trace": {},
+              "text": "Calibration\nThe calibration value is exactly 42.",
+              "chunk_index": 0,
+              "source_label": "E2"
+            },
+            {
+              "chunk_id": "fd60db81f9d042189c20befbab2ad466:text:000000",
+              "file_id": "fd60db81f9d042189c20befbab2ad466",
+              "file_name": "paper.pdf",
+              "headings": [
+                "Calibration"
+              ],
+              "pages": [
+                1
+              ],
+              "bboxes": [],
+              "assets": [],
+              "trace": {},
+              "text": "Calibration\nThe calibration value is exactly 42.",
+              "chunk_index": 0,
+              "source_label": "E1"
+            }
+          ],
+          "evidence_search": {
+            "schema_version": 1,
+            "requested": true,
+            "action": "search_selected",
+            "outcome": "searched",
+            "generation_count": 2,
+            "lookup_count": 1,
+            "initial_available_chunk_ids": [
+              "c7e7efacbd314763a926c8eeaaffcf49:text:000000"
+            ],
+            "initial_chunk_ids": [
+              "c7e7efacbd314763a926c8eeaaffcf49:text:000000"
+            ],
+            "returned_chunk_ids": [
+              "fd60db81f9d042189c20befbab2ad466:text:000000"
+            ],
+            "new_chunk_ids": [
+              "fd60db81f9d042189c20befbab2ad466:text:000000"
+            ],
+            "retained_new_chunk_ids": [
+              "fd60db81f9d042189c20befbab2ad466:text:000000"
+            ],
+            "final_chunk_ids": [
+              "fd60db81f9d042189c20befbab2ad466:text:000000",
+              "c7e7efacbd314763a926c8eeaaffcf49:text:000000"
+            ],
+            "declared_source_labels": [],
+            "search_mode": "hybrid",
+            "search_warning": null,
+            "warning": null
+          }
+        }
+      }
+    ],
+    "context": {
+      "used": 77,
+      "limit": 32768,
+      "estimated": false,
+      "truncated_messages": 0
+    }
+  }
+}

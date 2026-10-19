@@ -1,0 +1,147 @@
+{
+  "events": [
+    {
+      "type": "evidence_status",
+      "stage": "deciding"
+    },
+    {
+      "type": "evidence_status",
+      "stage": "answering"
+    },
+    {
+      "type": "token",
+      "text": "The calibration value is 42."
+    },
+    {
+      "type": "done",
+      "model": "local",
+      "context": {
+        "used": 77,
+        "limit": 32768,
+        "estimated": false,
+        "truncated_messages": 0
+      },
+      "retrieval": {
+        "mode": "keyword",
+        "warning": null,
+        "citations": [
+          {
+            "chunk_id": "6c159317f66a4ccb876ec3c120c7000f:text:000000",
+            "file_id": "6c159317f66a4ccb876ec3c120c7000f",
+            "file_name": "paper.pdf",
+            "headings": [
+              "Calibration"
+            ],
+            "pages": [
+              1
+            ],
+            "bboxes": [],
+            "assets": [],
+            "trace": {},
+            "text": "Calibration\nThe calibration value is exactly 42.",
+            "chunk_index": 0,
+            "source_label": "E1"
+          }
+        ],
+        "evidence_search": {
+          "schema_version": 1,
+          "requested": true,
+          "action": "answer",
+          "outcome": "direct_answer",
+          "generation_count": 1,
+          "lookup_count": 0,
+          "initial_available_chunk_ids": [
+            "6c159317f66a4ccb876ec3c120c7000f:text:000000"
+          ],
+          "initial_chunk_ids": [
+            "6c159317f66a4ccb876ec3c120c7000f:text:000000"
+          ],
+          "returned_chunk_ids": [],
+          "new_chunk_ids": [],
+          "retained_new_chunk_ids": [],
+          "final_chunk_ids": [
+            "6c159317f66a4ccb876ec3c120c7000f:text:000000"
+          ],
+          "declared_source_labels": [
+            "E1"
+          ],
+          "search_mode": null,
+          "search_warning": null,
+          "warning": null
+        }
+      }
+    }
+  ],
+  "saved": {
+    "messages": [
+      {
+        "role": "user",
+        "content": "What value was validated?",
+        "file_ids": [
+          "6c159317f66a4ccb876ec3c120c7000f"
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": "The calibration value is 42.",
+        "thinking": "",
+        "model": "local",
+        "retrieval": {
+          "mode": "keyword",
+          "warning": null,
+          "citations": [
+            {
+              "chunk_id": "6c159317f66a4ccb876ec3c120c7000f:text:000000",
+              "file_id": "6c159317f66a4ccb876ec3c120c7000f",
+              "file_name": "paper.pdf",
+              "headings": [
+                "Calibration"
+              ],
+              "pages": [
+                1
+              ],
+              "bboxes": [],
+              "assets": [],
+              "trace": {},
+              "text": "Calibration\nThe calibration value is exactly 42.",
+              "chunk_index": 0,
+              "source_label": "E1"
+            }
+          ],
+          "evidence_search": {
+            "schema_version": 1,
+            "requested": true,
+            "action": "answer",
+            "outcome": "direct_answer",
+            "generation_count": 1,
+            "lookup_count": 0,
+            "initial_available_chunk_ids": [
+              "6c159317f66a4ccb876ec3c120c7000f:text:000000"
+            ],
+            "initial_chunk_ids": [
+              "6c159317f66a4ccb876ec3c120c7000f:text:000000"
+            ],
+            "returned_chunk_ids": [],
+            "new_chunk_ids": [],
+            "retained_new_chunk_ids": [],
+            "final_chunk_ids": [
+              "6c159317f66a4ccb876ec3c120c7000f:text:000000"
+            ],
+            "declared_source_labels": [
+              "E1"
+            ],
+            "search_mode": null,
+            "search_warning": null,
+            "warning": null
+          }
+        }
+      }
+    ],
+    "context": {
+      "used": 77,
+      "limit": 32768,
+      "estimated": false,
+      "truncated_messages": 0
+    }
+  }
+}

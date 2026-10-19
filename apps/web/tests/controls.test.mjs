@@ -73,6 +73,14 @@ test('next chat request uses saved selected model/context and actual thinking ca
     context_limit: APP_CONTEXT_MAX,
     think: true,
   });
+  assert.deepEqual(chatRequest(settings, qwen, { [qwen.id]: true }, 'Hello', ['pdf1'], true), {
+    message: 'Hello',
+    file_ids: ['pdf1'],
+    model: qwen.id,
+    think: true,
+    context_limit: APP_CONTEXT_MAX,
+    extra_search: true,
+  });
   assert.equal(thinkingValue(qwen, { [qwen.id]: 'high' }), false);
   const oss = { id: 'gpt-oss:20b', thinking: { type: 'levels', levels: ['low', 'medium', 'high'] } };
   assert.equal(thinkingValue(oss, { [oss.id]: 'high' }), 'high');

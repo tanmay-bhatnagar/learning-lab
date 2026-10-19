@@ -1,0 +1,144 @@
+{
+  "events": [
+    {
+      "type": "evidence_status",
+      "stage": "deciding"
+    },
+    {
+      "type": "evidence_status",
+      "stage": "answering",
+      "warning": "The structured planning response was unusable; no additional search was performed."
+    },
+    {
+      "type": "token",
+      "text": "Grounded answer."
+    },
+    {
+      "type": "done",
+      "model": "local",
+      "context": {
+        "used": 77,
+        "limit": 32768,
+        "estimated": false,
+        "truncated_messages": 0
+      },
+      "retrieval": {
+        "mode": "keyword",
+        "warning": null,
+        "citations": [
+          {
+            "chunk_id": "519585bed88342f3bad07a86dd676ea2:text:000000",
+            "file_id": "519585bed88342f3bad07a86dd676ea2",
+            "file_name": "paper.pdf",
+            "headings": [
+              "Calibration"
+            ],
+            "pages": [
+              1
+            ],
+            "bboxes": [],
+            "assets": [],
+            "trace": {},
+            "text": "Calibration\nThe calibration value is exactly 42.",
+            "chunk_index": 0,
+            "source_label": "E1"
+          }
+        ],
+        "evidence_search": {
+          "schema_version": 1,
+          "requested": true,
+          "action": "invalid",
+          "outcome": "invalid_action_fallback",
+          "generation_count": 2,
+          "lookup_count": 0,
+          "initial_available_chunk_ids": [
+            "519585bed88342f3bad07a86dd676ea2:text:000000"
+          ],
+          "initial_chunk_ids": [
+            "519585bed88342f3bad07a86dd676ea2:text:000000"
+          ],
+          "returned_chunk_ids": [],
+          "new_chunk_ids": [],
+          "retained_new_chunk_ids": [],
+          "final_chunk_ids": [
+            "519585bed88342f3bad07a86dd676ea2:text:000000"
+          ],
+          "declared_source_labels": [],
+          "search_mode": null,
+          "search_warning": null,
+          "warning": "The structured planning response was unusable; no additional search was performed."
+        }
+      }
+    }
+  ],
+  "saved": {
+    "messages": [
+      {
+        "role": "user",
+        "content": "What value was validated?",
+        "file_ids": [
+          "519585bed88342f3bad07a86dd676ea2"
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": "Grounded answer.",
+        "thinking": "",
+        "model": "local",
+        "retrieval": {
+          "mode": "keyword",
+          "warning": null,
+          "citations": [
+            {
+              "chunk_id": "519585bed88342f3bad07a86dd676ea2:text:000000",
+              "file_id": "519585bed88342f3bad07a86dd676ea2",
+              "file_name": "paper.pdf",
+              "headings": [
+                "Calibration"
+              ],
+              "pages": [
+                1
+              ],
+              "bboxes": [],
+              "assets": [],
+              "trace": {},
+              "text": "Calibration\nThe calibration value is exactly 42.",
+              "chunk_index": 0,
+              "source_label": "E1"
+            }
+          ],
+          "evidence_search": {
+            "schema_version": 1,
+            "requested": true,
+            "action": "invalid",
+            "outcome": "invalid_action_fallback",
+            "generation_count": 2,
+            "lookup_count": 0,
+            "initial_available_chunk_ids": [
+              "519585bed88342f3bad07a86dd676ea2:text:000000"
+            ],
+            "initial_chunk_ids": [
+              "519585bed88342f3bad07a86dd676ea2:text:000000"
+            ],
+            "returned_chunk_ids": [],
+            "new_chunk_ids": [],
+            "retained_new_chunk_ids": [],
+            "final_chunk_ids": [
+              "519585bed88342f3bad07a86dd676ea2:text:000000"
+            ],
+            "declared_source_labels": [],
+            "search_mode": null,
+            "search_warning": null,
+            "warning": "The structured planning response was unusable; no additional search was performed."
+          }
+        }
+      }
+    ],
+    "context": {
+      "used": 77,
+      "limit": 32768,
+      "estimated": false,
+      "truncated_messages": 0
+    }
+  }
+}
