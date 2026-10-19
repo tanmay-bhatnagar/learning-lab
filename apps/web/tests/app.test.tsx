@@ -880,8 +880,28 @@ describe('App characterization', () => {
     await openFilesTab(user);
     await user.click(screen.getByRole('checkbox', { name: 'Include paper-a.pdf in chat' }));
     await openConversationTab(user);
-    expect(extraSearch).not.toBeChecked();
-    expect(extraSearch).toBeDisabled();
+    const resetExtraSearch = screen.getByRole('checkbox', { name: 'Allow extra search' });
+    expect(resetExtraSearch).not.toBeChecked();
+    expect(resetExtraSearch).toBeDisabled();
+  });
+
+  test('changing topic immediately hides the prior conversation opt-in', async () => {
+    installFakeApi();
+    const user = userEvent.setup();
+    render(<App />);
+    await waitForAppReady();
+
+    await openFilesTab(user);
+    await user.click(screen.getByRole('checkbox', { name: 'Include paper-a.pdf in chat' }));
+    await openConversationTab(user);
+    await user.click(screen.getByRole('checkbox', { name: 'Allow extra search' }));
+    expect(screen.getByRole('checkbox', { name: 'Allow extra search' })).toBeChecked();
+
+    await user.click(screen.getByRole('button', { name: 'Topic B' }));
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Topic B' })).toBeInTheDocument());
+    const newTopicExtraSearch = screen.getByRole('checkbox', { name: 'Allow extra search' });
+    expect(newTopicExtraSearch).not.toBeChecked();
+    expect(newTopicExtraSearch).toBeDisabled();
   });
 
   test('preflight rejection preserves both the message draft and the opt-in choice', async () => {

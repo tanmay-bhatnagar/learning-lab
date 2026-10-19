@@ -135,6 +135,8 @@ export function Composer({
       <label className="extra-search-option">
         <input
           type="checkbox"
+          aria-label="Allow extra search"
+          aria-describedby={!extraSearchAvailable ? 'extra-search-reason' : undefined}
           checked={extraSearch}
           disabled={!extraSearchAvailable || busy}
           onChange={(event) => onExtraSearchChange(event.currentTarget.checked)}
@@ -142,7 +144,9 @@ export function Composer({
         <span>
           <span className="extra-search-label">Allow extra search</span>
           {!extraSearchAvailable && (
-            <span className="extra-search-reason">Select a ready, indexed document to allow extra search.</span>
+            <span id="extra-search-reason" className="extra-search-reason">
+              Select a ready, indexed document to allow extra search.
+            </span>
           )}
         </span>
       </label>
