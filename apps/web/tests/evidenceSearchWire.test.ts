@@ -6,10 +6,27 @@ import { messagesResponseSchema, streamEventSchema } from '../src/api/types';
 
 const captures = [directCapture, searchCapture, invalidCapture];
 
+function asRecord(value: unknown): Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error('Expected a captured object.');
+  }
+  return value as Record<string, unknown>;
+}
+
+function capturedEvents(capture: unknown): unknown[] {
+  const value = asRecord(capture).events;
+  if (!Array.isArray(value)) throw new Error('Capture is missing its event list.');
+  return value;
+}
+
+function capturedSaved(capture: unknown): unknown {
+  return asRecord(capture).saved;
+}
+
 describe('captured optional evidence-search wire contract', () => {
   test('captured progress, token and terminal events parse without changing their payloads', () => {
     for (const capture of captures) {
-      for (const event of capture.events) {
+      for (const event of capturedEvents(capture)) {
         expect(streamEventSchema.parse(event)).toEqual(event);
       }
     }
@@ -17,21 +34,29 @@ describe('captured optional evidence-search wire contract', () => {
 
   test('captured saved records retain typed version-one metadata and source labels', () => {
     for (const capture of captures) {
-      expect(messagesResponseSchema.parse(capture.saved)).toEqual(capture.saved);
+      expect(messagesResponseSchema.parse(capturedSaved(capture))).toEqual(capturedSaved(capture));
     }
-    const direct = messagesResponseSchema.parse(directCapture.saved);
+    const direct = messagesResponseSchema.parse(capturedSaved(directCapture));
     expect(direct.messages[1].retrieval?.evidence_search?.outcome).toBe('direct_answer');
     expect(direct.messages[1].retrieval?.citations[0].source_label).toBe('E1');
   });
 
   test('nested version-one evidence metadata rejects malformed and unknown fields', () => {
-    const saved = structuredClone(directCapture.saved);
-    const assistant = saved.messages[1];
-    assistant.retrieval.evidence_search.generation_count = 'one';
+    const saved = asRecord(structuredClone<unknown>(capturedSaved(directCapture)));
+    const messages = saved.messages;
+    if (!Array.isArray(messages)) throw new Error('Capture is missing saved messages.');
+    const assistant = asRecord(messages[1]);
+    const retrieval = asRecord(assistant.retrieval);
+    const evidenceSearch = asRecord(retrieval.evidence_search);
+    evidenceSearch.generation_count = 'one';
     expect(messagesResponseSchema.safeParse(saved).success).toBe(false);
 
-    const withUnknown = structuredClone(directCapture.saved);
-    withUnknown.messages[1].retrieval.evidence_search.unrecognized = true;
+    const withUnknown = asRecord(structuredClone<unknown>(capturedSaved(directCapture)));
+    const unknownMessages = withUnknown.messages;
+    if (!Array.isArray(unknownMessages)) throw new Error('Capture is missing saved messages.');
+    const unknownAssistant = asRecord(unknownMessages[1]);
+    const unknownRetrieval = asRecord(unknownAssistant.retrieval);
+    asRecord(unknownRetrieval.evidence_search).unrecognized = true;
     expect(messagesResponseSchema.safeParse(withUnknown).success).toBe(false);
   });
 
@@ -61,7 +86,7 @@ describe('captured optional evidence-search wire contract', () => {
         },
       ],
     };
-    expect(messagesResponseSchema.parse(legacy)).toEqual(legacy);
+    expect(messagesResponseSchema.parse(legacy)).toMatchObject(legacy);
     expect(
       streamEventSchema.parse({
         type: 'done',

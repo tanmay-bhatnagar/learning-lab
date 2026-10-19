@@ -3,13 +3,26 @@ import directCapture from './fixtures/evidenceSearch/direct.json';
 import searchCapture from './fixtures/evidenceSearch/search.json';
 import invalidCapture from './fixtures/evidenceSearch/invalid.json';
 import { foldEvidenceSearchProgress, summarizeEvidenceSearch } from '../src/domain/evidenceSearch';
-import { streamEventSchema } from '../src/api/types';
+import { messagesResponseSchema, streamEventSchema, type EvidenceSearchMetadata } from '../src/api/types';
+import type { EvidenceSearchProgress } from '../src/domain/evidenceSearch';
 
-const metadata = (capture: typeof directCapture) => capture.saved.messages[1].retrieval.evidence_search;
+function asRecord(value: unknown): Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error('Expected a captured object.');
+  }
+  return value as Record<string, unknown>;
+}
+
+function metadata(capture: unknown): EvidenceSearchMetadata {
+  const saved = messagesResponseSchema.parse(asRecord(capture).saved);
+  const value = saved.messages[1]?.retrieval?.evidence_search;
+  if (!value) throw new Error('Captured answer is missing evidence-search metadata.');
+  return value;
+}
 
 describe('evidence-search domain', () => {
   test('progress is a separate ephemeral fold and terminal events clear it', () => {
-    let progress = null;
+    let progress: EvidenceSearchProgress | null = null;
     const deciding = streamEventSchema.parse({ type: 'evidence_status', stage: 'deciding' });
     const searching = streamEventSchema.parse({
       type: 'evidence_status',
@@ -53,7 +66,8 @@ describe('evidence-search domain', () => {
   });
 
   test('summary separates duplicate-only, no-hit and trimmed-new search outcomes', () => {
-    const initialId = searchCapture.saved.messages[1].retrieval.evidence_search.initial_available_chunk_ids[0];
+    const initialId = metadata(searchCapture).initial_available_chunk_ids[0];
+    if (!initialId) throw new Error('Search fixture is missing its initial source.');
     const duplicate = structuredClone(metadata(searchCapture));
     duplicate.returned_chunk_ids = [initialId];
     duplicate.new_chunk_ids = [];
