@@ -30,12 +30,8 @@
             "chunk_id": "519585bed88342f3bad07a86dd676ea2:text:000000",
             "file_id": "519585bed88342f3bad07a86dd676ea2",
             "file_name": "paper.pdf",
-            "headings": [
-              "Calibration"
-            ],
-            "pages": [
-              1
-            ],
+            "headings": ["Calibration"],
+            "pages": [1],
             "bboxes": [],
             "assets": [],
             "trace": {},
@@ -51,18 +47,12 @@
           "outcome": "invalid_action_fallback",
           "generation_count": 2,
           "lookup_count": 0,
-          "initial_available_chunk_ids": [
-            "519585bed88342f3bad07a86dd676ea2:text:000000"
-          ],
-          "initial_chunk_ids": [
-            "519585bed88342f3bad07a86dd676ea2:text:000000"
-          ],
+          "initial_available_chunk_ids": ["519585bed88342f3bad07a86dd676ea2:text:000000"],
+          "initial_chunk_ids": ["519585bed88342f3bad07a86dd676ea2:text:000000"],
           "returned_chunk_ids": [],
           "new_chunk_ids": [],
           "retained_new_chunk_ids": [],
-          "final_chunk_ids": [
-            "519585bed88342f3bad07a86dd676ea2:text:000000"
-          ],
+          "final_chunk_ids": ["519585bed88342f3bad07a86dd676ea2:text:000000"],
           "declared_source_labels": [],
           "search_mode": null,
           "search_warning": null,
@@ -76,9 +66,7 @@
       {
         "role": "user",
         "content": "What value was validated?",
-        "file_ids": [
-          "519585bed88342f3bad07a86dd676ea2"
-        ]
+        "file_ids": ["519585bed88342f3bad07a86dd676ea2"]
       },
       {
         "role": "assistant",
@@ -93,12 +81,8 @@
               "chunk_id": "519585bed88342f3bad07a86dd676ea2:text:000000",
               "file_id": "519585bed88342f3bad07a86dd676ea2",
               "file_name": "paper.pdf",
-              "headings": [
-                "Calibration"
-              ],
-              "pages": [
-                1
-              ],
+              "headings": ["Calibration"],
+              "pages": [1],
               "bboxes": [],
               "assets": [],
               "trace": {},
@@ -114,18 +98,12 @@
             "outcome": "invalid_action_fallback",
             "generation_count": 2,
             "lookup_count": 0,
-            "initial_available_chunk_ids": [
-              "519585bed88342f3bad07a86dd676ea2:text:000000"
-            ],
-            "initial_chunk_ids": [
-              "519585bed88342f3bad07a86dd676ea2:text:000000"
-            ],
+            "initial_available_chunk_ids": ["519585bed88342f3bad07a86dd676ea2:text:000000"],
+            "initial_chunk_ids": ["519585bed88342f3bad07a86dd676ea2:text:000000"],
             "returned_chunk_ids": [],
             "new_chunk_ids": [],
             "retained_new_chunk_ids": [],
-            "final_chunk_ids": [
-              "519585bed88342f3bad07a86dd676ea2:text:000000"
-            ],
+            "final_chunk_ids": ["519585bed88342f3bad07a86dd676ea2:text:000000"],
             "declared_source_labels": [],
             "search_mode": null,
             "search_warning": null,
