@@ -10,13 +10,12 @@ from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequenc
 from anyio import CancelScope
 from fastapi import APIRouter
 
-from lab.chat_prompt import build_chat_prompt
 from lab.contracts import Session
 from lab.errors import InvalidInput
-from lab.evidence_prompt import build_final_evidence_prompt, build_initial_evidence_prompt
+from lab.evidence_prompt import build_final_evidence_prompt
 from lab.evidence_request import MAX_SOURCE_REFERENCES, merge_scoped_sources
 from lab.evidence_snapshot import bind_retained_sources, revalidate_evidence_snapshot
-from lab.query_traces import finalize as finalize_trace, list_traces, trace_path
+from lab.query_traces import list_traces, trace_path
 from lab.prerequisite_import import validated_prerequisite_imports
 from lab.retrieval import evidence_messages, search
 from lab.summary_import import validated_summary_imports
@@ -68,16 +67,11 @@ async def _yield_prepared_terminals(
 ) -> AsyncIterator[dict[str, object]]:
     """Commit through the request latch once, then yield prepared terminal events."""
     if prepared is not None and prepared.terminal_events:
-        if any(event.get("type") == "done" for event in prepared.terminal_events):
-            outcome_box[0] = await publish_latch.run(
-                lambda: commit(bundle, observer, prepared=prepared, terminal_delivered=True)
-            )
+        terminal_delivered = any(event.get("type") == "done" for event in prepared.terminal_events)
+        if terminal_delivered:
             delivered_complete[0] = True
-            for event in outcome_box[0].terminal_events:
-                yield dict(event)
-            return
         outcome_box[0] = await publish_latch.run(
-            lambda: commit(bundle, observer, prepared=prepared, terminal_delivered=False)
+            lambda td=terminal_delivered: commit(bundle, observer, prepared=prepared, terminal_delivered=td)
         )
         for event in outcome_box[0].terminal_events:
             yield dict(event)
@@ -173,9 +167,6 @@ def router(deps: AppDeps) -> APIRouter:
             context_limit=body.context_limit,
             extra_search=body.extra_search,
             admission_graph=chat_graphs.admission,
-            build_chat_prompt=build_chat_prompt,
-            build_initial_evidence_prompt=build_initial_evidence_prompt,
-            finalize_trace_fn=finalize_trace,
         )
         lease = admitted.lease
         session = admitted.session

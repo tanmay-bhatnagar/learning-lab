@@ -118,6 +118,8 @@ class ChatOptInObserver:
     search_query: str | None = None
     lookup_returned: tuple[dict[str, object], ...] = ()
     lookup_novel: tuple[dict[str, object], ...] = ()
+    pending_final_chunk_ids: list[str] | None = None
+    pending_retained_new_chunk_ids: list[str] | None = None
     stream_close_error: dict[str, str] | None = None
     cancelled: bool = False
     workflow_stage: str = "generation"

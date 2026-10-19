@@ -62,12 +62,32 @@ def silent_catches(source: str) -> list[int]:
     ]
 
 
+def workflows_import_lab_web(source: str) -> list[int]:
+    """Line numbers where lab/workflows imports lab.web (including lazy imports)."""
+    lines: list[int] = []
+    tree = ast.parse(source)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name == "lab.web" or alias.name.startswith("lab.web."):
+                    lines.append(node.lineno)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            if node.module == "lab.web" or node.module.startswith("lab.web."):
+                lines.append(node.lineno)
+    return sorted(lines)
+
+
 def structure_errors(root: Path) -> list[str]:
     """Return layering violations and stale exemptions under `root`."""
     found: dict[str, dict[str, list[int]]] = {check: {} for check in PENDING}
+    workflow_web_errors: list[str] = []
+    workflows_root = (root / LAB / "workflows").resolve()
     for path in sorted((root / LAB).rglob("*.py")):
         relative = path.relative_to(root).as_posix()
         source = path.read_text()
+        if path.resolve().is_relative_to(workflows_root) and (web_lines := workflows_import_lab_web(source)):
+            for lineno in web_lines:
+                workflow_web_errors.append(f"{relative}:{lineno}: lab/workflows must not import lab.web")
         if not relative.startswith(HTTP_LAYER) and (lines := framework_imports(source)):
             found["framework-import"][relative] = lines
         if relative != CONFIG_MODULE and (lines := environment_reads(source)):
@@ -83,6 +103,7 @@ def structure_errors(root: Path) -> list[str]:
                 errors.append(f"{relative}:{lines[0]}: {check} is not allowed here")
         for relative in sorted(PENDING[check] - files.keys()):
             errors.append(f"{relative}: stale {check} exemption; remove it from PENDING")
+    errors.extend(workflow_web_errors)
     return errors
 
 

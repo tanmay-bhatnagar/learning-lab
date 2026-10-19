@@ -772,12 +772,12 @@ def test_opted_in_final_provider_close_failure_is_saved_as_incomplete(tmp_path):
 
 
 def test_opted_in_trace_finalize_failure_is_reported_after_answer_save(tmp_path, monkeypatch):
-    import lab.web.chat as chat_module
+    import lab.query_traces as query_traces_module
 
     def fail_finalize(*_args, **_kwargs):
         raise OSError("private trace store detail")
 
-    monkeypatch.setattr(chat_module, "finalize_trace", fail_finalize)
+    monkeypatch.setattr(query_traces_module, "finalize", fail_finalize)
     model = EvidenceModel(
         [json.dumps({"action": "answer", "answer": "Grounded.", "source_labels": ["E1"], "query": ""})]
     )

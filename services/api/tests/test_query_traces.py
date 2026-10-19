@@ -106,14 +106,14 @@ def test_missing_attachment_rejection_keeps_requested_ids_without_saving_user(tm
 
 
 def test_chat_input_that_does_not_fit_is_recorded_as_rejected(tmp_path, monkeypatch):
-    import lab.web.chat as chat_module
+    import lab.workflows.chat as chat_workflow
 
     from lab.errors import DoesNotFit
 
     def does_not_fit(*_args, **_kwargs):
         raise DoesNotFit("test preflight failure")
 
-    monkeypatch.setattr(chat_module, "build_chat_prompt", does_not_fit)
+    monkeypatch.setattr(chat_workflow, "build_chat_prompt", does_not_fit)
     client = TestClient(create_app(tmp_path / "Learning", tmp_path / "state/settings.json", model_backend=FakeModel()))
     topic = client.post("/api/topics", json={"name": "Does not fit"}).json()["id"]
     response = client.post(f"/api/topics/{topic}/chat", json=payload())
@@ -162,12 +162,12 @@ def test_success_trace_records_cleanup_failure_without_relabeling_completion(tmp
 
 
 def test_final_trace_failure_is_logged_and_reported_before_done(tmp_path, monkeypatch, caplog):
-    import lab.web.chat as chat_module
+    import lab.query_traces as query_traces_module
 
     def fail_finalize(*_args, **_kwargs):
         raise OSError("private database path")
 
-    monkeypatch.setattr(chat_module, "finalize_trace", fail_finalize)
+    monkeypatch.setattr(query_traces_module, "finalize", fail_finalize)
     app = create_app(tmp_path / "Learning", tmp_path / "state/settings.json", model_backend=FakeModel())
     topic = app.state.deps.store.create("Trace write fault")["id"]
     client = TestClient(app, raise_server_exceptions=False)
@@ -183,9 +183,9 @@ def test_final_trace_failure_is_logged_and_reported_before_done(tmp_path, monkey
 
 
 def test_transient_trace_failure_is_not_retried_after_answer_save(tmp_path, monkeypatch, caplog):
-    import lab.web.chat as chat_module
+    import lab.query_traces as query_traces_module
 
-    original_finalize = chat_module.finalize_trace
+    original_finalize = query_traces_module.finalize
     attempts = 0
 
     def fail_once(path, record):
@@ -195,7 +195,7 @@ def test_transient_trace_failure_is_not_retried_after_answer_save(tmp_path, monk
             raise OSError("transient database fault")
         return original_finalize(path, record)
 
-    monkeypatch.setattr(chat_module, "finalize_trace", fail_once)
+    monkeypatch.setattr(query_traces_module, "finalize", fail_once)
     app = create_app(tmp_path / "Learning", tmp_path / "state/settings.json", model_backend=FakeModel())
     topic = app.state.deps.store.create("Transient trace fault")["id"]
     client = TestClient(app)

@@ -215,7 +215,7 @@ def test_save_before_trace_on_optin_success(tmp_path):
 
 
 def test_trace_finalize_failure_preserves_optin_answer(tmp_path, monkeypatch):
-    import lab.web.chat as chat_module
+    import lab.query_traces as query_traces_module
 
     model = EvidenceModel(
         [json.dumps({"action": "answer", "answer": "Grounded.", "source_labels": ["E1"], "query": ""})]
@@ -224,7 +224,7 @@ def test_trace_finalize_failure_preserves_optin_answer(tmp_path, monkeypatch):
     def fail_finalize(*_args, **_kwargs):
         raise RuntimeError("trace store down")
 
-    monkeypatch.setattr(chat_module, "finalize_trace", fail_finalize)
+    monkeypatch.setattr(query_traces_module, "finalize", fail_finalize)
     app = _app(tmp_path, model)
     app.state.deps.retriever = _retriever([])
     client = TestClient(app)

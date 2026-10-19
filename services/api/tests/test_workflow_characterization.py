@@ -14,7 +14,7 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 
-from lab.evidence_turn import _INVALID_OUTPUT, _PROVIDER_ERROR
+from lab.evidence_result import INVALID_OUTPUT as _INVALID_OUTPUT, PROVIDER_ERROR as _PROVIDER_ERROR
 from lab.prerequisites import MAX_RESPONSE_BYTES
 from lab.web.app import create_app
 from tests.fakes import FakeModel
@@ -708,12 +708,12 @@ def test_extra_search_preflight_refusal_leaves_no_saved_user_or_model_call(tmp_p
 
 
 def test_default_chat_trace_finalize_failure_after_answer_save(tmp_path, monkeypatch):
-    import lab.web.chat as chat_module
+    import lab.query_traces as query_traces_module
 
     def fail_finalize(*_args, **_kwargs):
         raise OSError("private trace store detail")
 
-    monkeypatch.setattr(chat_module, "finalize_trace", fail_finalize)
+    monkeypatch.setattr(query_traces_module, "finalize", fail_finalize)
     model = FakeModel(token_text="saved answer")
     client = TestClient(
         create_app(

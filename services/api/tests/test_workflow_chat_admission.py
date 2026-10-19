@@ -175,12 +175,12 @@ def test_cv_on_includes_canonical_cv_text_in_admitted_plan(tmp_path):
 
 def test_does_not_fit_refusal_saves_no_user(tmp_path, monkeypatch):
     # admission_only: build_chat_prompt runs inside admission graph before execution
-    import lab.web.chat as chat_module
+    import lab.workflows.chat as chat_workflow
 
     def does_not_fit(*_args, **_kwargs):
         raise DoesNotFit("selected material does not fit")
 
-    monkeypatch.setattr(chat_module, "build_chat_prompt", does_not_fit)
+    monkeypatch.setattr(chat_workflow, "build_chat_prompt", does_not_fit)
     client = _client(tmp_path)
     topic = client.post("/api/topics", json={"name": "Fit"}).json()["id"]
     response = client.post(f"/api/topics/{topic}/chat", json=payload())

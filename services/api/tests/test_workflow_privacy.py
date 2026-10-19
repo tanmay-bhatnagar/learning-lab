@@ -55,6 +55,22 @@ def test_lab_graph_invocations_only_in_runtime_module() -> None:
     assert violations == []
 
 
+def test_workflows_do_not_import_lab_web() -> None:
+    workflows_root = LAB_ROOT / "workflows"
+    violations: list[str] = []
+    for path in sorted(workflows_root.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name == "lab.web" or alias.name.startswith("lab.web."):
+                        violations.append(f"{path.relative_to(REPO_ROOT)}:{node.lineno} import {alias.name}")
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                if node.module == "lab.web" or node.module.startswith("lab.web."):
+                    violations.append(f"{path.relative_to(REPO_ROOT)}:{node.lineno} from {node.module}")
+    assert violations == []
+
+
 def test_lab_has_no_draw_mermaid_png() -> None:
     hits = [
         str(path.relative_to(REPO_ROOT))

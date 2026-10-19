@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -14,16 +14,16 @@ from typing import Any, Protocol, TypedDict
 from langgraph.graph import END, START, StateGraph
 from langgraph.runtime import Runtime
 
-from lab.chat_prompt import build_chat_prompt as default_build_chat_prompt
+from lab.chat_prompt import build_chat_prompt
 from lab.chat_session import append_user_message, history_messages
 from lab.contracts import Session
 from lab.errors import Conflict, DomainError, InvalidInput
-from lab.evidence_prompt import build_initial_evidence_prompt as default_build_initial_evidence_prompt
+from lab.evidence_prompt import build_initial_evidence_prompt
 from lab.evidence_snapshot import capture_prompt_context
+from lab import query_traces
 from lab.learner_context import load_learner_context
 from lab.query_traces import (
     duration,
-    finalize as default_finalize_trace,
     finalize_record,
     insert_started,
     new_trace_id,
@@ -51,12 +51,9 @@ EXECUTION_RECURSION_LIMIT = 4
 
 CHAT_QUEUED_EVENT_TYPES = frozenset({"token", "thinking", "evidence_status"})
 
-BuildChatPromptFn = Callable[..., dict[str, Any]]
-BuildInitialEvidencePromptFn = Callable[..., dict[str, Any]]
 EmbedderFn = Callable[[list[str], str], Awaitable[list[list[float]]]]
 RetrieverFn = Callable[..., Awaitable[dict[str, object]]]
 LoadSettingsFn = Callable[[Any], Any]
-FinalizeTraceFn = Callable[[Path, dict[str, Any]], bool]
 
 
 class TopicLease(Protocol):
@@ -119,7 +116,6 @@ class ChatTraceRecorder:
     started_monotonic: float
     trace_file: Path
     record: dict[str, Any]
-    finalize_trace: FinalizeTraceFn = default_finalize_trace
     done: bool = False
 
     def persist(
@@ -142,7 +138,7 @@ class ChatTraceRecorder:
             **updates,
         )
         try:
-            changed = self.finalize_trace(self.trace_file, final)
+            changed = query_traces.finalize(self.trace_file, final)
         except Exception as exc:
             logger.error("Query trace finalization failed for %s (%s)", self.trace_id, type(exc).__name__)
             raise
@@ -170,8 +166,6 @@ class ChatAdmissionContext:
     current_settings: Any
     trace: ChatTraceRecorder
     save_session: Callable[[Session], None]
-    build_chat_prompt: BuildChatPromptFn
-    build_initial_evidence_prompt: BuildInitialEvidencePromptFn
     artifacts: ChatAdmissionArtifacts = field(default_factory=ChatAdmissionArtifacts)
 
 
@@ -430,7 +424,7 @@ async def build_prompt_node(_state: ChatAdmissionState, runtime: Runtime[ChatAdm
     )
     if ctx.extra_search:
         ctx.artifacts.evidence_prompt_kwargs = prompt_kwargs
-        plan = ctx.build_initial_evidence_prompt(
+        plan = build_initial_evidence_prompt(
             prompt_kwargs=prompt_kwargs,
             source_chunks=search_result.get("hits", []),
             selected_file_ids=set(ctx.artifacts.evidence_scope),
@@ -444,7 +438,7 @@ async def build_prompt_node(_state: ChatAdmissionState, runtime: Runtime[ChatAdm
         retrieval_record["evidence_search"] = evidence_metadata
         ctx.trace.record["evidence_search"] = evidence_metadata
     else:
-        plan = ctx.build_chat_prompt(**prompt_kwargs)
+        plan = build_chat_prompt(**prompt_kwargs)
     ctx.artifacts.plan = plan
     return {"stage": "prompt_built"}
 
@@ -602,9 +596,6 @@ async def admit_chat(
     context_limit: int,
     extra_search: bool,
     admission_graph: Any,
-    build_chat_prompt: BuildChatPromptFn = default_build_chat_prompt,
-    build_initial_evidence_prompt: BuildInitialEvidencePromptFn = default_build_initial_evidence_prompt,
-    finalize_trace_fn: FinalizeTraceFn = default_finalize_trace,
 ) -> AdmittedChat:
     """Run chat preflight: trace, lease, admission graph, single user save."""
     store.topic(topic_id)
@@ -632,7 +623,6 @@ async def admit_chat(
         started_monotonic=started,
         trace_file=trace_file,
         record=record,
-        finalize_trace=finalize_trace_fn,
     )
 
     def save(session: Session) -> None:
@@ -689,8 +679,6 @@ async def admit_chat(
         current_settings=current,
         trace=trace,
         save_session=save,
-        build_chat_prompt=build_chat_prompt,
-        build_initial_evidence_prompt=build_initial_evidence_prompt,
     )
     try:
         await invoke_graph(admission_graph, {}, context=context, recursion_limit=ADMISSION_RECURSION_LIMIT)

@@ -340,12 +340,19 @@ async def merge_final_plan_node(_state: ChatOptInState, runtime: Runtime[ChatOpt
     returned_ids = list(ctx.evidence_state.get("returned_chunk_ids", []))
     initial_ids = set(ctx.evidence_state["initial_available_chunk_ids"])
     final_ids = [str(source["chunk_id"]) for source in final_retained]
-    ctx.evidence_state["retained_new_chunk_ids"] = [
+    pending_retained_new = [
         chunk_id for chunk_id in final_ids if chunk_id in set(returned_ids) and chunk_id not in initial_ids
     ]
     ctx.evidence_state["outcome"] = "searched"
-    ctx.evidence_state["final_chunk_ids"] = final_ids
+    ctx.observer.pending_final_chunk_ids = final_ids
+    ctx.observer.pending_retained_new_chunk_ids = pending_retained_new
     return {"stage": "merge"}
+
+
+async def route_after_lookup(_state: ChatOptInState, runtime: Runtime[ChatOptInExecutionContext]) -> str:
+    if runtime.context.observer.workflow_error is not None:
+        return "prepare_publication"
+    return "merge_final_plan"
 
 
 async def route_after_prepare(_state: ChatOptInState, runtime: Runtime[ChatOptInExecutionContext]) -> str:
@@ -364,8 +371,6 @@ async def stream_final_answer_node(
         ctx.observer.set_workflow_error("evidence_failed", "Evidence search failed.")
         return {"stage": "stream_final"}
     ctx.evidence_state["generation_count"] = int(ctx.evidence_state.get("generation_count", 0)) + 1
-    ctx.evidence_state["final_chunk_ids"] = list(ctx.evidence_state.get("final_chunk_ids", []))
-    ctx.evidence_state["retained_new_chunk_ids"] = list(ctx.evidence_state.get("retained_new_chunk_ids", []))
     ctx.observer.apply_plan(plan, dict(ctx.evidence_state))
     await _emit_evidence_status(ctx, "answering")
     try:
@@ -382,6 +387,12 @@ async def stream_final_answer_node(
         ctx.evidence_state["outcome"] = "error"
         ctx.observer.set_workflow_error("provider_failed", PROVIDER_ERROR)
         return {"stage": "stream_final"}
+    pending_final = ctx.observer.pending_final_chunk_ids
+    pending_retained_new = ctx.observer.pending_retained_new_chunk_ids
+    if pending_final is not None:
+        ctx.evidence_state["final_chunk_ids"] = list(pending_final)
+    if pending_retained_new is not None:
+        ctx.evidence_state["retained_new_chunk_ids"] = list(pending_retained_new)
     ctx.provider_stream = stream
     saw_answer_text = False
     completed = False
@@ -431,10 +442,6 @@ async def stream_final_answer_node(
         ctx.evidence_state["outcome"] = "cancelled"
         return {"stage": "stream_final"}
     if not completed or not saw_answer_text:
-        if saw_answer_text and not completed and error_code is None:
-            ctx.evidence_state["outcome"] = "cancelled"
-            ctx.observer.mark_cancelled()
-            return {"stage": "stream_final"}
         ctx.evidence_state["outcome"] = "error"
         ctx.observer.set_workflow_error(error_code or "incomplete_answer", PROVIDER_ERROR)
         return {"stage": "stream_final"}
@@ -492,7 +499,11 @@ def build_optin_execution_graph() -> Any:
         route_after_prepare,
         {"stream_final_answer": "stream_final_answer", "prepare_publication": "prepare_publication"},
     )
-    builder.add_edge("lookup", "merge_final_plan")
+    builder.add_conditional_edges(
+        "lookup",
+        route_after_lookup,
+        {"merge_final_plan": "merge_final_plan", "prepare_publication": "prepare_publication"},
+    )
     builder.add_conditional_edges(
         "merge_final_plan",
         route_after_prepare,

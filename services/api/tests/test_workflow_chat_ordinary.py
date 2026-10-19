@@ -146,12 +146,12 @@ def test_save_before_trace_on_success(tmp_path):
 
 
 def test_trace_finalize_failure_preserves_answer_without_done(tmp_path, monkeypatch):
-    import lab.web.chat as chat_module
+    import lab.query_traces as query_traces_module
 
     def fail_finalize(*_args, **_kwargs):
         raise RuntimeError("trace store down")
 
-    monkeypatch.setattr(chat_module, "finalize_trace", fail_finalize)
+    monkeypatch.setattr(query_traces_module, "finalize", fail_finalize)
     client = TestClient(_chat_app(tmp_path))
     topic = client.post("/api/topics", json={"name": "Trace fail"}).json()["id"]
     response = client.post(f"/api/topics/{topic}/chat", json=payload())
