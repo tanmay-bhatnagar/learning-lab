@@ -20,21 +20,21 @@ from lab.evidence_request import (
     merge_scoped_sources,
     parse_evidence_action,
 )
-from lab.evidence_turn import (
-    _PROVIDER_ERROR,
-    _checked_images,
-    _checked_scope,
-    _close_stream,
-    _consume_decision,
-    _initial_outcomes,
-    _merge_images,
-    _retained_chunks,
-    _union_chunks,
-    _validate_lookup_result,
+from lab.evidence_result import (
+    INVALID_ACTION_WARNING,
+    INVALID_OUTPUT,
+    LOOKUP_ERROR,
+    PROVIDER_ERROR,
+    checked_images,
+    checked_scope,
+    close_stream,
+    consume_decision,
+    initial_outcomes,
+    merge_images,
+    retained_chunks,
+    union_chunks,
+    validate_lookup_result,
 )
-from lab.evidence_turn import _INVALID_ACTION_WARNING as INVALID_ACTION_WARNING
-from lab.evidence_turn import _INVALID_OUTPUT as INVALID_OUTPUT
-from lab.evidence_turn import _LOOKUP_ERROR as LOOKUP_ERROR
 from lab.query_traces import retrieval_fields
 from lab.workflows.chat import workflow_graph_callables
 from lab.workflows.chat_publication import (
@@ -126,9 +126,9 @@ def _record_initial_supply(ctx: ChatOptInExecutionContext) -> None:
 async def evidence_init_node(_state: ChatOptInState, runtime: Runtime[ChatOptInExecutionContext]) -> ChatOptInState:
     ctx = runtime.context
     try:
-        scope = _checked_scope(ctx.evidence_scope)
+        scope = checked_scope(ctx.evidence_scope)
     except (Conflict, InvalidInput):
-        ctx.evidence_state = {**_initial_outcomes(), "outcome": "error"}
+        ctx.evidence_state = {**initial_outcomes(), "outcome": "error"}
         ctx.observer.set_workflow_error(
             "empty_indexed_scope", "Select an indexed document before asking for additional evidence."
         )
@@ -140,10 +140,10 @@ async def evidence_init_node(_state: ChatOptInState, runtime: Runtime[ChatOptInE
         selected_file_ids=set(scope),
         max_sources=MAX_SOURCE_REFERENCES,
     )
-    ctx.initial_retained = _retained_chunks(ctx.initial_plan, ctx.initial_available)
-    ctx.initial_images = _checked_images(ctx.initial_plan.get("supplied_images", ()))
+    ctx.initial_retained = retained_chunks(ctx.initial_plan, ctx.initial_available)
+    ctx.initial_images = checked_images(ctx.initial_plan.get("supplied_images", ()))
     ctx.evidence_state = {
-        **_initial_outcomes(),
+        **initial_outcomes(),
         "initial_available_chunk_ids": [str(source["chunk_id"]) for source in ctx.initial_available],
     }
     ctx.bundle.trace.record["evidence_search"] = dict(ctx.evidence_state)
@@ -179,7 +179,7 @@ async def decision_node(_state: ChatOptInState, runtime: Runtime[ChatOptInExecut
         )
     except Exception:  # noqa: BLE001 - gateway boundary
         ctx.evidence_state["outcome"] = "error"
-        ctx.observer.set_workflow_error("provider_failed", _PROVIDER_ERROR)
+        ctx.observer.set_workflow_error("provider_failed", PROVIDER_ERROR)
         return {"route": "error", "stage": "deciding"}
     ctx.evidence_state["initial_chunk_ids"] = [str(source["chunk_id"]) for source in ctx.initial_retained]
     ctx.evidence_state["final_chunk_ids"] = list(ctx.evidence_state["initial_chunk_ids"])
@@ -187,12 +187,12 @@ async def decision_node(_state: ChatOptInState, runtime: Runtime[ChatOptInExecut
     if ctx.evidence_state.get("generation_count") == 1:
         _record_initial_supply(ctx)
     try:
-        first = await _consume_decision(decision_stream)
+        first = await consume_decision(decision_stream)
     finally:
-        await _close_stream(decision_stream)
+        await close_stream(decision_stream)
     if first.error_code is not None:
         ctx.evidence_state["outcome"] = "error"
-        ctx.observer.set_workflow_error(first.error_code, _PROVIDER_ERROR)
+        ctx.observer.set_workflow_error(first.error_code, PROVIDER_ERROR)
         return {"route": "error", "stage": "deciding"}
     if not first.completed:
         ctx.evidence_state["outcome"] = "error"
@@ -252,9 +252,9 @@ async def invalid_prepare_node(_state: ChatOptInState, runtime: Runtime[ChatOptI
     ctx = runtime.context
     ctx.bundle.trace.record["evidence_search"] = dict(ctx.evidence_state)
     ctx.final_plan = ctx.build_final(ctx.initial_available, ())
-    final_retained = _retained_chunks(ctx.final_plan, ctx.initial_available)
-    final_images = _merge_images(ctx.initial_images, _checked_images(ctx.final_plan.get("supplied_images", ())))
-    supplied = _union_chunks(ctx.initial_retained, final_retained)
+    final_retained = retained_chunks(ctx.final_plan, ctx.initial_available)
+    final_images = merge_images(ctx.initial_images, checked_images(ctx.final_plan.get("supplied_images", ())))
+    supplied = union_chunks(ctx.initial_retained, final_retained)
     try:
         ctx.revalidate(supplied, supplied_images=final_images)
     except (Conflict, InvalidInput):
@@ -294,7 +294,7 @@ async def lookup_node(_state: ChatOptInState, runtime: Runtime[ChatOptInExecutio
             await asyncio.wait({lookup_task})
     ctx.latest_search_result = result
     try:
-        returned, mode, search_warning = _validate_lookup_result(result, ctx.evidence_scope, ctx.initial_available)
+        returned, mode, search_warning = validate_lookup_result(result, ctx.evidence_scope, ctx.initial_available)
     except InvalidInput:
         ctx.evidence_state["outcome"] = "error"
         ctx.observer.set_workflow_error("invalid_lookup_result", LOOKUP_ERROR)
@@ -320,7 +320,7 @@ async def merge_final_plan_node(_state: ChatOptInState, runtime: Runtime[ChatOpt
     novel = ctx.observer.lookup_novel or ()
     ctx.bundle.trace.record["evidence_search"] = dict(ctx.evidence_state)
     ctx.final_plan = ctx.build_final(ctx.initial_available, novel)
-    final_retained = _retained_chunks(
+    final_retained = retained_chunks(
         ctx.final_plan,
         merge_scoped_sources(
             ctx.initial_available,
@@ -329,8 +329,8 @@ async def merge_final_plan_node(_state: ChatOptInState, runtime: Runtime[ChatOpt
             max_sources=MAX_SOURCE_REFERENCES,
         ),
     )
-    final_images = _merge_images(ctx.initial_images, _checked_images(ctx.final_plan.get("supplied_images", ())))
-    all_supplied = _union_chunks(ctx.initial_retained, final_retained)
+    final_images = merge_images(ctx.initial_images, checked_images(ctx.final_plan.get("supplied_images", ())))
+    all_supplied = union_chunks(ctx.initial_retained, final_retained)
     try:
         ctx.revalidate(all_supplied, supplied_images=final_images)
     except (Conflict, InvalidInput):
@@ -380,7 +380,7 @@ async def stream_final_answer_node(
         )
     except Exception:  # noqa: BLE001 - gateway boundary
         ctx.evidence_state["outcome"] = "error"
-        ctx.observer.set_workflow_error("provider_failed", _PROVIDER_ERROR)
+        ctx.observer.set_workflow_error("provider_failed", PROVIDER_ERROR)
         return {"stage": "stream_final"}
     ctx.provider_stream = stream
     saw_answer_text = False
@@ -419,7 +419,7 @@ async def stream_final_answer_node(
     except Exception:  # noqa: BLE001 - provider stream boundary
         error_code = "provider_failed"
     finally:
-        close_error = await _close_stream(stream)
+        close_error = await close_stream(stream)
         ctx.provider_stream = None
         task = asyncio.current_task()
         if close_error is not None and (task is None or task.cancelling() == 0):
@@ -436,7 +436,7 @@ async def stream_final_answer_node(
             ctx.observer.mark_cancelled()
             return {"stage": "stream_final"}
         ctx.evidence_state["outcome"] = "error"
-        ctx.observer.set_workflow_error(error_code or "incomplete_answer", _PROVIDER_ERROR)
+        ctx.observer.set_workflow_error(error_code or "incomplete_answer", PROVIDER_ERROR)
         return {"stage": "stream_final"}
     ctx.observer.mark_evidence_complete(
         plan=plan,
