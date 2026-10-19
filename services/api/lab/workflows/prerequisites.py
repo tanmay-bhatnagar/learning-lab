@@ -1,30 +1,44 @@
-"""LangGraph admission for personalized prerequisite generation."""
+"""LangGraph admission and execution for personalized prerequisite generation."""
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import inspect
-from collections.abc import Callable, Mapping
+import logging
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import Any, Literal, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.runtime import Runtime
 
+from lab.contracts import ModelGateway
 from lab.document_map_store import get_document_map
-from lab.errors import Conflict
-from lab.prerequisite_store import (
-    get_prerequisite_state,
-    recover_interrupted_attempts,
-    write_prerequisite_attempt,
-)
-from lab.prerequisites import build_prerequisite_plan
+from lab.errors import Conflict, InvalidInput
+from lab.prerequisite_store import write_prerequisite_attempt
+from lab.prerequisites import MAX_RESPONSE_BYTES, build_prerequisite_plan, validate_prerequisite_response
 from lab.profile_store import ProfileStore
 from lab.runtime_policy import load_runtime_policy
 from lab.storage import Store
-from lab.workflows.runtime import invoke_graph
+from lab.workflows.events import EventSink
+from lab.workflows.prerequisite_publication import (
+    PrerequisitePublicationOutcome,
+    finalize_success_events,
+    provider_error_message,
+    publish_after_graph_exception,
+    publish_cancelled,
+    publish_stream_failure,
+    publication_request_from_bundle,
+    published_assessment,
+    recover_file_state,
+    terminal_attempt_record,
+)
+from lab.workflows.runtime import GraphRun, PublishOnce, invoke_graph
+
+logger = logging.getLogger(__name__)
 
 PREREQUISITE_ADMISSION_RECURSION_LIMIT = 8
 
@@ -326,69 +340,404 @@ async def admit_prerequisite_generation(
     )
 
 
-def recover_file_state(
-    store: Store,
-    profile_store: ProfileStore,
-    topic: str,
-    file_id: str,
-    active_ids: set[str],
-    *,
-    now: Callable[[], str],
-) -> None:
-    """Recover interrupted attempts and discard unpublished rows for terminal failures."""
-    recover_interrupted_attempts(store, topic, file_id, active_attempt_ids=active_ids, finished_at=now())
-    state = get_prerequisite_state(store, topic, file_id)
-    for attempt in state["attempts"]:
-        if attempt["status"] in {"error", "cancelled", "interrupted"}:
-            discard_if_unpublished(profile_store, store, topic, file_id, attempt["id"], attempt["assessment_id"])
-
-
-def discard_if_unpublished(
-    profile_store: ProfileStore,
-    store: Store,
-    topic: str,
-    file_id: str,
-    attempt_id: str,
-    assessment_id: str,
-) -> None:
-    """Remove unpublished model requirements when a terminal attempt did not publish."""
-    state = get_prerequisite_state(store, topic, file_id)
-    attempt = next((item for item in state["attempts"] if item["id"] == attempt_id), None)
-    if attempt is None or attempt["status"] not in {"error", "cancelled", "interrupted"}:
-        return
-    if assessment_id_is_published(state, assessment_id):
-        return
-    profile_store.discard_unpublished_pending(topic_id=topic, assessment_id=assessment_id)
-
-
-def published_assessment(
-    state: Mapping[str, object],
-    attempt_id: str,
-    assessment_id: str,
-) -> dict[str, object] | None:
-    """Return a published assessment when it matches both attempt and assessment IDs."""
-    assessments = state["assessments"]
-    if not isinstance(assessments, list):
-        return None
-    return next(
-        (
-            item
-            for item in assessments
-            if isinstance(item, dict)
-            and item.get("attempt_id") == attempt_id
-            and item.get("assessment_id") == assessment_id
-        ),
-        None,
-    )
-
-
-def assessment_id_is_published(state: Mapping[str, object], assessment_id: str) -> bool:
-    assessments = state["assessments"]
-    if not isinstance(assessments, list):
-        return False
-    return any(isinstance(item, dict) and item.get("assessment_id") == assessment_id for item in assessments)
-
-
 def admission_callables_are_coroutines() -> bool:
     """Return whether every admission node callable is an async function."""
     return all(inspect.iscoroutinefunction(callable_) for callable_ in ADMISSION_NODE_CALLABLES)
+
+
+PREREQUISITE_PROGRESS_EVENT_TYPES = frozenset({"progress"})
+
+PREREQUISITE_EXECUTION_NODE_NAMES: tuple[str, ...] = (
+    "generate_buffered",
+    "publish_stream_failure",
+    "check_current_inputs",
+    "validate_requirements",
+    "register_pending",
+    "publish_assessment",
+)
+PREREQUISITE_EXECUTION_RECURSION_LIMIT = len(PREREQUISITE_EXECUTION_NODE_NAMES) + 2
+
+PREREQUISITE_EXECUTION_MERMAID = """
+flowchart TD
+    START --> generate_buffered
+    generate_buffered -->|success| check_current_inputs
+    generate_buffered -->|stream_failure| publish_stream_failure
+    publish_stream_failure --> END
+    check_current_inputs --> validate_requirements
+    validate_requirements --> register_pending
+    register_pending --> publish_assessment
+    publish_assessment --> END
+""".strip()
+
+ProviderRoute = Literal["success", "stream_failure"]
+
+
+class PrerequisiteExecutionState(TypedDict, total=False):
+    route: ProviderRoute
+    failure_message: str
+
+
+WriteAttemptFn = Callable[..., None]
+
+
+@dataclass(slots=True)
+class PrerequisiteExecutionBundle:
+    store: Store
+    profile_store: ProfileStore
+    model_backend: ModelGateway
+    generation_lock: asyncio.Lock
+    write_attempt: WriteAttemptFn
+    topic_id: str
+    file_id: str
+    section_id: str
+    revision: str
+    model: str
+    context_limit: int
+    think: bool | str | None
+    attempt_id: str
+    assessment_id: str
+    attempt: dict[str, object]
+    plan: dict[str, Any]
+    selected_cv: dict[str, object]
+    cv_text: str
+    now: Callable[[], str]
+
+
+@dataclass
+class PrerequisiteExecutionArtifacts:
+    content: str = ""
+    content_bytes: int = 0
+    parsed: dict[str, Any] | None = None
+    proficiency_revision: int | None = None
+    assessment: dict[str, object] | None = None
+    completed_attempt: dict[str, object] | None = None
+    publication: PrerequisitePublicationOutcome | None = None
+    terminal: bool = False
+    stream: AsyncIterator[dict[str, object]] | None = None
+
+
+@dataclass
+class PrerequisiteExecutionContext:
+    bundle: PrerequisiteExecutionBundle
+    sink: EventSink
+    artifacts: PrerequisiteExecutionArtifacts = field(default_factory=PrerequisiteExecutionArtifacts)
+
+
+async def _close_provider_stream(stream: AsyncIterator[dict[str, object]] | None) -> None:
+    if stream is not None and hasattr(stream, "aclose"):
+        await stream.aclose()
+
+
+async def generate_buffered(
+    _state: PrerequisiteExecutionState,
+    runtime: Runtime[PrerequisiteExecutionContext],
+) -> PrerequisiteExecutionState:
+    ctx = runtime.context
+    bundle = ctx.bundle
+    art = ctx.artifacts
+    plan = bundle.plan
+    stream = bundle.model_backend.stream_chat(
+        plan["messages"],
+        bundle.model,
+        bundle.think,
+        bundle.context_limit,
+        context_metadata=plan["prompt_context"],
+        generation_lock=bundle.generation_lock,
+        response_schema=plan["response_schema"],
+    )
+    art.stream = stream
+    try:
+        async for provider_event in stream:
+            kind = provider_event.get("type")
+            if kind == "thinking":
+                continue
+            if kind == "token":
+                text = provider_event.get("text")
+                if not isinstance(text, str):
+                    return {
+                        "route": "stream_failure",
+                        "failure_message": "The model stream returned malformed text.",
+                    }
+                text_bytes = len(text.encode("utf-8"))
+                if art.content_bytes + text_bytes > MAX_RESPONSE_BYTES:
+                    return {
+                        "route": "stream_failure",
+                        "failure_message": "The model response exceeded the allowed size; retry generation.",
+                    }
+                art.content += text
+                art.content_bytes += text_bytes
+                await ctx.sink.send({"type": "progress", "attempt_id": bundle.attempt_id, "phase": "generating"})
+                continue
+            if kind == "error":
+                message = provider_error_message(provider_event.get("message"))
+                return {"route": "stream_failure", "failure_message": message}
+            if kind != "done":
+                return {
+                    "route": "stream_failure",
+                    "failure_message": "The model stream returned an unsupported event.",
+                }
+            await _close_provider_stream(stream)
+            art.stream = None
+            return {"route": "success"}
+        message = "The model stream ended before completion."
+        return {"route": "stream_failure", "failure_message": message}
+    finally:
+        if art.stream is not None:
+            await _close_provider_stream(art.stream)
+            art.stream = None
+
+
+async def route_after_generate(
+    state: PrerequisiteExecutionState,
+    runtime: Runtime[PrerequisiteExecutionContext],
+) -> ProviderRoute:
+    del runtime
+    return state.get("route", "success")
+
+
+async def publish_stream_failure_node(
+    state: PrerequisiteExecutionState,
+    runtime: Runtime[PrerequisiteExecutionContext],
+) -> PrerequisiteExecutionState:
+    ctx = runtime.context
+    message = state.get("failure_message", "Prerequisite generation could not be completed.")
+    request = publication_request_from_bundle(ctx.bundle)
+    ctx.artifacts.publication = publish_stream_failure(request, message=message)
+    ctx.artifacts.terminal = True
+    return {}
+
+
+async def check_current_inputs(
+    _state: PrerequisiteExecutionState,
+    runtime: Runtime[PrerequisiteExecutionContext],
+) -> PrerequisiteExecutionState:
+    ctx = runtime.context
+    bundle = ctx.bundle
+    provenance = bundle.plan["provenance"]
+    latest_map = get_document_map(bundle.store, bundle.topic_id, bundle.file_id)
+    if latest_map["status"] != "ready" or latest_map["map"] is None or latest_map["map"]["revision"] != bundle.revision:
+        raise Conflict("The source document changed while prerequisites were generating.")
+    latest_profile = bundle.profile_store.read_profile()
+    latest_cv = next(
+        (item for item in latest_profile["cvs"] if item["id"] == latest_profile["active_cv_id"]),
+        None,
+    )
+    latest_text = bundle.profile_store.read_extracted_text(bundle.selected_cv["id"])
+    latest_hash = hashlib.sha256(latest_text.encode("utf-8")).hexdigest()
+    if (
+        latest_cv is None
+        or latest_cv["id"] != bundle.selected_cv["id"]
+        or latest_cv["status"] != "ready"
+        or latest_cv["revoked"]
+        or latest_cv["extracted_sha256"] != provenance["cv_text_sha256"]
+        or latest_hash != provenance["cv_text_sha256"]
+    ):
+        raise Conflict("The selected CV changed while prerequisites were generating; retry.")
+    return {}
+
+
+async def validate_requirements(
+    _state: PrerequisiteExecutionState,
+    runtime: Runtime[PrerequisiteExecutionContext],
+) -> PrerequisiteExecutionState:
+    ctx = runtime.context
+    bundle = ctx.bundle
+    ctx.artifacts.parsed = validate_prerequisite_response(
+        ctx.artifacts.content,
+        sources=bundle.plan["sources"],
+        cv_text=bundle.cv_text,
+        assessment_id=bundle.assessment_id,
+    )
+    return {}
+
+
+async def register_pending(
+    _state: PrerequisiteExecutionState,
+    runtime: Runtime[PrerequisiteExecutionContext],
+) -> PrerequisiteExecutionState:
+    ctx = runtime.context
+    bundle = ctx.bundle
+    parsed = ctx.artifacts.parsed
+    if parsed is None:
+        msg = "Parsed requirements are required before registration."
+        raise RuntimeError(msg)
+    provenance = bundle.plan["provenance"]
+    proficiency = bundle.profile_store.register_model_requirements(
+        parsed["requirements"],
+        topic_id=bundle.topic_id,
+        assessment_id=bundle.assessment_id,
+        selected_cv_id=bundle.selected_cv["id"],
+        selected_cv_text_sha256=provenance["cv_text_sha256"],
+    )
+    ctx.artifacts.proficiency_revision = proficiency["revision"]
+    return {}
+
+
+async def publish_assessment(
+    _state: PrerequisiteExecutionState,
+    runtime: Runtime[PrerequisiteExecutionContext],
+) -> PrerequisiteExecutionState:
+    ctx = runtime.context
+    bundle = ctx.bundle
+    parsed = ctx.artifacts.parsed
+    if parsed is None or ctx.artifacts.proficiency_revision is None:
+        msg = "Registration artifacts are required before publication."
+        raise RuntimeError(msg)
+    provenance = bundle.plan["provenance"]
+    finished_at = bundle.now()
+    assessment: dict[str, object] = {
+        "attempt_id": bundle.attempt_id,
+        "assessment_id": bundle.assessment_id,
+        "topic_id": bundle.topic_id,
+        "file_id": bundle.file_id,
+        "map_revision": bundle.revision,
+        "section_id": bundle.section_id,
+        "cv_id": bundle.selected_cv["id"],
+        "cv_text_sha256": provenance["cv_text_sha256"],
+        "source_sha256": provenance["source_sha256"],
+        **parsed,
+        "sources": bundle.plan["source_metadata"],
+        "finished_at": finished_at,
+    }
+    completed = terminal_attempt_record(
+        bundle.attempt,
+        "completed",
+        finished_at=finished_at,
+        diagnostic=None,
+    )
+    bundle.write_attempt(
+        bundle.store,
+        bundle.topic_id,
+        bundle.file_id,
+        completed,
+        assessment=assessment,
+    )
+    ctx.artifacts.assessment = assessment
+    ctx.artifacts.completed_attempt = completed
+    ctx.artifacts.publication = finalize_success_events(
+        attempt_id=bundle.attempt_id,
+        assessment=assessment,
+        proficiency_revision=ctx.artifacts.proficiency_revision,
+        completed_attempt=completed,
+    )
+    ctx.artifacts.terminal = True
+    return {}
+
+
+EXECUTION_NODE_CALLABLES: tuple[Any, ...] = (
+    generate_buffered,
+    route_after_generate,
+    publish_stream_failure_node,
+    check_current_inputs,
+    validate_requirements,
+    register_pending,
+    publish_assessment,
+)
+
+
+def compile_prerequisite_execution_graph() -> CompiledStateGraph[Any, Any, Any, Any]:
+    """Build the prerequisite execution graph (compile once per app router)."""
+    graph = StateGraph(PrerequisiteExecutionState, context_schema=PrerequisiteExecutionContext)
+    graph.add_node("generate_buffered", generate_buffered)
+    graph.add_node("publish_stream_failure", publish_stream_failure_node)
+    graph.add_node("check_current_inputs", check_current_inputs)
+    graph.add_node("validate_requirements", validate_requirements)
+    graph.add_node("register_pending", register_pending)
+    graph.add_node("publish_assessment", publish_assessment)
+    graph.add_edge(START, "generate_buffered")
+    graph.add_conditional_edges(
+        "generate_buffered",
+        route_after_generate,
+        {"success": "check_current_inputs", "stream_failure": "publish_stream_failure"},
+    )
+    graph.add_edge("publish_stream_failure", END)
+    graph.add_edge("check_current_inputs", "validate_requirements")
+    graph.add_edge("validate_requirements", "register_pending")
+    graph.add_edge("register_pending", "publish_assessment")
+    graph.add_edge("publish_assessment", END)
+    return graph.compile()
+
+
+def execution_callables_are_coroutines() -> bool:
+    return all(inspect.iscoroutinefunction(callable_) for callable_ in EXECUTION_NODE_CALLABLES)
+
+
+async def prerequisite_terminal_events(
+    outcome: dict[str, Any] | None,
+    error: BaseException | None,
+    *,
+    context: PrerequisiteExecutionContext,
+    publish_once: PublishOnce[PrerequisitePublicationOutcome],
+) -> AsyncIterator[Mapping[str, object]]:
+    del outcome
+
+    async def finalize() -> PrerequisitePublicationOutcome:
+        art = context.artifacts
+        if art.publication is not None:
+            return art.publication
+        if error is not None:
+            return await publish_after_graph_exception(publication_request_from_bundle(context.bundle), error)
+        msg = "Prerequisite generation could not be completed."
+        return await publish_after_graph_exception(
+            publication_request_from_bundle(context.bundle),
+            RuntimeError(msg),
+        )
+
+    publication = await publish_once.run(finalize)
+    if publication.terminal:
+        context.artifacts.terminal = True
+    for event in publication.terminal_events:
+        yield event
+
+
+@dataclass(frozen=True, slots=True)
+class PrerequisiteExecutionHandle:
+    run: GraphRun
+    context: PrerequisiteExecutionContext
+    publish_once: PublishOnce[PrerequisitePublicationOutcome]
+
+
+def build_prerequisite_graph_run(
+    *,
+    graph: CompiledStateGraph[Any, Any, Any, Any],
+    bundle: PrerequisiteExecutionBundle,
+    publish_once: PublishOnce[PrerequisitePublicationOutcome],
+) -> PrerequisiteExecutionHandle:
+    sink = EventSink(allowed_types=PREREQUISITE_PROGRESS_EVENT_TYPES, capacity=8)
+    context = PrerequisiteExecutionContext(bundle=bundle, sink=sink)
+    run = GraphRun(
+        graph=graph,
+        state={},
+        context=context,
+        recursion_limit=PREREQUISITE_EXECUTION_RECURSION_LIMIT,
+        sink=sink,
+        terminal_events=lambda outcome, error: prerequisite_terminal_events(
+            outcome,
+            error,
+            context=context,
+            publish_once=publish_once,
+        ),
+    )
+    return PrerequisiteExecutionHandle(run=run, context=context, publish_once=publish_once)
+
+
+async def finalize_prerequisite_run(
+    handle: PrerequisiteExecutionHandle,
+    *,
+    unregister_active: Callable[[str], None],
+    attempt_id: str,
+) -> None:
+    await handle.run.cancel_and_wait()
+    await _close_provider_stream(handle.context.artifacts.stream)
+    if not handle.context.artifacts.terminal:
+
+        async def cancel_publish() -> PrerequisitePublicationOutcome:
+            return await publish_cancelled(
+                publication_request_from_bundle(handle.context.bundle),
+                already_terminal=handle.context.artifacts.terminal,
+            )
+
+        publication = await handle.publish_once.run(cancel_publish)
+        if publication.terminal:
+            handle.context.artifacts.terminal = True
+    unregister_active(attempt_id)

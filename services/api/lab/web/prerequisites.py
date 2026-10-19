@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-import asyncio
-import hashlib
 import json
 import logging
 import uuid
-from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from typing import Literal
 
@@ -22,21 +19,23 @@ from lab.prerequisite_store import (
     get_prerequisite_state,
     write_prerequisite_attempt,
 )
-from lab.prerequisites import MAX_RESPONSE_BYTES, validate_prerequisite_response
 from lab.web.deps import ActivePrerequisite, AppDeps
 from lab.web.locks import acquire_topic_lock, topic_lock_busy
 from lab.web.middleware import FinalizedStreamingResponse
+from lab.workflows.prerequisite_publication import PrerequisitePublicationOutcome
 from lab.workflows.prerequisites import (
     PrerequisiteAdmissionCapabilities,
+    PrerequisiteExecutionBundle,
     admit_prerequisite_generation,
+    build_prerequisite_graph_run,
     compile_prerequisite_admission_graph,
-    discard_if_unpublished,
-    published_assessment,
+    compile_prerequisite_execution_graph,
+    finalize_prerequisite_run,
     recover_file_state,
 )
+from lab.workflows.runtime import PublishOnce
 
 logger = logging.getLogger(__name__)
-AttemptStatus = Literal["completed", "cancelled", "error"]
 
 
 class PrerequisiteInput(BaseModel):
@@ -51,6 +50,7 @@ class PrerequisiteInput(BaseModel):
 
 def router(deps: AppDeps) -> APIRouter:
     admission_graph = compile_prerequisite_admission_graph()
+    execution_graph = compile_prerequisite_execution_graph()
     routes = APIRouter()
 
     @routes.get("/api/topics/{topic}/files/{file_id}/prerequisites")
@@ -154,59 +154,68 @@ def router(deps: AppDeps) -> APIRouter:
             attempt_id = admitted.attempt_id
             assessment_id = admitted.assessment_id
             attempt = admitted.attempt
-            plan = admitted.plan
-            selected = admitted.selected_cv
-            cv_text = admitted.cv_text
-            provenance = plan["provenance"]
             lease.hand_off()
         except BaseException:
             lease.release()
             raise
 
-        stream = None
-        content = ""
-        content_bytes = 0
-        terminal = False
+        publish_once: PublishOnce[PrerequisitePublicationOutcome] = PublishOnce()
+
+        def write_attempt(*args, **kwargs) -> None:
+            write_prerequisite_attempt(*args, **kwargs)
+
+        def unregister_active(active_attempt_id: str) -> None:
+            deps.active_prerequisite_attempts.pop(active_attempt_id, None)
+
+        execution_bundle = PrerequisiteExecutionBundle(
+            store=deps.store,
+            profile_store=deps.profile_store,
+            model_backend=deps.model_backend,
+            generation_lock=deps.model_generation_lock,
+            write_attempt=write_attempt,
+            topic_id=topic,
+            file_id=file_id,
+            section_id=section_id,
+            revision=body.revision,
+            model=body.model,
+            context_limit=body.context_limit,
+            think=body.think,
+            attempt_id=attempt_id,
+            assessment_id=assessment_id,
+            attempt=attempt,
+            plan=admitted.plan,
+            selected_cv=admitted.selected_cv,
+            cv_text=admitted.cv_text,
+            now=_now,
+        )
+        handle = build_prerequisite_graph_run(
+            graph=execution_graph,
+            bundle=execution_bundle,
+            publish_once=publish_once,
+        )
+        deps.active_runs.register(handle.run)
         closed = False
 
         def line(event: dict[str, object]) -> str:
             return json.dumps(event, ensure_ascii=False) + "\n"
 
-        def terminal_attempt(status: AttemptStatus, diagnostic: str | None = None) -> dict[str, object]:
-            return {**attempt, "status": status, "finished_at": _now(), "diagnostic": diagnostic}
-
         async def finish() -> None:
-            nonlocal stream, terminal, closed
+            nonlocal closed
             if closed:
                 return
             closed = True
             with CancelScope(shield=True):
                 try:
-                    if stream is not None and hasattr(stream, "aclose"):
-                        try:
-                            await stream.aclose()
-                        except BaseException as exc:  # noqa: BLE001 - provider cleanup must not strand the topic lock
-                            logger.error(
-                                "Prerequisite stream cleanup failed for %s (%s)", attempt_id, type(exc).__name__
-                            )
-                    if not terminal:
-                        cancelled = terminal_attempt("cancelled", "Generation was cancelled before completion.")
-                        try:
-                            write_prerequisite_attempt(deps.store, topic, file_id, cancelled)
-                            terminal = True
-                            discard_if_unpublished(
-                                deps.profile_store, deps.store, topic, file_id, attempt_id, assessment_id
-                            )
-                        except Exception as exc:  # noqa: BLE001 - leave generating state recoverable if persistence fails
-                            logger.error(
-                                "Prerequisite cancellation save failed for %s (%s)", attempt_id, type(exc).__name__
-                            )
+                    await finalize_prerequisite_run(
+                        handle,
+                        unregister_active=unregister_active,
+                        attempt_id=attempt_id,
+                    )
                 finally:
-                    deps.active_prerequisite_attempts.pop(attempt_id, None)
+                    deps.active_runs.unregister(handle.run)
                     lease.release()
 
         async def events():
-            nonlocal stream, content, content_bytes, terminal
             yield line(
                 {
                     "type": "started",
@@ -217,188 +226,8 @@ def router(deps: AppDeps) -> APIRouter:
                 }
             )
             try:
-                stream = deps.model_backend.stream_chat(
-                    plan["messages"],
-                    body.model,
-                    body.think,
-                    body.context_limit,
-                    context_metadata=plan["prompt_context"],
-                    generation_lock=deps.model_generation_lock,
-                    response_schema=plan["response_schema"],
-                )
-                async for provider_event in stream:
-                    kind = provider_event.get("type")
-                    if kind == "thinking":
-                        continue
-                    if kind == "token":
-                        text = provider_event.get("text")
-                        if not isinstance(text, str):
-                            raise InvalidInput("The model stream returned malformed text.")
-                        text_bytes = len(text.encode("utf-8"))
-                        if content_bytes + text_bytes > MAX_RESPONSE_BYTES:
-                            raise InvalidInput("The model response exceeded the allowed size; retry generation.")
-                        content += text
-                        content_bytes += text_bytes
-                        yield line({"type": "progress", "attempt_id": attempt_id, "phase": "generating"})
-                        continue
-                    if kind == "error":
-                        message = _provider_error(provider_event.get("message"))
-                        failed = terminal_attempt("error", message)
-                        write_prerequisite_attempt(deps.store, topic, file_id, failed)
-                        terminal = True
-                        discard_if_unpublished(
-                            deps.profile_store, deps.store, topic, file_id, attempt_id, assessment_id
-                        )
-                        yield line({"type": "error", "attempt_id": attempt_id, "message": message, "attempt": failed})
-                        break
-                    if kind != "done":
-                        raise InvalidInput("The model stream returned an unsupported event.")
-                    await _close_stream(stream)
-                    stream = None
-                    latest_map = get_document_map(deps.store, topic, file_id)
-                    if (
-                        latest_map["status"] != "ready"
-                        or latest_map["map"] is None
-                        or latest_map["map"]["revision"] != body.revision
-                    ):
-                        raise Conflict("The source document changed while prerequisites were generating.")
-                    latest_profile = deps.profile_store.read_profile()
-                    latest_cv = next(
-                        (item for item in latest_profile["cvs"] if item["id"] == latest_profile["active_cv_id"]), None
-                    )
-                    latest_text = deps.profile_store.read_extracted_text(selected["id"])
-                    latest_hash = hashlib.sha256(latest_text.encode("utf-8")).hexdigest()
-                    if (
-                        latest_cv is None
-                        or latest_cv["id"] != selected["id"]
-                        or latest_cv["status"] != "ready"
-                        or latest_cv["revoked"]
-                        or latest_cv["extracted_sha256"] != provenance["cv_text_sha256"]
-                        or latest_hash != provenance["cv_text_sha256"]
-                    ):
-                        raise Conflict("The selected CV changed while prerequisites were generating; retry.")
-                    parsed = validate_prerequisite_response(
-                        content,
-                        sources=plan["sources"],
-                        cv_text=cv_text,
-                        assessment_id=assessment_id,
-                    )
-                    finished_at = _now()
-                    assessment = {
-                        "attempt_id": attempt_id,
-                        "assessment_id": assessment_id,
-                        "topic_id": topic,
-                        "file_id": file_id,
-                        "map_revision": body.revision,
-                        "section_id": section_id,
-                        "cv_id": selected["id"],
-                        "cv_text_sha256": provenance["cv_text_sha256"],
-                        "source_sha256": provenance["source_sha256"],
-                        **parsed,
-                        "sources": plan["source_metadata"],
-                        "finished_at": finished_at,
-                    }
-                    completed = {**attempt, "status": "completed", "finished_at": finished_at, "diagnostic": None}
-                    proficiency = deps.profile_store.register_model_requirements(
-                        parsed["requirements"],
-                        topic_id=topic,
-                        assessment_id=assessment_id,
-                        selected_cv_id=selected["id"],
-                        selected_cv_text_sha256=provenance["cv_text_sha256"],
-                    )
-                    write_prerequisite_attempt(deps.store, topic, file_id, completed, assessment=assessment)
-                    terminal = True
-                    yield line(
-                        {
-                            "type": "done",
-                            "attempt_id": attempt_id,
-                            "assessment": assessment,
-                            "proficiency_revision": proficiency["revision"],
-                            "attempt": completed,
-                        }
-                    )
-                    break
-                else:
-                    message = "The model stream ended before completion."
-                    failed = terminal_attempt("error", message)
-                    write_prerequisite_attempt(deps.store, topic, file_id, failed)
-                    terminal = True
-                    discard_if_unpublished(deps.profile_store, deps.store, topic, file_id, attempt_id, assessment_id)
-                    yield line({"type": "error", "attempt_id": attempt_id, "message": message, "attempt": failed})
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:  # noqa: BLE001 - stream boundary records validation/provider/storage failures safely
-                message = (
-                    exc.message
-                    if isinstance(exc, (Conflict, InvalidInput))
-                    else "Prerequisite generation could not be completed."
-                )
-                try:
-                    durable = get_prerequisite_state(deps.store, topic, file_id)
-                except Exception as read_exc:  # noqa: BLE001 - never delete rows when publication state is unreadable
-                    logger.error("Prerequisite state check failed for %s (%s)", attempt_id, type(read_exc).__name__)
-                    yield line(
-                        {
-                            "type": "error",
-                            "attempt_id": attempt_id,
-                            "message": "Could not verify whether prerequisites were saved; retry after checking the saved state.",
-                        }
-                    )
-                else:
-                    published = published_assessment(durable, attempt_id, assessment_id)
-                    if published is not None:
-                        terminal = True
-                        current_profile = deps.profile_store.read_proficiency()
-                        saved_attempt = next(item for item in durable["attempts"] if item["id"] == attempt_id)
-                        yield line(
-                            {
-                                "type": "done",
-                                "attempt_id": attempt_id,
-                                "assessment": published,
-                                "proficiency_revision": current_profile["revision"],
-                                "attempt": saved_attempt,
-                            }
-                        )
-                    else:
-                        saved_attempt = next((item for item in durable["attempts"] if item["id"] == attempt_id), None)
-                        if saved_attempt is not None and saved_attempt["status"] in {
-                            "error",
-                            "cancelled",
-                            "interrupted",
-                        }:
-                            failed = saved_attempt
-                            terminal = True
-                        else:
-                            failed = terminal_attempt("error", message[:2000])
-                            try:
-                                write_prerequisite_attempt(deps.store, topic, file_id, failed)
-                                terminal = True
-                            except Exception as save_exc:  # noqa: BLE001 - retain recovery state when terminal persistence fails
-                                logger.error(
-                                    "Prerequisite failure save failed for %s (%s)", attempt_id, type(save_exc).__name__
-                                )
-                        if terminal:
-                            try:
-                                discard_if_unpublished(
-                                    deps.profile_store, deps.store, topic, file_id, attempt_id, assessment_id
-                                )
-                            except Exception as cleanup_exc:  # noqa: BLE001 - leave rows intact and let idle recovery retry
-                                logger.error(
-                                    "Prerequisite profile cleanup failed for %s (%s)",
-                                    attempt_id,
-                                    type(cleanup_exc).__name__,
-                                )
-                            yield line(
-                                {"type": "error", "attempt_id": attempt_id, "message": message, "attempt": failed}
-                            )
-                        else:
-                            yield line(
-                                {
-                                    "type": "error",
-                                    "attempt_id": attempt_id,
-                                    "message": "Prerequisites could not be saved; retry after checking the saved state.",
-                                }
-                            )
+                async for event in handle.run.events():
+                    yield line(dict(event))
             finally:
                 await finish()
 
@@ -439,12 +268,3 @@ async def _recover_if_idle(deps: AppDeps, topic: str, file_id: str) -> None:
 
 def _now() -> str:
     return datetime.now(UTC).isoformat()
-
-
-def _provider_error(_value: object) -> str:
-    return "The local model could not complete prerequisite generation."
-
-
-async def _close_stream(stream: AsyncIterator[dict[str, object]] | None) -> None:
-    if stream is not None and hasattr(stream, "aclose"):
-        await stream.aclose()
