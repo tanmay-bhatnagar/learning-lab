@@ -1,6 +1,6 @@
 # Architecture and ownership
 
-Current state on `dev` as of 13 October 2026. See the [interactive R1 map](../references/R1/system-map.html) for the system and its planned blocks, and the [R1 snapshot](../references/R1/README.md) for validation and remaining work.
+Current backend state on `dev` as of 19 October 2026; the optional extra-search browser controls are still being implemented. See the [interactive R1 map](../references/R1/system-map.html) for the system and its planned blocks, and the [R1 snapshot](../references/R1/README.md) for validation and remaining work.
 
 ## Runtime path
 
@@ -24,6 +24,8 @@ The API app owns one model-generation lock shared by embedding, chat, section-su
 | `services/api/lab/errors.py` | Domain error taxonomy |
 | `services/api/lab/contracts.py` | Typed records and gateway/store protocols |
 | `services/api/lab/ingest.py`, `chat_prompt.py`, `chat_session.py` | Pure upload, prompt and session transitions |
+| `services/api/lab/evidence_request.py`, `evidence_prompt.py` | Pure strict answer-or-search actions, scoped merging and retained labeled prompt plans |
+| `services/api/lab/evidence_snapshot.py`, `evidence_turn.py` | Prompt-relevant boundary snapshots/revalidation and the finite gateway/search workflow |
 | `services/api/lab/parsers.py`, `docling_pipeline.py`, `parse_pipeline.py` | PDF converters, structured extraction and derived artifacts |
 | `services/api/lab/chunking.py`, `embedding_config.py`, `hashing.py` | Chunk boundaries, tokenizer choice, embedding format and content hashes |
 | `services/api/lab/index.py`, `retrieval.py` | Topic SQLite index, hybrid search and evidence assembly |
@@ -48,7 +50,7 @@ Personal topics and their PDFs live in `../Learning/<topic>/`, outside this Git 
 - Chat requests produce local diagnostic metadata in `query_traces.sqlite`, including rejection, completion, error and cancellation outcomes. A bounded topic-scoped developer API exposes records; no new learner screen or external telemetry is involved. [Trace contract](query_traces.md). The [retrieval evaluation suite](../evals/retrieval/README.md) measures source-anchor coverage, retrieval and retained evidence while checking trace consistency. Generation is simulated; answer quality is unassessed.
 - Indexed Docling files support keyword and local embedding retrieval with a trace. Cited evidence is limited to passages retained in the model prompt. Saved citation page links open the topic-scoped original PDF at the cited page when supported by the browser viewer; invalid or out-of-range targets are shown unavailable.
 - Each topic can store a validated user-authored learning goal. Chat supplies it as learning context, separate from retrieved evidence. Extraction diagnostics persist parser-reported failures and suspected limitations; a clean diagnostic run and legacy parser records remain fidelity-unassessed.
-- Chat is one retrieval pass followed by model streaming. No LangGraph workflow, model tool calls, approval interrupts, understanding checks or progress memory exist yet.
+- Chat defaults to one retrieval pass followed by model streaming. Explicit `extra_search:true` optionally lets the same selected model return one complete buffered answer or request one app-scoped additional document lookup and one final streamed answer. Maximum two generations/one extra lookup; no arbitrary model tools, LangGraph, repeated loop or side conversation. Browser opt-in/progress controls and full actual-application verification remain pending. See [the study walkthrough](evidence_search.md).
 - Topic and path validation is implemented. It is not an execution sandbox for future code, browser or device tools.
 - The model adapter can send retrieved figure images to a vision-capable local model. General multimodal R2 behavior and Mac–Jetson deployment are not implemented.
 
@@ -69,3 +71,5 @@ Coding conventions and validation gates live in [engineering.md](engineering.md)
 `learner_profile.py` owns pure versioned CV/proficiency transformations; `profile_store.py` owns duplicate-safe shared originals, integrity checks and revision-locked atomic writes; `profile_parse.py` reuses normal parsing adapters for canonical complete extraction. Shared CVs live under configured `../Profile/`, independent of study topics and retrieval indexes. `prerequisites.py` owns fresh whole-input planning/schema/validation; `prerequisite_store.py` owns topic-local immutable attempts/assessments; `web/prerequisites.py` owns request lifecycle, shared generation lock and publication ordering. These remain separate from document-map native reconstruction and summaries.
 
 `conversation_profile.py` stores per-existing-conversation opt-in/focus preferences; `learner_context.py` reloads and deterministically projects latest saved proficiency for each chat. `prerequisite_import.py` constructs immutable historical snapshots; `web/prerequisite_imports.py` explicitly adds them to an existing main conversation and activates focus, without inference. Whole canonical CV text is optional and protected in chat; it is required only for new personalized generation. Current profile context is loaded separately from historical messages and never silently inferred from CV degrees/omissions or casual chat. See [API contracts](API.md#shared-cv-my-proficiency-and-prerequisites) and the [module study walkthrough](proficiency.md). Frontend API validators, generation/history/import hooks and the shared RequirementAnswers editor compose in App. Explicit main-chat import and unsent drafting are separate actions; the global profile follows saved conversation focus independently of an open map. Verification evidence and remaining limitations are recorded in dated reports.
+
+The shared FinalizedStreamingResponse observes disconnect during silent generation on supported ASGI versions, closes owned iterators and shields finalization. Evidence workflow metadata tracks application invocation attempts and actual retained request plans, not provider receipt or semantic support. Opt-in pre-dispatch cancellation persists no supplied citations; legacy saved-record compatibility is additive. [API/trace contract](API.md#optional-extra-document-search).
