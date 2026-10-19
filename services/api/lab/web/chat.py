@@ -27,7 +27,21 @@ from lab.web.locks import acquire_topic_lock, topic_lock
 from lab.web.middleware import FinalizedStreamingResponse
 from lab.web.schemas import ChatInput
 from lab.web.settings_store import load_settings
-from lab.workflows.chat import admit_chat, build_chat_graphs
+from lab.workflows.chat import (
+    CHAT_QUEUED_EVENT_TYPES,
+    EXECUTION_RECURSION_LIMIT,
+    ChatExecutionContext,
+    admit_chat,
+    build_chat_graphs,
+)
+from lab.workflows.chat_publication import (
+    ChatObserver,
+    ChatPublicationBundle,
+    ensure_ordinary_publication,
+    emit_late_graph_failure,
+)
+from lab.workflows.events import EventSink
+from lab.workflows.runtime import GraphRun, PublishOnce
 
 logger = logging.getLogger(__name__)
 
@@ -147,6 +161,126 @@ def router(deps: AppDeps) -> APIRouter:
                 deps.store.save_session(topic, session)
             else:
                 deps.store.save_session(topic, session, conversation_id)
+
+        if not body.extra_search:
+            generation_started = time.monotonic()
+            observer = ChatObserver(
+                generation_started=generation_started,
+                started_monotonic=started,
+            )
+            publish_latch: PublishOnce = PublishOnce()
+            publication_bundle = ChatPublicationBundle(
+                session=session,
+                plan=plan,
+                trace=trace,
+                save_session=save,
+                requested_model=body.model,
+                prompt_context=plan["prompt_context"],
+                retrieval_record=dict(plan["retrieval_record"]),
+                trace_id=trace_id,
+            )
+            # Capacity 1 couples provider progress to ASGI consumption (disconnect mid-stream).
+            sink = EventSink(allowed_types=CHAT_QUEUED_EVENT_TYPES, capacity=1)
+            execution_context = ChatExecutionContext(
+                model_backend=deps.model_backend,
+                generation_lock=deps.model_generation_lock,
+                sink=sink,
+                observer=observer,
+                publish_latch=publish_latch,
+                bundle=publication_bundle,
+                prompt=plan["prompt"],
+                model=body.model,
+                think=body.think,
+                context_limit=body.context_limit,
+            )
+
+            async def terminal_events(
+                _graph_outcome: dict[str, object] | None,
+                error: BaseException | None,
+            ):
+                publication = execution_context.publication_outcome
+                if publication is None or not publication.published:
+                    if isinstance(error, asyncio.CancelledError):
+                        observer.mark_cancelled()
+                    elif error is not None:
+                        observer.mark_generation_failed(error)
+                    else:
+                        observer.mark_cancelled()
+                    publication = await publish_latch.run(
+                        lambda: ensure_ordinary_publication(
+                            publication_bundle,
+                            observer,
+                            existing=publication,
+                        )
+                    )
+                    execution_context.publication_outcome = publication
+                elif error is not None and publication.complete:
+                    async for item in emit_late_graph_failure(publication=publication, graph_error=error):
+                        yield item
+                    return
+                for event in publication.terminal_events:
+                    yield event
+
+            graph_run = GraphRun(
+                graph=chat_graphs.execution,
+                state={},
+                context=execution_context,
+                recursion_limit=EXECUTION_RECURSION_LIMIT,
+                sink=sink,
+                terminal_events=terminal_events,
+            )
+            finished = False
+
+            async def finish() -> None:
+                nonlocal finished
+                if finished:
+                    return
+                finished = True
+                with CancelScope(shield=True):
+                    try:
+                        await graph_run.cancel_and_wait()
+                        if execution_context.provider_stream is not None and hasattr(
+                            execution_context.provider_stream,
+                            "aclose",
+                        ):
+                            try:
+                                await execution_context.provider_stream.aclose()
+                            except Exception as exc:  # noqa: BLE001 - shielded cleanup must not block lease release
+                                logger.error(
+                                    "Chat stream cleanup failed for %s (%s)",
+                                    trace_id,
+                                    type(exc).__name__,
+                                )
+                        publication_outcome = await publish_latch.run(
+                            lambda: ensure_ordinary_publication(
+                                publication_bundle,
+                                observer,
+                                existing=execution_context.publication_outcome,
+                            )
+                        )
+                        if publication_outcome.save_failure is not None:
+                            raise publication_outcome.save_failure
+                    finally:
+                        deps.active_runs.unregister(graph_run)
+                        lease.release()
+
+            async def ordinary_events():
+                def line(event: dict) -> str:
+                    return json.dumps(event, ensure_ascii=False) + "\n"
+
+                try:
+                    deps.active_runs.register(graph_run)
+                    async for event in graph_run.events():
+                        yield line(dict(event))
+                finally:
+                    await finish()
+
+            return FinalizedStreamingResponse(
+                ordinary_events(),
+                on_close=finish,
+                media_type="application/x-ndjson",
+                headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+            )
 
         assistant = {
             "role": "assistant",
@@ -375,15 +509,6 @@ def router(deps: AppDeps) -> APIRouter:
                         build_final=build_final,
                         revalidate=guard_snapshot,
                     )
-                else:
-                    stream = deps.model_backend.stream_chat(
-                        prompt,
-                        body.model,
-                        body.think,
-                        body.context_limit,
-                        context_metadata=prompt_context,
-                        generation_lock=deps.model_generation_lock,
-                    )
                 last_evidence_stage = None
                 async for event in stream:
                     if body.extra_search:
@@ -529,17 +654,6 @@ def router(deps: AppDeps) -> APIRouter:
                         yield line(event)
                         break
                     elif kind == "error":
-                        if not body.extra_search:
-                            outcome.update(
-                                status="error",
-                                stage="generation",
-                                error={
-                                    "stage": "generation",
-                                    "code": "provider_error",
-                                    "exception_type": "ProviderError",
-                                    "summary": "Model reported a generation error.",
-                                },
-                            )
                         await finish()
                         yield line(event)
                         if trace_finalize_failed:

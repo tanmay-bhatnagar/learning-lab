@@ -36,7 +36,9 @@ from lab.runtime_policy import load_runtime_policy
 from lab.storage import read_bytes, read_json
 from lab.summary_import import validated_summary_imports
 from lab.prerequisite_import import validated_prerequisite_imports
-from lab.workflows.runtime import invoke_graph
+from lab.workflows.chat_publication import ChatPublicationBundle, ChatPublicationOutcome, publish_ordinary_chat
+from lab.workflows.events import EventSink, text_fragments
+from lab.workflows.runtime import PublishOnce, invoke_graph
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +47,9 @@ _INITIAL_NO_HITS_WARNING = "No indexed passages were returned from the selected 
 _INITIAL_KEYWORD_WARNING = "Semantic search was unavailable; keyword results were used."
 
 ADMISSION_RECURSION_LIMIT = 9
+EXECUTION_RECURSION_LIMIT = 4
+
+CHAT_QUEUED_EVENT_TYPES = frozenset({"token", "thinking", "evidence_status"})
 
 BuildChatPromptFn = Callable[..., dict[str, Any]]
 BuildInitialEvidencePromptFn = Callable[..., dict[str, Any]]
@@ -170,9 +175,30 @@ class ChatAdmissionContext:
     artifacts: ChatAdmissionArtifacts = field(default_factory=ChatAdmissionArtifacts)
 
 
+class ChatExecutionState(TypedDict, total=False):
+    stage: str
+
+
+@dataclass
+class ChatExecutionContext:
+    model_backend: Any
+    generation_lock: asyncio.Lock
+    sink: EventSink
+    observer: Any
+    publish_latch: PublishOnce[ChatPublicationOutcome]
+    bundle: ChatPublicationBundle
+    prompt: list[dict[str, object]]
+    model: str
+    think: bool | str | None
+    context_limit: int
+    publication_outcome: ChatPublicationOutcome | None = None
+    provider_stream: Any = None
+
+
 @dataclass(frozen=True)
 class ChatGraphs:
     admission: Any
+    execution: Any
 
 
 @dataclass
@@ -449,31 +475,110 @@ async def save_user_node(_state: ChatAdmissionState, runtime: Runtime[ChatAdmiss
     return {"stage": "user_saved"}
 
 
+async def stream_answer_node(
+    _state: ChatExecutionState,
+    runtime: Runtime[ChatExecutionContext],
+) -> ChatExecutionState:
+    ctx = runtime.context
+    stream = ctx.model_backend.stream_chat(
+        ctx.prompt,
+        ctx.model,
+        ctx.think,
+        ctx.context_limit,
+        context_metadata=ctx.bundle.prompt_context,
+        generation_lock=ctx.generation_lock,
+    )
+    ctx.provider_stream = stream
+    try:
+        async for event in stream:
+            kind = event.get("type")
+            if kind in {"token", "thinking"}:
+                text = event.get("text", "")
+                if isinstance(text, str) and text:
+                    ctx.observer.record_token(kind, text)
+                    for fragment in text_fragments(text):
+                        await ctx.sink.send({"type": kind, "text": fragment})
+                continue
+            if kind == "done":
+                model = event.get("model") if isinstance(event.get("model"), str) else None
+                context = event.get("context") if isinstance(event.get("context"), dict) else {}
+                ctx.observer.mark_completed(model=model, context=dict(context))
+                return {"stage": "streamed"}
+            if kind == "error":
+                message = (
+                    event.get("message")
+                    if isinstance(event.get("message"), str)
+                    else "Model reported a generation error."
+                )
+                ctx.observer.mark_provider_error(message)
+                return {"stage": "streamed"}
+        ctx.observer.mark_premature_eof()
+        return {"stage": "streamed"}
+    finally:
+        if ctx.provider_stream is not None and hasattr(ctx.provider_stream, "aclose"):
+            try:
+                await ctx.provider_stream.aclose()
+            except Exception as exc:  # noqa: BLE001 - optional cleanup failure is recorded for completed answers
+                ctx.observer.stream_close_error = {
+                    "stage": "stream_close",
+                    "code": "stream_close_failed",
+                    "exception_type": type(exc).__name__,
+                    "summary": "Model stream cleanup failed.",
+                }
+                logger.error(
+                    "Chat stream cleanup failed for %s (%s)",
+                    ctx.bundle.trace_id,
+                    type(exc).__name__,
+                )
+            ctx.provider_stream = None
+
+
+async def publish_node(_state: ChatExecutionState, runtime: Runtime[ChatExecutionContext]) -> ChatExecutionState:
+    ctx = runtime.context
+
+    async def _publish() -> ChatPublicationOutcome:
+        return await publish_ordinary_chat(ctx.bundle, ctx.observer)
+
+    ctx.publication_outcome = await ctx.publish_latch.run(_publish)
+    return {"stage": "published"}
+
+
 def build_chat_graphs() -> ChatGraphs:
-    """Compile chat admission graphs once at application composition."""
-    builder = StateGraph(ChatAdmissionState, context_schema=ChatAdmissionContext)
-    builder.add_node("load_session", load_session_node)
-    builder.add_node("select_attachments", select_attachments_node)
-    builder.add_node("capture_snapshot", capture_snapshot_node)
-    builder.add_node("load_context", load_context_node)
-    builder.add_node("initial_retrieval", initial_retrieval_node)
-    builder.add_node("vision_probe", vision_probe_node)
-    builder.add_node("build_prompt", build_prompt_node)
-    builder.add_node("save_user", save_user_node)
-    builder.add_edge(START, "load_session")
-    builder.add_edge("load_session", "select_attachments")
-    builder.add_conditional_edges(
+    """Compile chat admission and ordinary execution graphs once at application composition."""
+    admission_builder = StateGraph(ChatAdmissionState, context_schema=ChatAdmissionContext)
+    admission_builder.add_node("load_session", load_session_node)
+    admission_builder.add_node("select_attachments", select_attachments_node)
+    admission_builder.add_node("capture_snapshot", capture_snapshot_node)
+    admission_builder.add_node("load_context", load_context_node)
+    admission_builder.add_node("initial_retrieval", initial_retrieval_node)
+    admission_builder.add_node("vision_probe", vision_probe_node)
+    admission_builder.add_node("build_prompt", build_prompt_node)
+    admission_builder.add_node("save_user", save_user_node)
+    admission_builder.add_edge(START, "load_session")
+    admission_builder.add_edge("load_session", "select_attachments")
+    admission_builder.add_conditional_edges(
         "select_attachments",
         route_after_attachments,
         {"extra_search": "capture_snapshot", "ordinary": "load_context"},
     )
-    builder.add_edge("capture_snapshot", "initial_retrieval")
-    builder.add_edge("load_context", "initial_retrieval")
-    builder.add_edge("initial_retrieval", "vision_probe")
-    builder.add_edge("vision_probe", "build_prompt")
-    builder.add_edge("build_prompt", "save_user")
-    builder.add_edge("save_user", END)
-    return ChatGraphs(admission=builder.compile())
+    admission_builder.add_edge("capture_snapshot", "initial_retrieval")
+    admission_builder.add_edge("load_context", "initial_retrieval")
+    admission_builder.add_edge("initial_retrieval", "vision_probe")
+    admission_builder.add_edge("vision_probe", "build_prompt")
+    admission_builder.add_edge("build_prompt", "save_user")
+    admission_builder.add_edge("save_user", END)
+
+    execution_builder = StateGraph(ChatExecutionState, context_schema=ChatExecutionContext)
+    execution_builder.add_node("stream_answer", stream_answer_node)
+    execution_builder.add_node("publish", publish_node)
+    execution_builder.add_edge(START, "stream_answer")
+    execution_builder.add_edge("stream_answer", "publish")
+    execution_builder.add_edge("publish", END)
+
+    return ChatGraphs(
+        admission=admission_builder.compile(),
+        execution=execution_builder.compile(),
+    )
 
 
 async def admit_chat(
@@ -636,7 +741,7 @@ async def admit_chat(
     )
 
 
-def admission_graph_callables(compiled: Any) -> list[tuple[str, Callable[..., Any]]]:
+def workflow_graph_callables(compiled: Any) -> list[tuple[str, Callable[..., Any]]]:
     """Return named node and branch callables from a compiled admission graph."""
     found: list[tuple[str, Callable[..., Any]]] = []
     for name, spec in compiled.builder.nodes.items():
@@ -651,3 +756,13 @@ def admission_graph_callables(compiled: Any) -> list[tuple[str, Callable[..., An
             if fn is not None:
                 found.append((f"branch:{getattr(fn, '__name__', 'router')}", fn))
     return found
+
+
+def admission_graph_callables(compiled: Any) -> list[tuple[str, Callable[..., Any]]]:
+    """Return named node and branch callables from a compiled admission graph."""
+    return workflow_graph_callables(compiled)
+
+
+def execution_graph_callables(compiled: Any) -> list[tuple[str, Callable[..., Any]]]:
+    """Return named node and branch callables from a compiled execution graph."""
+    return workflow_graph_callables(compiled)

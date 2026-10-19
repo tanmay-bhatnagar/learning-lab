@@ -46,12 +46,13 @@ class _SpyProfileStore:
         return getattr(self._inner, name)
 
 
-def _client(tmp_path, *, model=None, profile_root=None) -> TestClient:
+def _client(tmp_path, *, model=None, profile_root=None, admission_only: bool = False) -> TestClient:
     root = tmp_path / "Learning"
+    backend = model if model is not None else (_NoStreamChatModel() if admission_only else FakeModel())
     app = create_app(
         root,
         tmp_path / "settings.json",
-        model_backend=model or _NoStreamChatModel(),
+        model_backend=backend,
         structured_parser=_structured_parser,
         profile_root=profile_root or tmp_path / "Profile",
     )
@@ -59,7 +60,7 @@ def _client(tmp_path, *, model=None, profile_root=None) -> TestClient:
 
 
 def test_early_missing_attachment_default_route_no_user_no_stream_headers(tmp_path):
-    client = _client(tmp_path)
+    client = _client(tmp_path, admission_only=True)
     topic = client.post("/api/topics", json={"name": "Early error"}).json()["id"]
     response = client.post(f"/api/topics/{topic}/chat", json=payload(file_ids=["missing"]))
     assert response.status_code == 404
@@ -69,7 +70,7 @@ def test_early_missing_attachment_default_route_no_user_no_stream_headers(tmp_pa
 
 
 def test_early_missing_attachment_named_route(tmp_path):
-    client = _client(tmp_path)
+    client = _client(tmp_path, admission_only=True)
     topic = client.post("/api/topics", json={"name": "Named early"}).json()["id"]
     conversation = client.post(f"/api/topics/{topic}/conversations", json={"title": "Named"}).json()["id"]
     response = client.post(
@@ -103,7 +104,7 @@ def test_busy_topic_rejected_before_lease_with_trace(tmp_path):
 
 
 def test_extra_search_zero_indexed_refuses_without_user(tmp_path):
-    client = _client(tmp_path)
+    client = _client(tmp_path, admission_only=True)
     topic = client.post("/api/topics", json={"name": "Extra zero"}).json()["id"]
     uploaded = client.post(
         f"/api/topics/{topic}/files",
@@ -173,6 +174,7 @@ def test_cv_on_includes_canonical_cv_text_in_admitted_plan(tmp_path):
 
 
 def test_does_not_fit_refusal_saves_no_user(tmp_path, monkeypatch):
+    # admission_only: build_chat_prompt runs inside admission graph before execution
     import lab.web.chat as chat_module
 
     def does_not_fit(*_args, **_kwargs):
@@ -275,7 +277,7 @@ def test_older_summary_import_still_loads_during_admission(tmp_path):
     from tests.test_summary_imports_api import _body, _client as summary_fixture_client, _import_path
 
     client, _, topic, outline, section_id, summary, _model = summary_fixture_client(tmp_path)
-    client.app.state.deps.model_backend = _NoStreamChatModel()
+    client.app.state.deps.model_backend = FakeModel()
     imported = client.post(_import_path(topic), json=_body(outline, section_id, summary))
     assert imported.status_code == 200
     response = client.post(f"/api/topics/{topic}/chat", json=payload())

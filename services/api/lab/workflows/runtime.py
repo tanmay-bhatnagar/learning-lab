@@ -159,8 +159,10 @@ class GraphRun:
         if self._task is None:
             return
         self._task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await self._task
+        await asyncio.wait({self._task})
+        if not self._task.cancelled():
+            # Retrieve the failure so asyncio does not log it; terminal handlers own reporting.
+            self._task.exception()
 
 
 class ActiveRuns:
