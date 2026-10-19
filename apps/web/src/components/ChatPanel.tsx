@@ -19,6 +19,8 @@ type Props = {
   topicReady: boolean;
   follow: boolean;
   selectedCount: number;
+  extraSearch: boolean;
+  extraSearchAvailable: boolean;
   activeModel?: Model;
   modelError: string;
   meter: Meter;
@@ -36,6 +38,7 @@ type Props = {
   onThinkChange: (value: boolean | string, modelId?: string) => void;
   onRetryConnection: () => void;
   onStarterPrompt: (text: string) => void;
+  onExtraSearchChange: (enabled: boolean) => void;
 };
 
 export function ChatPanel({
@@ -53,6 +56,8 @@ export function ChatPanel({
   topicReady,
   follow,
   selectedCount,
+  extraSearch,
+  extraSearchAvailable,
   activeModel,
   modelError,
   meter,
@@ -70,6 +75,7 @@ export function ChatPanel({
   onThinkChange,
   onRetryConnection,
   onStarterPrompt,
+  onExtraSearchChange,
 }: Props) {
   return (
     <>
@@ -102,6 +108,8 @@ export function ChatPanel({
         follow={follow}
         hasMessages={messages.length > 0}
         selectedCount={selectedCount}
+        extraSearch={extraSearch}
+        extraSearchAvailable={extraSearchAvailable}
         activeModel={activeModel}
         modelError={modelError}
         meter={meter}
@@ -115,6 +123,7 @@ export function ChatPanel({
         onOpenSettings={onOpenSettings}
         onThinkChange={onThinkChange}
         onRetryConnection={onRetryConnection}
+        onExtraSearchChange={onExtraSearchChange}
       />
     </>
   );

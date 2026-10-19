@@ -94,6 +94,9 @@ export function App() {
     saveLearningGoal,
     send,
     stop,
+    extraSearch,
+    extraSearchAvailable,
+    setExtraSearchEnabled,
     upload,
     refreshFiles,
     proficiency,
@@ -457,6 +460,8 @@ export function App() {
                 topicReady={topicReady}
                 follow={follow}
                 selectedCount={selected.length}
+                extraSearch={extraSearch}
+                extraSearchAvailable={extraSearchAvailable}
                 activeModel={activeModel}
                 modelError={modelError}
                 meter={meter}
@@ -467,6 +472,7 @@ export function App() {
                 onInputChange={setInput}
                 onSend={send}
                 onStop={stop}
+                onExtraSearchChange={setExtraSearchEnabled}
                 onScroll={(e) => {
                   const el = e.currentTarget;
                   setFollow(el.scrollHeight - el.scrollTop - el.clientHeight < 100);

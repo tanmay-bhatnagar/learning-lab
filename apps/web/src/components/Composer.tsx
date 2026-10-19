@@ -13,6 +13,8 @@ type Props = {
   follow: boolean;
   hasMessages: boolean;
   selectedCount: number;
+  extraSearch: boolean;
+  extraSearchAvailable: boolean;
   activeModel?: Model;
   modelError: string;
   meter: Meter;
@@ -26,6 +28,7 @@ type Props = {
   onOpenSettings: () => void;
   onThinkChange: (value: boolean | string, modelId?: string) => void;
   onRetryConnection: () => void;
+  onExtraSearchChange: (enabled: boolean) => void;
 };
 
 export function Composer({
@@ -36,6 +39,8 @@ export function Composer({
   follow,
   hasMessages,
   selectedCount,
+  extraSearch,
+  extraSearchAvailable,
   activeModel,
   modelError,
   meter,
@@ -49,6 +54,7 @@ export function Composer({
   onOpenSettings,
   onThinkChange,
   onRetryConnection,
+  onExtraSearchChange,
 }: Props) {
   return (
     <div className="composer-area">
@@ -126,6 +132,20 @@ export function Composer({
           )}
         </div>
       </form>
+      <label className="extra-search-option">
+        <input
+          type="checkbox"
+          checked={extraSearch}
+          disabled={!extraSearchAvailable || busy}
+          onChange={(event) => onExtraSearchChange(event.currentTarget.checked)}
+        />
+        <span>
+          <span className="extra-search-label">Allow extra search</span>
+          {!extraSearchAvailable && (
+            <span className="extra-search-reason">Select a ready, indexed document to allow extra search.</span>
+          )}
+        </span>
+      </label>
       <div className="composer-footer">
         <span>
           Enter to send <span className="footer-separator">·</span> Shift + Enter for a new line

@@ -710,6 +710,31 @@ main {
   background: #a5b395;
   opacity: 0.65;
 }
+.extra-search-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 8px 2px 0;
+  color: #68765b;
+  font-size: 11px;
+  line-height: 1.4;
+}
+.extra-search-option input {
+  width: 13px;
+  height: 13px;
+  margin: 1px 0 0;
+  accent-color: #5c7e48;
+  flex: 0 0 auto;
+}
+.extra-search-option > span,
+.extra-search-label,
+.extra-search-reason {
+  display: block;
+}
+.extra-search-reason {
+  color: #8b9480;
+  font-size: 10px;
+}
 .composer-footer {
   display: flex;
   justify-content: space-between;

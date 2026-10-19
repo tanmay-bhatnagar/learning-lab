@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { stream } from '../api/client';
 import { conversationChatPath } from '../api/urls';
 import type { Model, Settings } from '../api/types';
@@ -23,6 +23,27 @@ export function useChat(
   activityApi: ActivityApi,
   onTurnStart: () => void,
 ) {
+  const [extraSearchChoice, setExtraSearchChoice] = useState<{ scope: string; enabled: boolean }>({
+    scope: '',
+    enabled: false,
+  });
+  const scope = `${topic}\u0000${conversation}`;
+  const eligibleForExtraSearch = selected.some((id) =>
+    session.files.some((file) => file.id === id && file.status === 'ready' && file.index_status === 'ready'),
+  );
+  const extraSearch = extraSearchChoice.scope === scope && extraSearchChoice.enabled && eligibleForExtraSearch;
+
+  useEffect(() => {
+    if (extraSearchChoice.enabled && (!eligibleForExtraSearch || extraSearchChoice.scope !== scope)) {
+      setExtraSearchChoice({ scope, enabled: false });
+    }
+  }, [extraSearchChoice, eligibleForExtraSearch, scope]);
+
+  const setExtraSearchEnabled = useCallback(
+    (enabled: boolean) => setExtraSearchChoice({ scope, enabled: enabled && eligibleForExtraSearch }),
+    [scope, eligibleForExtraSearch],
+  );
+
   const streamController = useRef<AbortController | null>(null);
   const streamSettled = useRef<Promise<void> | null>(null);
   const resolveStream = useRef<(() => void) | null>(null);
@@ -65,7 +86,7 @@ export function useChat(
       try {
         await stream(
           conversationChatPath(target, targetConversation),
-          chatRequest(settings, activeModel, thinking, message, selected),
+          chatRequest(settings, activeModel, thinking, message, selected, extraSearch),
           controller.signal,
           (event) => {
             if (topicRef.current !== target || conversationRef.current !== targetConversation) return;
@@ -77,6 +98,9 @@ export function useChat(
           },
           () => {
             accepted = true;
+            if (topicRef.current === target && conversationRef.current === targetConversation) {
+              setExtraSearchChoice({ scope: `${target}\u0000${targetConversation}`, enabled: false });
+            }
           },
         );
       } catch (e) {
@@ -119,8 +143,15 @@ export function useChat(
       setError,
       activityApi,
       onTurnStart,
+      extraSearch,
     ],
   );
 
-  return { send, stop };
+  return {
+    send,
+    stop,
+    extraSearch,
+    extraSearchAvailable: eligibleForExtraSearch,
+    setExtraSearchEnabled,
+  };
 }
