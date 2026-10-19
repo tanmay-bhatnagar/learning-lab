@@ -30,6 +30,12 @@ async function openFilesTab(user: ReturnType<typeof userEvent.setup>) {
   await waitFor(() => expect(screen.getByText(/Your reading material/i)).toBeInTheDocument());
 }
 
+async function openConversationTab(user: ReturnType<typeof userEvent.setup>) {
+  const tabs = document.querySelector('.tabs') as HTMLElement | null;
+  if (!tabs) throw new Error('Workspace tabs missing');
+  await user.click(within(tabs).getByRole('button', { name: /Conversation/i }));
+}
+
 function fileInput() {
   return document.querySelector('input[type="file"]') as HTMLInputElement;
 }
@@ -822,6 +828,80 @@ describe('App characterization', () => {
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/Prompt does not fit/i));
     expect(composer).toHaveValue('A prompt that does not fit');
     expect(document.querySelector('.message-list')).not.toHaveTextContent('A prompt that does not fit');
+  });
+
+  test('extra document search is opt-in for a selected ready indexed document and resets after acceptance', async () => {
+    const requests: Array<Record<string, unknown>> = [];
+    const stream: StreamScript = async function* (body) {
+      requests.push(body);
+      yield { type: 'token', text: 'Grounded response.' };
+      yield { type: 'done', model: 'qwen3.5:9b-q4_K_M', context: { used: 10, limit: 32768 } };
+    };
+    installFakeApi({ stream });
+    const user = userEvent.setup();
+    render(<App />);
+    await waitForAppReady();
+
+    expect(screen.getByRole('checkbox', { name: 'Allow extra search' })).not.toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Allow extra search' })).toBeDisabled();
+    expect(screen.getByText(/select.*ready.*indexed document/i)).toBeInTheDocument();
+
+    await openFilesTab(user);
+    await user.click(screen.getByRole('checkbox', { name: 'Include paper-a.pdf in chat' }));
+    await openConversationTab(user);
+    const extraSearch = screen.getByRole('checkbox', { name: 'Allow extra search' });
+    expect(extraSearch).toBeEnabled();
+    await user.click(extraSearch);
+    expect(extraSearch).toBeChecked();
+
+    await user.type(screen.getByRole('textbox', { name: 'Message' }), 'Can you search further?');
+    await user.click(screen.getByRole('button', { name: 'Send message' }));
+
+    await waitFor(() => expect(screen.getByText('Grounded response.')).toBeInTheDocument());
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatchObject({ extra_search: true });
+    await waitFor(() => expect(extraSearch).not.toBeChecked());
+  });
+
+  test('changing selection so no indexed document remains clears the opt-in', async () => {
+    installFakeApi();
+    const user = userEvent.setup();
+    render(<App />);
+    await waitForAppReady();
+
+    await openFilesTab(user);
+    const file = screen.getByRole('checkbox', { name: 'Include paper-a.pdf in chat' });
+    await user.click(file);
+    await openConversationTab(user);
+    const extraSearch = screen.getByRole('checkbox', { name: 'Allow extra search' });
+    await user.click(extraSearch);
+    expect(extraSearch).toBeChecked();
+
+    await openFilesTab(user);
+    await user.click(screen.getByRole('checkbox', { name: 'Include paper-a.pdf in chat' }));
+    await openConversationTab(user);
+    expect(extraSearch).not.toBeChecked();
+    expect(extraSearch).toBeDisabled();
+  });
+
+  test('preflight rejection preserves both the message draft and the opt-in choice', async () => {
+    installFakeApi({ chatStatus: 422 });
+    const user = userEvent.setup();
+    render(<App />);
+    await waitForAppReady();
+
+    await openFilesTab(user);
+    await user.click(screen.getByRole('checkbox', { name: 'Include paper-a.pdf in chat' }));
+    await openConversationTab(user);
+    const extraSearch = screen.getByRole('checkbox', { name: 'Allow extra search' });
+    await user.click(extraSearch);
+    const composer = screen.getByRole('textbox', { name: 'Message' });
+    await user.type(composer, 'Keep the opt-in on if preflight rejects.');
+    await user.click(screen.getByRole('button', { name: 'Send message' }));
+
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/Prompt does not fit/i));
+    expect(composer).toHaveValue('Keep the opt-in on if preflight rejects.');
+    expect(extraSearch).toBeChecked();
   });
 
   test('older model refresh response cannot replace the latest completed model list', async () => {
