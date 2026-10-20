@@ -626,6 +626,17 @@ async def prerequisite_terminal_events(
     publication = await publish_once.run(finalize)
     if publication.terminal:
         context.artifacts.terminal = True
+    if (
+        error is not None
+        and not isinstance(error, asyncio.CancelledError)
+        and any(event.get("type") == "done" for event in publication.terminal_events)
+    ):
+        yield {
+            "type": "error",
+            "attempt_id": context.bundle.attempt_id,
+            "message": "The assessment was saved, but a workflow error occurred afterward.",
+        }
+        return
     for event in publication.terminal_events:
         yield event
 

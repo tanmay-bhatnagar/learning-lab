@@ -387,6 +387,16 @@ async def _summary_terminal_events(
         execution_context.publication_outcome = pub
     else:
         pub = execution_context.publication_outcome or SummaryPublicationOutcome()
+    if (
+        error is not None
+        and not isinstance(error, asyncio.CancelledError)
+        and any(event.get("type") == "done" for event in pub.terminal_events)
+    ):
+        yield {
+            "type": "error",
+            "message": "The summary was saved, but a workflow error occurred afterward.",
+        }
+        return
     for event in pub.terminal_events:
         yield event
 
