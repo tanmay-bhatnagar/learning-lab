@@ -242,8 +242,6 @@ async def publish_summary_cancelled(
     observer: SummaryObserver,
 ) -> SummaryPublicationOutcome:
     """Persist cancellation when no terminal outcome was saved yet."""
-    if observer.outcome_kind == "completed":
-        return SummaryPublicationOutcome(terminal_persisted=True, terminal_events=[])
     observer.mark_cancelled()
     cancelled = _terminal_attempt(
         bundle,

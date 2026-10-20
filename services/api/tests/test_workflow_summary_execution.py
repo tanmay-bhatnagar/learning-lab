@@ -271,7 +271,7 @@ async def test_cancel_after_provider_done_finishes_summary_attempt(tmp_path, mon
     saved = json.loads(store.file_path(topic, "paper-1.map.json").read_text())["sections"][0]
     assert not deps.locks[topic].locked()
     assert not deps.active_document_map_summaries
-    assert saved["latest_attempt"]["status"] != "generating", saved["latest_attempt"]
+    assert saved["latest_attempt"]["status"] == "cancelled", saved["latest_attempt"]
 
 
 @pytest.mark.anyio
