@@ -253,6 +253,41 @@ def test_extra_search_decision_provider_error_traces_provider_failed(tmp_path):
     assert trace["error"]["code"] == "provider_failed"
 
 
+def test_optin_graph_failure_does_not_publish_exception_details(tmp_path, monkeypatch):
+    from lab.workflows import chat_evidence
+    from lab.query_traces import list_traces, trace_path
+
+    canary = "SYNTHETIC_SECRET_CANARY /synthetic-private-cv/path"
+
+    def fail_final_plan(*_args, **_kwargs):
+        raise OSError(canary)
+
+    monkeypatch.setattr(chat_evidence, "build_final_evidence_plan", fail_final_plan)
+    model = EvidenceModel(["not valid structured output"])
+    app = _app(tmp_path, model)
+    app.state.deps.retriever = _retriever([])
+    client = TestClient(app)
+    topic, record = _topic_with_index(client)
+    response = client.post(
+        f"/api/topics/{topic}/chat",
+        json={
+            **payload(message="Explain this source."),
+            "file_ids": [record["id"]],
+            "extra_search": True,
+        },
+    )
+
+    events = _events(response)
+    assert events[-1]["type"] == "error"
+    assert canary not in response.text
+
+    messages = client.get(f"/api/topics/{topic}/messages").json()["messages"]
+    assert canary not in json.dumps(messages)
+    trace = list_traces(trace_path(client.app.state.deps.store.topic(topic)), conversation_id="default", limit=1)[0]
+    assert trace["error"]["code"] == "generation_failed"
+    assert canary not in json.dumps(trace)
+
+
 def test_named_conversation_extra_search_route(tmp_path):
     model = EvidenceModel(
         [json.dumps({"action": "answer", "answer": "Named opt-in.", "source_labels": ["E1"], "query": ""})]
