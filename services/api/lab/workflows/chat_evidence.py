@@ -90,7 +90,7 @@ class ChatOptInExecutionContext:
     evidence_prompt_kwargs: dict[str, object]
     evidence_snapshot: object
     observer: ChatOptInObserver
-    evidence_state: dict[str, object] = field(default_factory=dict)
+    evidence_state: dict[str, object] = field(default_factory=initial_outcomes)
     initial_available: tuple[dict[str, object], ...] = ()
     initial_retained: tuple[dict[str, object], ...] = ()
     initial_images: tuple[SourceImageReference, ...] = ()
