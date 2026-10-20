@@ -55,6 +55,49 @@ def test_lab_graph_invocations_only_in_runtime_module() -> None:
     assert violations == []
 
 
+_CHAT_WEB_FORBIDDEN_IMPORTS = frozenset(
+    {
+        "lab.evidence_prompt",
+        "lab.evidence_request",
+        "lab.evidence_snapshot",
+    }
+)
+_CHAT_WEB_FORBIDDEN_FROM = frozenset(
+    {
+        ("lab.retrieval", "search"),
+        ("lab.retrieval", "evidence_messages"),
+    }
+)
+_CHAT_WEB_FORBIDDEN_NAMES = frozenset({"EventSink", "GraphRun", "PublishOnce"})
+
+
+def test_web_chat_does_not_own_workflow_or_evidence_orchestration() -> None:
+    chat_path = LAB_ROOT / "web" / "chat.py"
+    tree = ast.parse(chat_path.read_text(encoding="utf-8"), filename=str(chat_path))
+    violations: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name in _CHAT_WEB_FORBIDDEN_IMPORTS or alias.name.startswith(
+                    tuple(f"{mod}." for mod in _CHAT_WEB_FORBIDDEN_IMPORTS)
+                ):
+                    violations.append(f"import {alias.name}")
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            if node.module in _CHAT_WEB_FORBIDDEN_IMPORTS or any(
+                node.module.startswith(f"{mod}.") for mod in _CHAT_WEB_FORBIDDEN_IMPORTS
+            ):
+                violations.append(f"from {node.module}")
+            if node.module == "lab.retrieval":
+                for alias in node.names:
+                    if (node.module, alias.name) in _CHAT_WEB_FORBIDDEN_FROM:
+                        violations.append(f"from lab.retrieval import {alias.name}")
+        elif isinstance(node, ast.Name) and node.id in _CHAT_WEB_FORBIDDEN_NAMES:
+            violations.append(f"reference {node.id}")
+        elif isinstance(node, ast.Attribute) and node.attr in _CHAT_WEB_FORBIDDEN_NAMES:
+            violations.append(f"reference .{node.attr}")
+    assert violations == [], f"lab/web/chat.py layering violations: {violations}"
+
+
 def test_workflows_do_not_import_lab_web() -> None:
     workflows_root = LAB_ROOT / "workflows"
     violations: list[str] = []

@@ -99,6 +99,84 @@ def test_extra_search_invalid_action_fallback_via_graph(tmp_path):
     assert len(model.calls) == 2
 
 
+def _slow_search_retriever(calls: list[tuple[str, tuple[str, ...]]], *, sleep_on_query: str):
+    inner = _search_retriever(calls)
+
+    async def retrieve(store, topic, query, *, file_ids, limit, embedding_model, embedder):
+        if query == sleep_on_query:
+            await asyncio.sleep(0.2)
+        return await inner(
+            store, topic, query, file_ids=file_ids, limit=limit, embedding_model=embedding_model, embedder=embedder
+        )
+
+    return retrieve
+
+
+def test_extra_search_lookup_elapsed_ms_in_saved_trace(tmp_path):
+    lookup_query = "validation value"
+    model = EvidenceModel(
+        [
+            json.dumps(
+                {
+                    "action": "search_selected",
+                    "answer": "",
+                    "source_labels": [],
+                    "query": lookup_query,
+                }
+            )
+        ]
+    )
+    retrieval_calls: list[tuple[str, tuple[str, ...]]] = []
+    app = _app(tmp_path, model)
+    app.state.deps.retriever = _slow_search_retriever(retrieval_calls, sleep_on_query=lookup_query)
+    client = TestClient(app)
+    topic, record = _topic_with_index(client)
+    second = client.post(
+        f"/api/topics/{topic}/files",
+        files={"file": ("second.pdf", b"%PDF-1.7\nsecond synthetic evidence", "application/pdf")},
+        data={"parser": "docling"},
+    ).json()
+    selected_ids = tuple(sorted((record["id"], second["id"])))
+    response = client.post(
+        f"/api/topics/{topic}/chat",
+        json={
+            **payload(message="What value was validated?"),
+            "file_ids": list(selected_ids),
+            "extra_search": True,
+        },
+    )
+    assert response.status_code == 200
+    events = _events(response)
+    assert events[-1]["type"] == "done"
+    assert events[-1]["retrieval"]["evidence_search"]["outcome"] == "searched"
+    assert retrieval_calls[-1][0] == lookup_query
+    from lab.query_traces import list_traces, trace_path
+
+    trace = list_traces(trace_path(client.app.state.deps.store.topic(topic)), conversation_id="default", limit=1)[0]
+    assert trace["retrieval_ms"] >= 200
+
+    direct_model = EvidenceModel(
+        [json.dumps({"action": "answer", "answer": "Direct.", "source_labels": ["E1"], "query": ""})]
+    )
+    direct_calls: list[tuple[str, tuple[str, ...]]] = []
+    app_direct = _app(tmp_path, direct_model)
+    app_direct.state.deps.retriever = _slow_search_retriever(direct_calls, sleep_on_query=lookup_query)
+    client_direct = TestClient(app_direct)
+    topic_direct, record_direct = _topic_with_index(client_direct)
+    client_direct.post(
+        f"/api/topics/{topic_direct}/chat",
+        json={
+            **payload(message="What value was validated?"),
+            "file_ids": [record_direct["id"]],
+            "extra_search": True,
+        },
+    )
+    trace_direct = list_traces(
+        trace_path(client_direct.app.state.deps.store.topic(topic_direct)), conversation_id="default", limit=1
+    )[0]
+    assert trace_direct["retrieval_ms"] < 200
+
+
 def test_extra_search_lookup_path_two_generations_one_lookup(tmp_path):
     model = EvidenceModel(
         [

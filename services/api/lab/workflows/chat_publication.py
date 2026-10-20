@@ -633,6 +633,22 @@ async def commit_optin_publication(
     )
 
 
+def apply_optin_pre_commit_disconnect(
+    bundle: ChatOptInPublicationBundle,
+    observer: ChatOptInObserver,
+    evidence_state: dict[str, object],
+    *,
+    assistant_saved: bool,
+    terminal_delivered: bool,
+) -> None:
+    if assistant_saved or terminal_delivered:
+        return
+    observer.mark_cancelled()
+    if isinstance(evidence_state.get("outcome"), str):
+        evidence_state["outcome"] = "cancelled"
+    bundle.trace.record["evidence_search"] = dict(evidence_state)
+
+
 async def _commit_optin_complete(
     bundle: ChatOptInPublicationBundle,
     observer: ChatOptInObserver,

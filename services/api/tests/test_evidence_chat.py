@@ -529,7 +529,7 @@ def test_snapshot_conflict_remains_specific_in_saved_trace(tmp_path, monkeypatch
     def stale_snapshot(*args, **kwargs):
         raise Conflict("Captured prompt inputs changed.")
 
-    monkeypatch.setattr("lab.web.chat.revalidate_evidence_snapshot", stale_snapshot)
+    monkeypatch.setattr("lab.evidence_snapshot.revalidate_evidence_snapshot", stale_snapshot)
     model = EvidenceModel(
         [json.dumps({"action": "answer", "answer": "Grounded.", "source_labels": ["E1"], "query": ""})]
     )

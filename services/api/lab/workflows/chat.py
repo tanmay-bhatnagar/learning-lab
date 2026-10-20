@@ -19,6 +19,7 @@ from lab.chat_session import append_user_message, history_messages
 from lab.contracts import Session
 from lab.errors import Conflict, DomainError, InvalidInput
 from lab.evidence_prompt import build_initial_evidence_prompt
+from lab.evidence_result import initial_outcomes, retrieval_warning_for_search_mode
 from lab.evidence_snapshot import capture_prompt_context
 from lab import query_traces
 from lab.learner_context import load_learner_context
@@ -42,10 +43,6 @@ from lab.workflows.runtime import invoke_graph
 
 logger = logging.getLogger(__name__)
 
-_INITIAL_FALLBACK_WARNING = "Selected-document search used bounded opening passages because no query match was found."
-_INITIAL_NO_HITS_WARNING = "No indexed passages were returned from the selected documents."
-_INITIAL_KEYWORD_WARNING = "Semantic search was unavailable; keyword results were used."
-
 ADMISSION_RECURSION_LIMIT = 9
 EXECUTION_RECURSION_LIMIT = 4
 
@@ -62,27 +59,6 @@ class TopicLease(Protocol):
 
 
 AcquireLeaseFn = Callable[[], Awaitable[TopicLease]]
-
-
-def _empty_evidence_search() -> dict[str, object]:
-    return {
-        "schema_version": 1,
-        "requested": True,
-        "action": None,
-        "outcome": "in_progress",
-        "generation_count": 0,
-        "lookup_count": 0,
-        "initial_available_chunk_ids": [],
-        "initial_chunk_ids": [],
-        "returned_chunk_ids": [],
-        "new_chunk_ids": [],
-        "retained_new_chunk_ids": [],
-        "final_chunk_ids": [],
-        "declared_source_labels": [],
-        "search_mode": None,
-        "search_warning": None,
-        "warning": None,
-    }
 
 
 class ChatAdmissionState(TypedDict, total=False):
@@ -218,6 +194,31 @@ class AdmittedChat:
     evidence_initial_chunks: tuple[dict[str, object], ...] = ()
     evidence_prompt_kwargs: dict[str, object] | None = None
     evidence_vision: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class AdmittedOptInEvidence:
+    snapshot: object
+    scope: tuple[str, ...]
+    initial_chunks: tuple[dict[str, object], ...]
+    prompt_kwargs: dict[str, object]
+    vision: bool
+
+
+def opt_in_evidence(admitted: AdmittedChat) -> AdmittedOptInEvidence:
+    if not admitted.extra_search:
+        msg = "opt-in evidence requested for ordinary chat admission"
+        raise RuntimeError(msg)
+    if admitted.evidence_snapshot is None or admitted.evidence_prompt_kwargs is None:
+        msg = "opt-in admission missing evidence capture artifacts"
+        raise RuntimeError(msg)
+    return AdmittedOptInEvidence(
+        snapshot=admitted.evidence_snapshot,
+        scope=admitted.evidence_scope,
+        initial_chunks=admitted.evidence_initial_chunks,
+        prompt_kwargs=admitted.evidence_prompt_kwargs,
+        vision=admitted.evidence_vision,
+    )
 
 
 def _rejected(exc: BaseException) -> bool:
@@ -358,7 +359,7 @@ async def initial_retrieval_node(
         retrieval_ms=retrieval_ms,
     )
     if ctx.extra_search:
-        ctx.trace.record["evidence_search"] = _empty_evidence_search()
+        ctx.trace.record["evidence_search"] = initial_outcomes()
     return {"stage": "retrieval_complete"}
 
 
@@ -393,14 +394,9 @@ async def build_prompt_node(_state: ChatAdmissionState, runtime: Runtime[ChatAdm
     ctx.artifacts.citations = citations
     retrieval_warning = search_result.get("warning")
     if ctx.extra_search:
-        retrieval_warning = (
-            _INITIAL_FALLBACK_WARNING
-            if search_result.get("mode") == "fallback"
-            else _INITIAL_NO_HITS_WARNING
-            if search_result.get("mode") == "none"
-            else _INITIAL_KEYWORD_WARNING
-            if search_result.get("mode") == "keyword" and retrieval_warning
-            else None
+        retrieval_warning = retrieval_warning_for_search_mode(
+            search_result.get("mode"),
+            keyword_warning=retrieval_warning,
         )
     retrieval_record: dict[str, object] = {
         "mode": search_result.get("mode", "none"),
@@ -408,7 +404,7 @@ async def build_prompt_node(_state: ChatAdmissionState, runtime: Runtime[ChatAdm
         "citations": citations,
     }
     if ctx.extra_search:
-        retrieval_record["evidence_search"] = _empty_evidence_search()
+        retrieval_record["evidence_search"] = initial_outcomes()
     prompt_kwargs = dict(
         history=history_messages(ctx.artifacts.session),
         evidence=evidence,
@@ -430,7 +426,7 @@ async def build_prompt_node(_state: ChatAdmissionState, runtime: Runtime[ChatAdm
             selected_file_ids=set(ctx.artifacts.evidence_scope),
         )
         ctx.artifacts.evidence_initial_chunks = tuple(search_result.get("hits", []))
-        evidence_metadata = _empty_evidence_search()
+        evidence_metadata = initial_outcomes()
         evidence_metadata["initial_available_chunk_ids"] = [
             str(source["chunk_id"]) for source in ctx.artifacts.evidence_initial_chunks
         ]
@@ -614,7 +610,7 @@ async def admit_chat(
         trace_id=trace_id,
     )
     if extra_search:
-        record["evidence_search"] = _empty_evidence_search()
+        record["evidence_search"] = initial_outcomes()
     record["selected_file_ids"] = list(dict.fromkeys(file_ids))
     trace_file = trace_path(store.topic(topic_id))
     insert_started(trace_file, record)

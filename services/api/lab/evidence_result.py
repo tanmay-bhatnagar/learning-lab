@@ -28,6 +28,16 @@ LOOKUP_ERROR = "Selected-document search could not complete. Try again."
 INVALID_OUTPUT = "The selected model returned an incomplete evidence response. Try again."
 
 
+def retrieval_warning_for_search_mode(mode: object, *, keyword_warning: object) -> str | None:
+    if mode == "fallback":
+        return FALLBACK_WARNING
+    if mode == "none":
+        return NO_HITS_WARNING
+    if mode == "keyword" and keyword_warning:
+        return KEYWORD_WARNING
+    return None
+
+
 def initial_outcomes() -> dict[str, object]:
     return {
         "schema_version": 1,

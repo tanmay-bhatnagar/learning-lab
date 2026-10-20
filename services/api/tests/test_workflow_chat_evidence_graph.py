@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -13,6 +14,7 @@ from lab.errors import Conflict
 from lab.evidence_request import MAX_ACTION_BYTES, SourceImageReference, build_source_manifest
 from lab.evidence_result import PROVIDER_ERROR, consume_decision
 from lab.workflows.chat import CHAT_QUEUED_EVENT_TYPES, ChatTraceRecorder, build_chat_graphs
+import lab.workflows.chat_evidence as chat_evidence_module
 from lab.workflows.chat_evidence import OPTIN_EXECUTION_RECURSION_LIMIT, ChatOptInExecutionContext
 from lab.workflows.chat_publication import ChatOptInObserver, ChatOptInPublicationBundle
 from lab.workflows.events import EventSink
@@ -128,6 +130,10 @@ def _error_message(ctx: ChatOptInExecutionContext) -> str:
     return ctx.observer.workflow_error[1]
 
 
+async def _noop_embedder(_texts: list[str], _model: str) -> list[list[float]]:
+    return [[0.0]]
+
+
 def _build_context(
     gateway,
     *,
@@ -139,14 +145,8 @@ def _build_context(
     revalidate=None,
     initial_plan=None,
 ):
-    async def unavailable_lookup(query: str, *, file_ids: tuple[str, ...]):
+    async def unavailable_lookup(_store, _topic, _query, **kwargs):
         pytest.fail("The direct-answer path must not search")
-
-    def identity_final(initial, additional):
-        return _plan([*initial, *additional])
-
-    def no_op_revalidate(sources, *, supplied_images):
-        return None
 
     plan = initial_plan or _plan(initial_chunks, supplied_images)
     trace = ChatTraceRecorder(
@@ -174,6 +174,14 @@ def _build_context(
         evidence_scope=tuple(selected_file_ids),
     )
     sink = EventSink(allowed_types=CHAT_QUEUED_EVENT_TYPES, capacity=64)
+    if lookup is not None:
+
+        async def retriever(_store, _topic, query, **kwargs):
+            return await lookup(query, file_ids=tuple(kwargs.get("file_ids", ())))
+
+    else:
+        retriever = unavailable_lookup
+
     ctx = ChatOptInExecutionContext(
         model_backend=gateway,
         generation_lock=asyncio.Lock(),
@@ -185,13 +193,21 @@ def _build_context(
         model=MODEL,
         think=True,
         context_limit=8192,
-        lookup=lookup or unavailable_lookup,
-        build_final=build_final or identity_final,
-        revalidate=revalidate or no_op_revalidate,
+        store=object(),
+        profile_store=object(),
+        topic_id="graph-test-topic",
+        retriever=retriever,
+        embedder=_noop_embedder,
+        runtime_policy_path=Path("/tmp/unused-policy.md"),
+        retrieval_top_k=8,
+        embedding_model="test-embedding",
+        evidence_vision=False,
+        evidence_prompt_kwargs={},
+        evidence_snapshot=object(),
         observer=observer,
         file_ids=list(selected_file_ids),
     )
-    return ctx, sink
+    return ctx, sink, build_final, revalidate
 
 
 async def _run_graph(ctx, sink):
@@ -200,9 +216,41 @@ async def _run_graph(ctx, sink):
     return list(sink.drain())
 
 
+@contextmanager
+def _evidence_graph_patches(build_final, revalidate):
+    original_build = chat_evidence_module.build_final_evidence_plan
+    original_revalidate = chat_evidence_module.revalidate_supplied_snapshot
+    if build_final is not None:
+
+        def patched_build(_ctx, initial, additional):
+            return build_final(initial, additional)
+
+        chat_evidence_module.build_final_evidence_plan = patched_build
+    else:
+
+        def identity_build(_ctx, initial, additional):
+            return _plan([*initial, *additional])
+
+        chat_evidence_module.build_final_evidence_plan = identity_build
+    if revalidate is not None:
+
+        def patched_revalidate(_ctx, sources, *, supplied_images):
+            revalidate(sources, supplied_images=supplied_images)
+
+        chat_evidence_module.revalidate_supplied_snapshot = patched_revalidate
+    else:
+        chat_evidence_module.revalidate_supplied_snapshot = lambda *_args, **_kwargs: None
+    try:
+        yield
+    finally:
+        chat_evidence_module.build_final_evidence_plan = original_build
+        chat_evidence_module.revalidate_supplied_snapshot = original_revalidate
+
+
 def _run(gateway, **kwargs):
-    ctx, sink = _build_context(gateway, **kwargs)
-    ndjson_events = asyncio.run(_run_graph(ctx, sink))
+    ctx, sink, build_final, revalidate = _build_context(gateway, **kwargs)
+    with _evidence_graph_patches(build_final, revalidate):
+        ndjson_events = asyncio.run(_run_graph(ctx, sink))
     return ctx, ndjson_events
 
 
@@ -738,18 +786,19 @@ async def test_cancellation_closes_model_stream_and_releases_shared_lock():
 
             return stream()
 
-    ctx, sink = _build_context(BlockingGateway(), initial_chunks=[])
-    run = GraphRun(
-        graph=build_chat_graphs().optin_execution,
-        state={},
-        context=ctx,
-        recursion_limit=OPTIN_EXECUTION_RECURSION_LIMIT,
-        sink=sink,
-    )
-    task = asyncio.create_task(_collect_run(run))
-    await asyncio.wait_for(entered.wait(), timeout=1)
-    await run.cancel_and_wait()
-    await asyncio.wait({task}, timeout=1)
+    ctx, sink, build_final, revalidate = _build_context(BlockingGateway(), initial_chunks=[])
+    with _evidence_graph_patches(build_final, revalidate):
+        run = GraphRun(
+            graph=build_chat_graphs().optin_execution,
+            state={},
+            context=ctx,
+            recursion_limit=OPTIN_EXECUTION_RECURSION_LIMIT,
+            sink=sink,
+        )
+        task = asyncio.create_task(_collect_run(run))
+        await asyncio.wait_for(entered.wait(), timeout=1)
+        await run.cancel_and_wait()
+        await asyncio.wait({task}, timeout=1)
     assert closed
     assert not lock.locked()
 
@@ -774,18 +823,19 @@ async def test_cancellation_during_lookup_cancels_lookup_and_does_not_start_fina
         finally:
             lookup_closed = True
 
-    ctx, sink = _build_context(gateway, initial_chunks=[], lookup=lookup)
-    run = GraphRun(
-        graph=build_chat_graphs().optin_execution,
-        state={},
-        context=ctx,
-        recursion_limit=OPTIN_EXECUTION_RECURSION_LIMIT,
-        sink=sink,
-    )
-    task = asyncio.create_task(_collect_run(run))
-    await asyncio.wait_for(lookup_started.wait(), timeout=1)
-    await run.cancel_and_wait()
-    await asyncio.wait({task}, timeout=1)
+    ctx, sink, build_final, revalidate = _build_context(gateway, initial_chunks=[], lookup=lookup)
+    with _evidence_graph_patches(build_final, revalidate):
+        run = GraphRun(
+            graph=build_chat_graphs().optin_execution,
+            state={},
+            context=ctx,
+            recursion_limit=OPTIN_EXECUTION_RECURSION_LIMIT,
+            sink=sink,
+        )
+        task = asyncio.create_task(_collect_run(run))
+        await asyncio.wait_for(lookup_started.wait(), timeout=1)
+        await run.cancel_and_wait()
+        await asyncio.wait({task}, timeout=1)
     assert lookup_closed
     assert len(gateway.calls) == 1
 
@@ -825,18 +875,19 @@ async def test_cancellation_during_final_stream_closes_it_and_releases_lock():
     async def lookup(_query: str, *, file_ids: tuple[str, ...]):
         return {"hits": [], "mode": "none"}
 
-    ctx, sink = _build_context(Gateway(), initial_chunks=[], lookup=lookup)
-    run = GraphRun(
-        graph=build_chat_graphs().optin_execution,
-        state={},
-        context=ctx,
-        recursion_limit=OPTIN_EXECUTION_RECURSION_LIMIT,
-        sink=sink,
-    )
-    task = asyncio.create_task(_collect_run(run))
-    await asyncio.wait_for(final_started.wait(), timeout=1)
-    await run.cancel_and_wait()
-    await asyncio.wait({task}, timeout=1)
+    ctx, sink, build_final, revalidate = _build_context(Gateway(), initial_chunks=[], lookup=lookup)
+    with _evidence_graph_patches(build_final, revalidate):
+        run = GraphRun(
+            graph=build_chat_graphs().optin_execution,
+            state={},
+            context=ctx,
+            recursion_limit=OPTIN_EXECUTION_RECURSION_LIMIT,
+            sink=sink,
+        )
+        task = asyncio.create_task(_collect_run(run))
+        await asyncio.wait_for(final_started.wait(), timeout=1)
+        await run.cancel_and_wait()
+        await asyncio.wait({task}, timeout=1)
     assert final_closed
     assert not lock.locked()
 
@@ -862,18 +913,19 @@ async def test_stopping_at_deciding_stage_closes_the_created_gateway_iterator():
         def stream_chat(self, *_args, **_kwargs):
             return self.stream
 
-    ctx, sink = _build_context(Gateway(), initial_chunks=[])
-    run = GraphRun(
-        graph=build_chat_graphs().optin_execution,
-        state={},
-        context=ctx,
-        recursion_limit=OPTIN_EXECUTION_RECURSION_LIMIT,
-        sink=sink,
-    )
-    task = asyncio.create_task(_collect_run(run))
-    await asyncio.sleep(0.05)
-    await run.cancel_and_wait()
-    await asyncio.wait({task}, timeout=1)
+    ctx, sink, build_final, revalidate = _build_context(Gateway(), initial_chunks=[])
+    with _evidence_graph_patches(build_final, revalidate):
+        run = GraphRun(
+            graph=build_chat_graphs().optin_execution,
+            state={},
+            context=ctx,
+            recursion_limit=OPTIN_EXECUTION_RECURSION_LIMIT,
+            sink=sink,
+        )
+        task = asyncio.create_task(_collect_run(run))
+        await asyncio.sleep(0.05)
+        await run.cancel_and_wait()
+        await asyncio.wait({task}, timeout=1)
     assert Gateway.stream.closed
 
 
@@ -916,20 +968,21 @@ async def test_search_attempt_is_started_before_search_stage_and_cancelled_when_
             nonlocal cleaned
             cleaned = True
 
-    ctx, sink = _build_context(gateway, initial_chunks=[], lookup=lookup)
-    run = GraphRun(
-        graph=build_chat_graphs().optin_execution,
-        state={},
-        context=ctx,
-        recursion_limit=OPTIN_EXECUTION_RECURSION_LIMIT,
-        sink=sink,
-    )
-    task = asyncio.create_task(_collect_run(run))
-    await asyncio.wait_for(started.wait(), timeout=1)
-    assert invoked == ["details"]
-    assert ctx.evidence_state.get("lookup_count") == 1
-    await run.cancel_and_wait()
-    await asyncio.wait({task}, timeout=1)
+    ctx, sink, build_final, revalidate = _build_context(gateway, initial_chunks=[], lookup=lookup)
+    with _evidence_graph_patches(build_final, revalidate):
+        run = GraphRun(
+            graph=build_chat_graphs().optin_execution,
+            state={},
+            context=ctx,
+            recursion_limit=OPTIN_EXECUTION_RECURSION_LIMIT,
+            sink=sink,
+        )
+        task = asyncio.create_task(_collect_run(run))
+        await asyncio.wait_for(started.wait(), timeout=1)
+        assert invoked == ["details"]
+        assert ctx.evidence_state.get("lookup_count") == 1
+        await run.cancel_and_wait()
+        await asyncio.wait({task}, timeout=1)
     assert cleaned
 
 
@@ -967,16 +1020,17 @@ async def test_stopping_at_final_plan_closes_the_dispatched_gateway_iterator():
     async def lookup(_query: str, *, file_ids: tuple[str, ...]):
         return {"hits": [], "mode": "none"}
 
-    ctx, sink = _build_context(Gateway(), initial_chunks=[], lookup=lookup)
-    run = GraphRun(
-        graph=build_chat_graphs().optin_execution,
-        state={},
-        context=ctx,
-        recursion_limit=OPTIN_EXECUTION_RECURSION_LIMIT,
-        sink=sink,
-    )
-    task = asyncio.create_task(_collect_run(run))
-    await asyncio.sleep(0.1)
-    await run.cancel_and_wait()
-    await asyncio.wait({task}, timeout=1)
+    ctx, sink, build_final, revalidate = _build_context(Gateway(), initial_chunks=[], lookup=lookup)
+    with _evidence_graph_patches(build_final, revalidate):
+        run = GraphRun(
+            graph=build_chat_graphs().optin_execution,
+            state={},
+            context=ctx,
+            recursion_limit=OPTIN_EXECUTION_RECURSION_LIMIT,
+            sink=sink,
+        )
+        task = asyncio.create_task(_collect_run(run))
+        await asyncio.sleep(0.1)
+        await run.cancel_and_wait()
+        await asyncio.wait({task}, timeout=1)
     assert OwnedStream.closed

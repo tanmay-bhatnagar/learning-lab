@@ -4,15 +4,17 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 from langgraph.runtime import Runtime
 
 from lab.errors import Conflict, InvalidInput
-from lab.evidence_prompt import EvidencePromptPlan
+from lab.evidence_prompt import EvidencePromptPlan, build_final_evidence_prompt
 from lab.evidence_request import (
     MAX_SOURCE_REFERENCES,
     AnswerAction,
@@ -31,10 +33,13 @@ from lab.evidence_result import (
     consume_decision,
     initial_outcomes,
     merge_images,
+    retrieval_warning_for_search_mode,
     retained_chunks,
     union_chunks,
     validate_lookup_result,
 )
+from lab import evidence_snapshot
+from lab.retrieval import evidence_messages, search
 from lab.query_traces import retrieval_fields
 from lab.workflows.chat import workflow_graph_callables
 from lab.workflows.chat_publication import (
@@ -49,13 +54,8 @@ logger = logging.getLogger(__name__)
 
 OPTIN_EXECUTION_RECURSION_LIMIT = 12
 
-LookupFn = Callable[..., Awaitable[dict[str, object]]]
-BuildFinalFn = Callable[
-    [Sequence[Mapping[str, object]], Sequence[Mapping[str, object]]],
-    EvidencePromptPlan,
-]
-RevalidateFn = Callable[..., None]
-SnapshotGuard = RevalidateFn
+EmbedderFn = Callable[[list[str], str], Awaitable[list[list[float]]]]
+RetrieverFn = Callable[..., Awaitable[dict[str, object]]]
 
 
 class ChatOptInState(TypedDict, total=False):
@@ -75,9 +75,17 @@ class ChatOptInExecutionContext:
     model: str
     think: bool | str | None
     context_limit: int
-    lookup: LookupFn
-    build_final: BuildFinalFn
-    revalidate: RevalidateFn
+    store: Any
+    profile_store: Any
+    topic_id: str
+    retriever: RetrieverFn | None
+    embedder: EmbedderFn
+    runtime_policy_path: Path
+    retrieval_top_k: int
+    embedding_model: str
+    evidence_vision: bool
+    evidence_prompt_kwargs: dict[str, object]
+    evidence_snapshot: object
     observer: ChatOptInObserver
     evidence_state: dict[str, object] = field(default_factory=dict)
     initial_available: tuple[dict[str, object], ...] = ()
@@ -90,6 +98,99 @@ class ChatOptInExecutionContext:
     latest_search_result: dict[str, object] | None = None
     total_retrieval_ms: float = 0.0
     file_ids: list[str] = field(default_factory=list)
+
+
+async def run_evidence_lookup(
+    ctx: ChatOptInExecutionContext,
+    query: str,
+    *,
+    file_ids: tuple[str, ...],
+) -> dict[str, object]:
+    if file_ids != ctx.evidence_scope:
+        raise InvalidInput("Additional search scope no longer matches the captured selection.")
+    lookup_started = time.monotonic()
+    search_fn = ctx.retriever if ctx.retriever is not None else search
+    result = await search_fn(
+        ctx.store,
+        ctx.topic_id,
+        query,
+        file_ids=list(ctx.evidence_scope),
+        limit=ctx.retrieval_top_k,
+        embedding_model=ctx.embedding_model,
+        embedder=ctx.embedder,
+    )
+    ctx.total_retrieval_ms += (time.monotonic() - lookup_started) * 1000
+    ctx.latest_search_result = result
+    return result
+
+
+def build_final_evidence_plan(
+    ctx: ChatOptInExecutionContext,
+    initial_hits: Sequence[Mapping[str, object]],
+    additional_hits: Sequence[Mapping[str, object]],
+) -> EvidencePromptPlan:
+    combined_hits = merge_scoped_sources(
+        initial_hits,
+        additional_hits,
+        selected_file_ids=set(ctx.evidence_scope),
+        max_sources=MAX_SOURCE_REFERENCES,
+    )
+    final_evidence, final_citations = evidence_messages(
+        ctx.store,
+        ctx.topic_id,
+        combined_hits,
+        include_images=ctx.evidence_vision,
+    )
+    latest = ctx.latest_search_result or {}
+    mode = latest.get("mode", "none")
+    final_warning = retrieval_warning_for_search_mode(mode, keyword_warning=latest.get("warning"))
+    trace_evidence = ctx.bundle.trace.record.get("evidence_search")
+    initial_evidence_search = ctx.initial_plan["retrieval_record"].get("evidence_search")
+    final_retrieval_record = {
+        "mode": mode,
+        "warning": final_warning,
+        "citations": final_citations,
+        "evidence_search": dict(
+            trace_evidence
+            if isinstance(trace_evidence, dict)
+            else initial_evidence_search
+            if isinstance(initial_evidence_search, dict)
+            else initial_outcomes()
+        ),
+    }
+    final_kwargs = {
+        **ctx.evidence_prompt_kwargs,
+        "evidence": final_evidence,
+        "citations": final_citations,
+        "retrieval_record": final_retrieval_record,
+    }
+    return build_final_evidence_prompt(
+        prompt_kwargs=final_kwargs,
+        initial_chunks=initial_hits,
+        additional_chunks=additional_hits,
+        selected_file_ids=set(ctx.evidence_scope),
+        max_sources=ctx.retrieval_top_k,
+    )
+
+
+def revalidate_supplied_snapshot(
+    ctx: ChatOptInExecutionContext,
+    sources: Sequence[Mapping[str, object]],
+    *,
+    supplied_images: Sequence[object],
+) -> None:
+    candidate = evidence_snapshot.bind_retained_sources(
+        ctx.evidence_snapshot,
+        sources,
+        supplied_images=supplied_images,
+    )
+    evidence_snapshot.revalidate_evidence_snapshot(
+        candidate,
+        store=ctx.store,
+        profile_store=ctx.profile_store,
+        runtime_policy_path=ctx.runtime_policy_path,
+    )
+    ctx.evidence_snapshot = candidate
 
 
 async def _emit_evidence_status(ctx: ChatOptInExecutionContext, stage: str) -> None:
@@ -149,7 +250,7 @@ async def evidence_init_node(_state: ChatOptInState, runtime: Runtime[ChatOptInE
     ctx.bundle.trace.record["evidence_search"] = dict(ctx.evidence_state)
     await _emit_evidence_status(ctx, "deciding")
     try:
-        ctx.revalidate(ctx.initial_retained, supplied_images=ctx.initial_images)
+        revalidate_supplied_snapshot(ctx, ctx.initial_retained, supplied_images=ctx.initial_images)
     except (Conflict, InvalidInput):
         ctx.evidence_state["outcome"] = "error"
         ctx.observer.set_workflow_error("snapshot_changed", INVALID_OUTPUT)
@@ -251,12 +352,12 @@ async def direct_answer_node(_state: ChatOptInState, runtime: Runtime[ChatOptInE
 async def invalid_prepare_node(_state: ChatOptInState, runtime: Runtime[ChatOptInExecutionContext]) -> ChatOptInState:
     ctx = runtime.context
     ctx.bundle.trace.record["evidence_search"] = dict(ctx.evidence_state)
-    ctx.final_plan = ctx.build_final(ctx.initial_available, ())
+    ctx.final_plan = build_final_evidence_plan(ctx, ctx.initial_available, ())
     final_retained = retained_chunks(ctx.final_plan, ctx.initial_available)
     final_images = merge_images(ctx.initial_images, checked_images(ctx.final_plan.get("supplied_images", ())))
     supplied = union_chunks(ctx.initial_retained, final_retained)
     try:
-        ctx.revalidate(supplied, supplied_images=final_images)
+        revalidate_supplied_snapshot(ctx, supplied, supplied_images=final_images)
     except (Conflict, InvalidInput):
         ctx.evidence_state["outcome"] = "error"
         ctx.observer.set_workflow_error("snapshot_changed", INVALID_OUTPUT)
@@ -269,14 +370,14 @@ async def invalid_prepare_node(_state: ChatOptInState, runtime: Runtime[ChatOptI
 async def lookup_node(_state: ChatOptInState, runtime: Runtime[ChatOptInExecutionContext]) -> ChatOptInState:
     ctx = runtime.context
     try:
-        ctx.revalidate(ctx.initial_retained, supplied_images=ctx.initial_images)
+        revalidate_supplied_snapshot(ctx, ctx.initial_retained, supplied_images=ctx.initial_images)
     except (Conflict, InvalidInput):
         ctx.evidence_state["outcome"] = "error"
         ctx.observer.set_workflow_error("snapshot_changed", INVALID_OUTPUT)
         return {"route": "error", "stage": "lookup"}
     ctx.evidence_state["lookup_count"] = 1
     query = ctx.observer.search_query or ""
-    lookup_task = asyncio.create_task(ctx.lookup(query, file_ids=ctx.evidence_scope))
+    lookup_task = asyncio.create_task(run_evidence_lookup(ctx, query, file_ids=ctx.evidence_scope))
     try:
         await _emit_evidence_status(ctx, "searching")
         result = await lookup_task
@@ -319,7 +420,7 @@ async def merge_final_plan_node(_state: ChatOptInState, runtime: Runtime[ChatOpt
     returned = ctx.observer.lookup_returned or ()
     novel = ctx.observer.lookup_novel or ()
     ctx.bundle.trace.record["evidence_search"] = dict(ctx.evidence_state)
-    ctx.final_plan = ctx.build_final(ctx.initial_available, novel)
+    ctx.final_plan = build_final_evidence_plan(ctx, ctx.initial_available, novel)
     final_retained = retained_chunks(
         ctx.final_plan,
         merge_scoped_sources(
@@ -332,7 +433,7 @@ async def merge_final_plan_node(_state: ChatOptInState, runtime: Runtime[ChatOpt
     final_images = merge_images(ctx.initial_images, checked_images(ctx.final_plan.get("supplied_images", ())))
     all_supplied = union_chunks(ctx.initial_retained, final_retained)
     try:
-        ctx.revalidate(all_supplied, supplied_images=final_images)
+        revalidate_supplied_snapshot(ctx, all_supplied, supplied_images=final_images)
     except (Conflict, InvalidInput):
         ctx.evidence_state["outcome"] = "error"
         ctx.observer.set_workflow_error("snapshot_changed", INVALID_OUTPUT)
