@@ -223,12 +223,23 @@ def router(deps: AppDeps) -> APIRouter:
             finally:
                 await finish()
 
-        return FinalizedStreamingResponse(
-            events(),
-            on_close=finish,
-            media_type="application/x-ndjson",
-            headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
-        )
+        try:
+            return FinalizedStreamingResponse(
+                events(),
+                on_close=finish,
+                media_type="application/x-ndjson",
+                headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+            )
+        except BaseException as construction_error:
+            try:
+                await finish()
+            except BaseException as cleanup_error:
+                logger.error(
+                    "Prerequisite response cleanup failed (%s after %s)",
+                    type(cleanup_error).__name__,
+                    type(construction_error).__name__,
+                )
+            raise
 
     return routes
 

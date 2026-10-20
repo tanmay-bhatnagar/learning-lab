@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter
 
 from lab.web.deps import ActiveSummary, AppDeps
@@ -20,6 +22,8 @@ from lab.workflows.summary import (
     run_summary_admission,
 )
 from lab.workflows.summary_publication import SummaryObserver, SummaryPublicationBundle
+
+logger = logging.getLogger(__name__)
 
 
 def router(deps: AppDeps) -> APIRouter:
@@ -111,11 +115,22 @@ def router(deps: AppDeps) -> APIRouter:
             unregister_run=deps.active_runs.unregister,
         )
 
-        return FinalizedStreamingResponse(
-            handle.events(),
-            on_close=handle.finish,
-            media_type="application/x-ndjson",
-            headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
-        )
+        try:
+            return FinalizedStreamingResponse(
+                handle.events(),
+                on_close=handle.finish,
+                media_type="application/x-ndjson",
+                headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+            )
+        except BaseException as construction_error:
+            try:
+                await handle.finish()
+            except BaseException as cleanup_error:
+                logger.error(
+                    "Summary response cleanup failed (%s after %s)",
+                    type(cleanup_error).__name__,
+                    type(construction_error).__name__,
+                )
+            raise
 
     return routes

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter
 
 from lab.contracts import Session
@@ -16,6 +18,8 @@ from lab.web.schemas import ChatInput
 from lab.web.settings_store import load_settings
 from lab.workflows.chat import admit_chat, build_chat_graphs, opt_in_evidence
 from lab.workflows.chat_stream import build_optin_chat_stream_handle, build_ordinary_chat_stream_handle
+
+logger = logging.getLogger(__name__)
 
 
 def router(deps: AppDeps) -> APIRouter:
@@ -128,11 +132,22 @@ def router(deps: AppDeps) -> APIRouter:
                 release_lease=release_lease,
             )
 
-        return FinalizedStreamingResponse(
-            handle.events(),
-            on_close=handle.finish,
-            media_type="application/x-ndjson",
-            headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
-        )
+        try:
+            return FinalizedStreamingResponse(
+                handle.events(),
+                on_close=handle.finish,
+                media_type="application/x-ndjson",
+                headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+            )
+        except BaseException as construction_error:
+            try:
+                await handle.finish()
+            except BaseException as cleanup_error:
+                logger.error(
+                    "Chat response cleanup failed (%s after %s)",
+                    type(cleanup_error).__name__,
+                    type(construction_error).__name__,
+                )
+            raise
 
     return routes
