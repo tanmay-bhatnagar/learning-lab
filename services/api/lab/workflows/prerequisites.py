@@ -14,7 +14,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.runtime import Runtime
 
-from lab.contracts import ModelGateway
+from lab.contracts import CloseableAsyncStream, ModelGateway
 from lab.document_map_store import get_document_map
 from lab.errors import Conflict, InvalidInput
 from lab.prerequisite_store import write_prerequisite_attempt
@@ -61,7 +61,7 @@ class PrerequisiteAdmissionArtifacts:
     selected_cv: dict[str, object] | None = None
     cv_text: str | None = None
     runtime_policy: str | None = None
-    plan: dict[str, Any] | None = None
+    plan: dict[str, object] | None = None
     attempt: dict[str, object] | None = None
     attempt_id: str | None = None
     assessment_id: str | None = None
@@ -98,7 +98,7 @@ class PrerequisiteAdmitted:
     attempt_id: str
     assessment_id: str
     attempt: dict[str, object]
-    plan: dict[str, Any]
+    plan: dict[str, object]
     selected_cv: dict[str, object]
     cv_text: str
 
@@ -235,7 +235,9 @@ async def write_generating_attempt(
     return {"attempt_id": attempt_id, "assessment_id": assessment_id}
 
 
-def compile_prerequisite_admission_graph() -> CompiledStateGraph[Any, Any, Any, Any]:
+def compile_prerequisite_admission_graph() -> CompiledStateGraph[
+    PrerequisiteAdmissionState, PrerequisiteAdmissionContext, Any, Any
+]:
     """Build the prerequisite admission graph (compile once per app router)."""
     graph = StateGraph(PrerequisiteAdmissionState, context_schema=PrerequisiteAdmissionContext)
     graph.add_node("recover_and_reconcile", recover_and_reconcile)
@@ -255,7 +257,7 @@ def compile_prerequisite_admission_graph() -> CompiledStateGraph[Any, Any, Any, 
 
 
 async def admit_prerequisite_generation(
-    graph: CompiledStateGraph[Any, Any, Any, Any],
+    graph: CompiledStateGraph[PrerequisiteAdmissionState, PrerequisiteAdmissionContext, Any, Any],
     *,
     capabilities: PrerequisiteAdmissionCapabilities,
     topic_id: str,
@@ -354,7 +356,7 @@ class PrerequisiteExecutionBundle:
     attempt_id: str
     assessment_id: str
     attempt: dict[str, object]
-    plan: dict[str, Any]
+    plan: dict[str, object]
     selected_cv: dict[str, object]
     cv_text: str
     now: Callable[[], str]
@@ -364,13 +366,13 @@ class PrerequisiteExecutionBundle:
 class PrerequisiteExecutionArtifacts:
     content: str = ""
     content_bytes: int = 0
-    parsed: dict[str, Any] | None = None
+    parsed: dict[str, object] | None = None
     proficiency_revision: int | None = None
     assessment: dict[str, object] | None = None
     completed_attempt: dict[str, object] | None = None
     publication: PrerequisitePublicationOutcome | None = None
     terminal: bool = False
-    stream: AsyncIterator[dict[str, object]] | None = None
+    stream: CloseableAsyncStream | None = None
 
 
 @dataclass
@@ -378,11 +380,6 @@ class PrerequisiteExecutionContext:
     bundle: PrerequisiteExecutionBundle
     sink: EventSink
     artifacts: PrerequisiteExecutionArtifacts = field(default_factory=PrerequisiteExecutionArtifacts)
-
-
-async def _close_provider_stream(stream: AsyncIterator[dict[str, object]] | None) -> None:
-    if stream is not None and hasattr(stream, "aclose"):
-        await stream.aclose()
 
 
 async def generate_buffered(
@@ -433,14 +430,14 @@ async def generate_buffered(
                     "route": "stream_failure",
                     "failure_message": "The model stream returned an unsupported event.",
                 }
-            await _close_provider_stream(stream)
+            await stream.aclose()
             art.stream = None
             return {"route": "success"}
         message = "The model stream ended before completion."
         return {"route": "stream_failure", "failure_message": message}
     finally:
         if art.stream is not None:
-            await _close_provider_stream(art.stream)
+            await art.stream.aclose()
             art.stream = None
 
 
@@ -581,7 +578,9 @@ async def publish_assessment(
     return {}
 
 
-def compile_prerequisite_execution_graph() -> CompiledStateGraph[Any, Any, Any, Any]:
+def compile_prerequisite_execution_graph() -> CompiledStateGraph[
+    PrerequisiteExecutionState, PrerequisiteExecutionContext, Any, Any
+]:
     """Build the prerequisite execution graph (compile once per app router)."""
     graph = StateGraph(PrerequisiteExecutionState, context_schema=PrerequisiteExecutionContext)
     graph.add_node("generate_buffered", generate_buffered)
@@ -605,7 +604,7 @@ def compile_prerequisite_execution_graph() -> CompiledStateGraph[Any, Any, Any, 
 
 
 async def prerequisite_terminal_events(
-    outcome: dict[str, Any] | None,
+    outcome: dict[str, object] | None,
     error: BaseException | None,
     *,
     context: PrerequisiteExecutionContext,
@@ -641,7 +640,7 @@ class PrerequisiteExecutionHandle:
 
 def build_prerequisite_graph_run(
     *,
-    graph: CompiledStateGraph[Any, Any, Any, Any],
+    graph: CompiledStateGraph[PrerequisiteExecutionState, PrerequisiteExecutionContext, Any, Any],
     bundle: PrerequisiteExecutionBundle,
     publish_once: PublishOnce[PrerequisitePublicationOutcome],
 ) -> PrerequisiteExecutionHandle:
@@ -670,7 +669,9 @@ async def finalize_prerequisite_run(
     attempt_id: str,
 ) -> None:
     await handle.run.cancel_and_wait()
-    await _close_provider_stream(handle.context.artifacts.stream)
+    stream = handle.context.artifacts.stream
+    if stream is not None:
+        await stream.aclose()
     if not handle.context.artifacts.terminal:
 
         async def cancel_publish() -> PrerequisitePublicationOutcome:

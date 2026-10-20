@@ -17,11 +17,11 @@ OutcomeT = TypeVar("OutcomeT")
 
 async def invoke_graph(
     graph: CompiledStateGraph[Any, Any, Any, Any],
-    state: Mapping[str, Any],
+    state: Mapping[str, object],
     *,
     context: object,
     recursion_limit: int,
-) -> dict[str, Any]:
+) -> dict[str, object]:
     """Invoke a compiled LangGraph with tracing disabled (sole ``ainvoke`` site in ``lab/``)."""
     with langsmith.tracing_context(enabled=False):
         return await graph.ainvoke(
@@ -55,11 +55,11 @@ class GraphRun:
         self,
         *,
         graph: CompiledStateGraph[Any, Any, Any, Any],
-        state: Mapping[str, Any],
+        state: Mapping[str, object],
         context: object,
         recursion_limit: int,
         sink: EventSink,
-        terminal_events: Callable[[dict[str, Any] | None, BaseException | None], AsyncIterator[Mapping[str, Any]]]
+        terminal_events: Callable[[dict[str, object] | None, BaseException | None], AsyncIterator[Mapping[str, object]]]
         | None = None,
     ) -> None:
         self._graph = graph
@@ -68,12 +68,12 @@ class GraphRun:
         self._recursion_limit = recursion_limit
         self._sink = sink
         self._terminal_events = terminal_events
-        self._task: asyncio.Task[dict[str, Any]] | None = None
+        self._task: asyncio.Task[dict[str, object]] | None = None
         self._finished_exception: BaseException | None = None
-        self._result: dict[str, Any] | None = None
+        self._result: dict[str, object] | None = None
         self._cancelled = False
 
-    async def _execute(self) -> dict[str, Any]:
+    async def _execute(self) -> dict[str, object]:
         try:
             self._result = await invoke_graph(
                 self._graph,
@@ -86,19 +86,19 @@ class GraphRun:
             raise
         return self._result
 
-    def _ensure_task(self) -> asyncio.Task[dict[str, Any]]:
+    def _ensure_task(self) -> asyncio.Task[dict[str, object]]:
         if self._task is None:
             if self._cancelled:
                 raise asyncio.CancelledError("graph run was cancelled")
             self._task = asyncio.create_task(self._execute())
         return self._task
 
-    async def events(self) -> AsyncIterator[Mapping[str, Any]]:
+    async def events(self) -> AsyncIterator[Mapping[str, object]]:
         """Yield queued graph events, then terminal events after the graph task completes."""
         if self._cancelled and self._task is None:
             return
         task = self._ensure_task()
-        getter: asyncio.Task[Mapping[str, Any]] | None = None
+        getter: asyncio.Task[Mapping[str, object]] | None = None
         try:
             while True:
                 getter = asyncio.ensure_future(self._sink.receive())
@@ -120,7 +120,7 @@ class GraphRun:
                 with contextlib.suppress(asyncio.CancelledError):
                     await getter
 
-        outcome: dict[str, Any] | None = None
+        outcome: dict[str, object] | None = None
         error: BaseException | None = None
         if task.done():
             if task.cancelled():
@@ -135,7 +135,7 @@ class GraphRun:
             async for terminal in self._terminal_events(outcome, error):
                 yield terminal
 
-    async def result(self) -> dict[str, Any]:
+    async def result(self) -> dict[str, object]:
         """Return the graph output after awaiting completion."""
         if self._cancelled and self._task is None:
             raise asyncio.CancelledError("graph run was cancelled")

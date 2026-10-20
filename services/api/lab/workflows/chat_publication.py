@@ -6,16 +6,32 @@ import logging
 import time
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Protocol
 
 from lab.chat_session import append_assistant_message, with_session_context
-from lab.contracts import Session
+from lab.contracts import ChatPromptPlan, Session
+from lab.evidence_prompt import EvidencePromptPlan
 from lab.evidence_request import MAX_SOURCE_REFERENCES, merge_scoped_sources
 from lab.query_traces import duration, retrieval_fields
 
 logger = logging.getLogger(__name__)
 
 SaveSessionFn = Callable[[Session], None]
+
+
+class QueryTraceRecorder(Protocol):
+    trace_id: str
+    record: dict[str, object]
+    done: bool
+
+    def persist(
+        self,
+        status: str,
+        stage: str,
+        *,
+        error: dict[str, str] | None = None,
+        **updates: object,
+    ) -> bool: ...
 
 
 @dataclass
@@ -70,8 +86,8 @@ class ChatObserver:
 @dataclass
 class ChatPublicationBundle:
     session: Session
-    plan: dict[str, Any]
-    trace: Any
+    plan: ChatPromptPlan
+    trace: QueryTraceRecorder
     save_session: SaveSessionFn
     requested_model: str
     prompt_context: dict[str, object]
@@ -82,8 +98,8 @@ class ChatPublicationBundle:
 @dataclass
 class ChatOptInPublicationBundle:
     session: Session
-    initial_plan: dict[str, Any]
-    trace: Any
+    initial_plan: EvidencePromptPlan
+    trace: QueryTraceRecorder
     save_session: SaveSessionFn
     requested_model: str
     retrieval_record: dict[str, object]
@@ -108,7 +124,7 @@ class ChatOptInObserver:
     workflow_error: tuple[str, str] | None = None
     complete: bool = False
     model_finished: bool = False
-    final_plan: dict[str, Any] | None = None
+    final_plan: EvidencePromptPlan | None = None
     final_metadata: dict[str, object] | None = None
     provider_model: str | None = None
     provider_context: dict[str, object] | None = None
@@ -136,14 +152,14 @@ class ChatOptInObserver:
         self.workflow_error = (code, message)
         self.complete = False
 
-    def apply_plan(self, plan: dict[str, Any], metadata: dict[str, object]) -> None:
+    def apply_plan(self, plan: EvidencePromptPlan, metadata: dict[str, object]) -> None:
         self.final_plan = plan
         self.final_metadata = dict(metadata)
 
     def mark_evidence_complete(
         self,
         *,
-        plan: dict[str, Any],
+        plan: EvidencePromptPlan,
         metadata: dict[str, object],
         model: str | None,
         context: dict[str, object] | None,
@@ -163,7 +179,7 @@ class ChatOptInObserver:
 @dataclass
 class ChatPublicationOutcome:
     complete: bool
-    terminal_events: list[dict[str, Any]] = field(default_factory=list)
+    terminal_events: list[dict[str, object]] = field(default_factory=list)
     trace_finalize_failed: bool = False
     assistant_saved: bool = False
     published: bool = False
@@ -195,7 +211,7 @@ def _first_output_ms(observer: ChatObserver) -> float | None:
 
 def _ordinary_error_terminal(
     observer: ChatObserver,
-) -> tuple[list[dict[str, Any]], str, str, dict[str, str] | None, str | None]:
+) -> tuple[list[dict[str, object]], str, str, dict[str, str] | None, str | None]:
     if observer.outcome_kind == "provider_error":
         message = observer.provider_error_message or "Model reported a generation error."
         error = {
@@ -395,7 +411,7 @@ async def commit_ordinary_publication(
         except Exception:  # noqa: BLE001 - report trace persistence failure in terminal stream
             trace_finalize_failed = True
 
-    outcome_terminal: list[dict[str, Any]] = list(terminal)
+    outcome_terminal: list[dict[str, object]] = list(terminal)
     if message and not outcome_terminal:
         outcome_terminal.append({"type": "error", "message": message})
     if trace_finalize_failed:
@@ -558,7 +574,7 @@ async def commit_optin_publication(
             )
         except Exception:  # noqa: BLE001 - report trace persistence failure in terminal stream
             trace_finalize_failed = True
-        terminal: list[dict[str, Any]] = [{"type": "error", "message": message}]
+        terminal: list[dict[str, object]] = [{"type": "error", "message": message}]
         if trace_finalize_failed:
             terminal.append(
                 {
@@ -653,7 +669,7 @@ async def _commit_optin_complete(
     bundle: ChatOptInPublicationBundle,
     observer: ChatOptInObserver,
     *,
-    done_event: dict[str, Any],
+    done_event: dict[str, object],
 ) -> ChatPublicationOutcome:
     metadata = dict(observer.final_metadata or bundle.trace.record.get("evidence_search") or {})
     retrieval_record = dict(bundle.retrieval_record)
@@ -779,7 +795,7 @@ async def emit_late_graph_failure(
     *,
     publication: ChatPublicationOutcome,
     graph_error: BaseException,
-) -> AsyncIterator[dict[str, Any]]:
+) -> AsyncIterator[dict[str, object]]:
     if publication.complete and publication.published:
         yield {
             "type": "error",

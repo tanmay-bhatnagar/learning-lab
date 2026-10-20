@@ -141,6 +141,24 @@ class ChatPromptPlan(TypedDict):
     retrieval_record: dict[str, object]
 
 
+ChatStreamEvent = dict[str, object]
+
+
+class CloseableAsyncStream(Protocol):
+    """Model chat streams are async generators with ``aclose`` (Ollama gateway and test fakes)."""
+
+    def __aiter__(self) -> AsyncIterator[ChatStreamEvent]: ...
+
+    async def aclose(self) -> None: ...
+
+
+class TopicSettings(Protocol):
+    """Topic retrieval settings loaded outside workflows (concrete type lives in ``lab.web.schemas``)."""
+
+    embedding_model: str
+    retrieval_top_k: int
+
+
 class ModelGateway(Protocol):
     async def list_models(self) -> dict[str, object]: ...
 
@@ -162,7 +180,7 @@ class ModelGateway(Protocol):
         *,
         generation_lock: asyncio.Lock,
         response_schema: dict | None = None,
-    ) -> AsyncIterator[dict]: ...
+    ) -> CloseableAsyncStream: ...
 
 
 class StoreProtocol(Protocol):
@@ -181,6 +199,10 @@ class StoreProtocol(Protocol):
 
     def file_path(self, topic: str, name: str) -> Path: ...
 
-    def session(self, topic: str) -> Session: ...
+    def conversations(self, topic: str) -> list[dict[str, str]]: ...
 
-    def save_session(self, topic: str, session: Session) -> None: ...
+    def conversation(self, topic: str, conversation_id: str) -> dict[str, str]: ...
+
+    def session(self, topic: str, conversation_id: str = "default") -> Session: ...
+
+    def save_session(self, topic: str, session: Session, conversation_id: str = "default") -> None: ...

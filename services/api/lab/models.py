@@ -9,6 +9,7 @@ from collections.abc import AsyncIterator
 
 import httpx
 
+from lab.contracts import CloseableAsyncStream
 from lab.context import (
     DEFAULT_CONTEXT_LIMIT,
     estimate_messages,
@@ -144,7 +145,7 @@ class OllamaGateway:
         *,
         generation_lock: asyncio.Lock,
         response_schema: dict | None = None,
-    ) -> AsyncIterator[dict]:
+    ) -> CloseableAsyncStream:
         try:
             if context_metadata is not None:
                 reserve = response_token_reserve(context_limit)

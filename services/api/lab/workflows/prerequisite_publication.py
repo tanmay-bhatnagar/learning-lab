@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Protocol
 
 from lab.errors import Conflict, InvalidInput
 from lab.prerequisite_store import get_prerequisite_state, recover_interrupted_attempts, write_prerequisite_attempt
@@ -13,6 +13,17 @@ from lab.profile_store import ProfileStore
 from lab.storage import Store
 
 logger = logging.getLogger(__name__)
+
+
+class PrerequisitePublicationBundleSource(Protocol):
+    store: Store
+    profile_store: ProfileStore
+    topic_id: str
+    file_id: str
+    attempt_id: str
+    assessment_id: str
+    attempt: dict[str, object]
+    now: Callable[[], str]
 
 
 def recover_file_state(
@@ -306,7 +317,7 @@ async def publish_after_graph_exception(
     )
 
 
-def publication_request_from_bundle(bundle: Any) -> PrerequisitePublicationRequest:
+def publication_request_from_bundle(bundle: PrerequisitePublicationBundleSource) -> PrerequisitePublicationRequest:
     return PrerequisitePublicationRequest(
         store=bundle.store,
         profile_store=bundle.profile_store,

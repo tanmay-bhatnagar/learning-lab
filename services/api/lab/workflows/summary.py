@@ -15,6 +15,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.runtime import Runtime
 
+from lab.contracts import CloseableAsyncStream, ModelGateway
 from lab.document_map_store import get_document_map
 from lab.document_map_summary_store import recover_interrupted_attempts, write_summary_attempt
 from lab.errors import Conflict, InvalidInput
@@ -110,7 +111,7 @@ class SummaryAdmissionContext:
 class SummaryExecutionContext:
     """Per-request execution capabilities, observer, and publication latch inputs."""
 
-    model_backend: Any
+    model_backend: ModelGateway
     generation_lock: asyncio.Lock
     bundle: SummaryPublicationBundle
     observer: SummaryObserver
@@ -269,8 +270,8 @@ async def write_generating_attempt(
     return {}
 
 
-async def _close_provider_stream(stream: AsyncIterator[dict[str, object]] | None) -> None:
-    if stream is not None and hasattr(stream, "aclose"):
+async def _close_provider_stream(stream: CloseableAsyncStream | None) -> None:
+    if stream is not None:
         try:
             await stream.aclose()
         except BaseException as exc:  # noqa: BLE001 - provider cleanup must not mask publication
@@ -364,7 +365,7 @@ async def _summary_terminal_events(
     execution_context: SummaryExecutionContext,
     publish_once: PublishOnce[SummaryPublicationOutcome],
     *,
-    outcome: dict[str, Any] | None,
+    outcome: dict[str, object] | None,
     error: BaseException | None,
 ) -> AsyncIterator[Mapping[str, object]]:
     if execution_context.publication_outcome is not None:
@@ -425,7 +426,7 @@ def compile_summary_execution_graph() -> CompiledStateGraph[SummaryExecutionStat
 
 
 async def run_summary_admission(
-    graph: CompiledStateGraph[Any, Any, Any, Any],
+    graph: CompiledStateGraph[SummaryAdmissionState, SummaryAdmissionContext, Any, Any],
     context: SummaryAdmissionContext,
 ) -> SummaryAdmissionResult:
     """Await summary admission; domain errors propagate with original types."""
@@ -447,7 +448,7 @@ def build_summary_stream_handle(
     admitted: SummaryAdmissionResult,
     revision: str,
     section_id: str,
-    execution_graph: CompiledStateGraph[Any, Any, Any, Any],
+    execution_graph: CompiledStateGraph[SummaryExecutionState, SummaryExecutionContext, Any, Any],
     execution_context: SummaryExecutionContext,
     unregister_active: UnregisterActiveFn,
     release_lease: Callable[[], None],
@@ -458,7 +459,7 @@ def build_summary_stream_handle(
     handle_holder: list[SummaryStreamHandle] = []
 
     async def terminal_events(
-        outcome: dict[str, Any] | None,
+        outcome: dict[str, object] | None,
         error: BaseException | None,
     ) -> AsyncIterator[Mapping[str, object]]:
         async for event in _summary_terminal_events(

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Generator, Mapping
-from typing import Any
 
 
 class EventSink:
@@ -17,10 +16,10 @@ class EventSink:
         capacity: int = 8,
     ) -> None:
         self._allowed = allowed_types
-        self._queue: asyncio.Queue[Mapping[str, Any]] = asyncio.Queue(maxsize=capacity)
+        self._queue: asyncio.Queue[Mapping[str, object]] = asyncio.Queue(maxsize=capacity)
         self._closed = False
 
-    async def send(self, event: Mapping[str, Any]) -> None:
+    async def send(self, event: Mapping[str, object]) -> None:
         """Enqueue an event; block when the queue is full until space is available."""
         if self._closed:
             msg = "EventSink is closed"
@@ -31,13 +30,13 @@ class EventSink:
             raise TypeError(msg)
         await self._queue.put(event)
 
-    async def receive(self) -> Mapping[str, Any]:
+    async def receive(self) -> Mapping[str, object]:
         """Wait for the next queued event."""
         return await self._queue.get()
 
-    def drain(self) -> list[Mapping[str, Any]]:
+    def drain(self) -> list[Mapping[str, object]]:
         """Return all currently queued events without blocking."""
-        drained: list[Mapping[str, Any]] = []
+        drained: list[Mapping[str, object]] = []
         while True:
             try:
                 drained.append(self._queue.get_nowait())

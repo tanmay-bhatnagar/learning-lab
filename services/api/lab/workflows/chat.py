@@ -12,11 +12,12 @@ from pathlib import Path
 from typing import Any, Protocol, TypedDict
 
 from langgraph.graph import END, START, StateGraph
+from langgraph.graph.state import CompiledStateGraph
 from langgraph.runtime import Runtime
 
 from lab.chat_prompt import build_chat_prompt
 from lab.chat_session import append_user_message, history_messages
-from lab.contracts import Session
+from lab.contracts import ChatPromptPlan, CloseableAsyncStream, ModelGateway, Session, StoreProtocol, TopicSettings
 from lab.errors import Conflict, DomainError, InvalidInput
 from lab.evidence_prompt import build_initial_evidence_prompt
 from lab.evidence_result import initial_outcomes, retrieval_warning_for_search_mode
@@ -34,11 +35,17 @@ from lab.query_traces import (
 )
 from lab.retrieval import evidence_messages, search
 from lab.runtime_policy import load_runtime_policy
+from lab.profile_store import ProfileStore
 from lab.storage import read_bytes, read_json
 from lab.summary_import import validated_summary_imports
 from lab.prerequisite_import import validated_prerequisite_imports
-from lab.workflows.chat_evidence import build_optin_execution_graph
-from lab.workflows.chat_publication import ChatPublicationBundle, ChatPublicationOutcome, prepare_ordinary_publication
+from lab.workflows.chat_evidence import ChatOptInExecutionContext, ChatOptInState, build_optin_execution_graph
+from lab.workflows.chat_publication import (
+    ChatObserver,
+    ChatPublicationBundle,
+    ChatPublicationOutcome,
+    prepare_ordinary_publication,
+)
 from lab.workflows.events import EventSink, text_fragments
 from lab.workflows.runtime import invoke_graph
 
@@ -51,7 +58,7 @@ CHAT_QUEUED_EVENT_TYPES = frozenset({"token", "thinking", "evidence_status"})
 
 EmbedderFn = Callable[[list[str], str], Awaitable[list[list[float]]]]
 RetrieverFn = Callable[..., Awaitable[dict[str, object]]]
-LoadSettingsFn = Callable[[Any], Any]
+LoadSettingsFn = Callable[[StoreProtocol], TopicSettings]
 
 
 class TopicLease(Protocol):
@@ -81,7 +88,7 @@ class ChatAdmissionArtifacts:
     search_result: dict[str, object] = field(default_factory=lambda: {"hits": [], "mode": "none"})
     retrieval_ms: float = 0.0
     vision: bool = False
-    plan: dict[str, Any] | None = None
+    plan: ChatPromptPlan | None = None
     evidence_prompt_kwargs: dict[str, object] | None = None
     evidence_initial_chunks: tuple[dict[str, object], ...] = ()
     citations: list[dict[str, object]] = field(default_factory=list)
@@ -92,7 +99,7 @@ class ChatTraceRecorder:
     trace_id: str
     started_monotonic: float
     trace_file: Path
-    record: dict[str, Any]
+    record: dict[str, object]
     done: bool = False
 
     def persist(
@@ -126,9 +133,9 @@ class ChatTraceRecorder:
 
 @dataclass
 class ChatAdmissionContext:
-    store: Any
-    profile_store: Any
-    model_backend: Any
+    store: StoreProtocol
+    profile_store: ProfileStore
+    model_backend: ModelGateway
     retriever: RetrieverFn | None
     embedder: EmbedderFn
     runtime_policy_path: Path
@@ -140,7 +147,7 @@ class ChatAdmissionContext:
     think: bool | str | None
     context_limit: int
     extra_search: bool
-    current_settings: Any
+    current_settings: TopicSettings
     trace: ChatTraceRecorder
     save_session: Callable[[Session], None]
     artifacts: ChatAdmissionArtifacts = field(default_factory=ChatAdmissionArtifacts)
@@ -152,34 +159,34 @@ class ChatExecutionState(TypedDict, total=False):
 
 @dataclass
 class ChatExecutionContext:
-    model_backend: Any
+    model_backend: ModelGateway
     generation_lock: asyncio.Lock
     sink: EventSink
-    observer: Any
+    observer: ChatObserver
     bundle: ChatPublicationBundle
     prompt: list[dict[str, object]]
     model: str
     think: bool | str | None
     context_limit: int
     publication_outcome: ChatPublicationOutcome | None = None
-    provider_stream: Any = None
+    provider_stream: CloseableAsyncStream | None = None
 
 
 @dataclass(frozen=True)
 class ChatGraphs:
-    admission: Any
-    execution: Any
-    optin_execution: Any
+    admission: CompiledStateGraph[ChatAdmissionState, ChatAdmissionContext, Any, Any]
+    execution: CompiledStateGraph[ChatExecutionState, ChatExecutionContext, Any, Any]
+    optin_execution: CompiledStateGraph[ChatOptInState, ChatOptInExecutionContext, Any, Any]
 
 
 @dataclass
 class AdmittedChat:
     lease: TopicLease
     session: Session
-    plan: dict[str, Any]
+    plan: ChatPromptPlan
     search_result: dict[str, object]
     retrieval_ms: float
-    current_settings: Any
+    current_settings: TopicSettings
     trace: ChatTraceRecorder
     started_monotonic: float
     topic_id: str
@@ -506,9 +513,10 @@ async def stream_answer_node(
         ctx.observer.mark_premature_eof()
         return {"stage": "streamed"}
     finally:
-        if ctx.provider_stream is not None and hasattr(ctx.provider_stream, "aclose"):
+        stream = ctx.provider_stream
+        if stream is not None:
             try:
-                await ctx.provider_stream.aclose()
+                await stream.aclose()
             except Exception as exc:  # noqa: BLE001 - optional cleanup failure is recorded for completed answers
                 ctx.observer.stream_close_error = {
                     "stage": "stream_close",
@@ -521,7 +529,7 @@ async def stream_answer_node(
                     ctx.bundle.trace_id,
                     type(exc).__name__,
                 )
-            ctx.provider_stream = None
+        ctx.provider_stream = None
 
 
 async def prepare_publication_node(
@@ -574,9 +582,9 @@ def build_chat_graphs() -> ChatGraphs:
 
 async def admit_chat(
     *,
-    store: Any,
-    profile_store: Any,
-    model_backend: Any,
+    store: StoreProtocol,
+    profile_store: ProfileStore,
+    model_backend: ModelGateway,
     retriever: RetrieverFn | None,
     embedder: EmbedderFn,
     runtime_policy_path: Path,
@@ -590,13 +598,13 @@ async def admit_chat(
     think: bool | str | None,
     context_limit: int,
     extra_search: bool,
-    admission_graph: Any,
+    admission_graph: CompiledStateGraph[ChatAdmissionState, ChatAdmissionContext, Any, Any],
 ) -> AdmittedChat:
     """Run chat preflight: trace, lease, admission graph, single user save."""
     store.topic(topic_id)
     started = time.monotonic()
     trace_id = new_trace_id()
-    record: dict[str, Any] = started_record(
+    record: dict[str, object] = started_record(
         topic_id=topic_id,
         conversation_id=conversation_id,
         message_chars=len(message),

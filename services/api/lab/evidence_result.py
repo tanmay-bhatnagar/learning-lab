@@ -7,6 +7,7 @@ from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Literal, cast
 
+from lab.contracts import CloseableAsyncStream
 from lab.errors import InvalidInput
 from lab.evidence_prompt import EvidencePromptPlan
 from lab.evidence_request import (
@@ -118,7 +119,7 @@ async def consume_decision(stream: AsyncIterator[dict]) -> _DecisionResult:
     return _DecisionResult("".join(pieces), completed, model, context, error_code)
 
 
-async def close_stream(stream: AsyncIterator[dict]) -> str | None:
+async def close_stream(stream: CloseableAsyncStream | AsyncIterator[dict]) -> str | None:
     close = getattr(stream, "aclose", None)
     if not callable(close):
         return None

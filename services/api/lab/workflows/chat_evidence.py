@@ -11,13 +11,16 @@ from pathlib import Path
 from typing import Any, TypedDict
 
 from langgraph.graph import END, START, StateGraph
+from langgraph.graph.state import CompiledStateGraph
 from langgraph.runtime import Runtime
 
+from lab.contracts import CloseableAsyncStream, ModelGateway, StoreProtocol
 from lab.errors import Conflict, InvalidInput
 from lab.evidence_prompt import EvidencePromptPlan, build_final_evidence_prompt
 from lab.evidence_request import (
     MAX_SOURCE_REFERENCES,
     AnswerAction,
+    SourceImageReference,
     evidence_action_schema,
     merge_scoped_sources,
     parse_evidence_action,
@@ -39,6 +42,7 @@ from lab.evidence_result import (
     validate_lookup_result,
 )
 from lab import evidence_snapshot
+from lab.profile_store import ProfileStore
 from lab.retrieval import evidence_messages, search
 from lab.query_traces import retrieval_fields
 from lab.workflows.chat_publication import (
@@ -64,7 +68,7 @@ class ChatOptInState(TypedDict, total=False):
 
 @dataclass
 class ChatOptInExecutionContext:
-    model_backend: Any
+    model_backend: ModelGateway
     generation_lock: asyncio.Lock
     sink: EventSink
     bundle: ChatOptInPublicationBundle
@@ -74,8 +78,8 @@ class ChatOptInExecutionContext:
     model: str
     think: bool | str | None
     context_limit: int
-    store: Any
-    profile_store: Any
+    store: StoreProtocol
+    profile_store: ProfileStore
     topic_id: str
     retriever: RetrieverFn | None
     embedder: EmbedderFn
@@ -89,10 +93,10 @@ class ChatOptInExecutionContext:
     evidence_state: dict[str, object] = field(default_factory=dict)
     initial_available: tuple[dict[str, object], ...] = ()
     initial_retained: tuple[dict[str, object], ...] = ()
-    initial_images: tuple[Any, ...] = ()
+    initial_images: tuple[SourceImageReference, ...] = ()
     final_plan: EvidencePromptPlan | None = None
     publication_outcome: ChatPublicationOutcome | None = None
-    provider_stream: Any = None
+    provider_stream: CloseableAsyncStream | None = None
     last_emitted_stage: str | None = None
     latest_search_result: dict[str, object] | None = None
     total_retrieval_ms: float = 0.0
@@ -567,7 +571,7 @@ async def prepare_publication_node(
     return {"stage": "prepared"}
 
 
-def build_optin_execution_graph() -> Any:
+def build_optin_execution_graph() -> CompiledStateGraph[ChatOptInState, ChatOptInExecutionContext, Any, Any]:
     builder = StateGraph(ChatOptInState, context_schema=ChatOptInExecutionContext)
     builder.add_node("evidence_init", evidence_init_node)
     builder.add_node("decision", decision_node)

@@ -9,11 +9,14 @@ import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from anyio import CancelScope
+from langgraph.graph.state import CompiledStateGraph
 
-from lab.contracts import Session
+from lab.contracts import ModelGateway, Session, StoreProtocol
+from lab.evidence_prompt import EvidencePromptPlan
+from lab.profile_store import ProfileStore
 from lab.workflows.chat import (
     CHAT_QUEUED_EVENT_TYPES,
     EXECUTION_RECURSION_LIMIT,
@@ -103,7 +106,7 @@ class ChatStreamHandle:
             try:
                 await self.run.cancel_and_wait()
                 provider_stream = self.execution_context.provider_stream
-                if provider_stream is not None and hasattr(provider_stream, "aclose"):
+                if provider_stream is not None:
                     try:
                         await provider_stream.aclose()
                     except Exception as exc:  # noqa: BLE001 - shielded cleanup must not block lease release
@@ -143,7 +146,7 @@ class ChatStreamHandle:
 
 def build_chat_stream_handle(
     *,
-    graph: Any,
+    graph: CompiledStateGraph[Any, Any, Any, Any],
     recursion_limit: int,
     execution_context: ChatExecutionContextUnion,
     sink: EventSink,
@@ -248,7 +251,7 @@ def build_ordinary_chat_stream_handle(
     *,
     admitted: AdmittedChat,
     graphs: ChatGraphs,
-    model_backend: Any,
+    model_backend: ModelGateway,
     generation_lock: asyncio.Lock,
     save_session: Callable[[Session], None],
     requested_model: str,
@@ -310,9 +313,9 @@ def build_optin_chat_stream_handle(
     admitted: AdmittedChat,
     opt_in: AdmittedOptInEvidence,
     graphs: ChatGraphs,
-    store: Any,
-    profile_store: Any,
-    model_backend: Any,
+    store: StoreProtocol,
+    profile_store: ProfileStore,
+    model_backend: ModelGateway,
     generation_lock: asyncio.Lock,
     retriever: RetrieverFn | None,
     embedder: EmbedderFn,
@@ -326,7 +329,7 @@ def build_optin_chat_stream_handle(
     unregister_run: RegisterRunFn,
     release_lease: Callable[[], None],
 ) -> ChatStreamHandle:
-    plan = admitted.plan
+    plan = cast(EvidencePromptPlan, admitted.plan)
     generation_started = time.monotonic()
     latest_search_result = admitted.search_result
     total_retrieval_ms = admitted.retrieval_ms
