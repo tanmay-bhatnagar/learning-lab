@@ -129,3 +129,11 @@ The implementation record holds the full verification evidence:
 On the first run, header latency, first-token latency and streaming throughput matched the pre-pivot server within run-to-run noise. Real answer quality and full parser fidelity remain unassessed.
 
 To regenerate the topology text: `PYTHONPATH=services/api .venv/bin/python -c "from lab.workflows.chat import build_chat_graphs; print(build_chat_graphs().optin_execution.get_graph().draw_mermaid())"`. Do not use `draw_mermaid_png`; it calls a network renderer, and a privacy test rejects it.
+
+## Audited failure boundaries
+
+The [independent audit and repairs](reports/langgraph-pivot/2026_10_20_langgraph_audit.md) records post-implementation regressions and their closure. An opt-in request has complete versioned zero-call metadata before its first graph node, so closing an unconsumed response cannot corrupt saved history. Provider completion alone does not skip cancellation publication.
+
+HTTP owns registrations until the response takes ownership: interrupted admission clears only that request's active IDs, leaving existing domain idle recovery to mark interrupted attempts. If response construction fails, the existing family finalizer runs before the original error is re-raised. Secondary cleanup diagnostics expose exception types, not private values; prerequisite deregistration is unconditional even when cleanup raises.
+
+A late graph error after confirmed publication preserves the saved result and reports an error rather than done. This differs from an ambiguous write whose successful publication is discovered during reconciliation; that established success remains valid. Stop before request confirmation does not prove rejection: the browser preserves the incomplete turn and asks the learner to reload to check saved history. Actual HTTP rejection still restores the draft and per-turn choice.
