@@ -368,6 +368,7 @@ async def _summary_terminal_events(
     outcome: dict[str, object] | None,
     error: BaseException | None,
 ) -> AsyncIterator[Mapping[str, object]]:
+    published_before_reconciliation = execution_context.publication_outcome is not None
     if execution_context.publication_outcome is not None:
         pub = execution_context.publication_outcome
     elif error is not None and isinstance(error, asyncio.CancelledError):
@@ -388,7 +389,8 @@ async def _summary_terminal_events(
     else:
         pub = execution_context.publication_outcome or SummaryPublicationOutcome()
     if (
-        error is not None
+        published_before_reconciliation
+        and error is not None
         and not isinstance(error, asyncio.CancelledError)
         and any(event.get("type") == "done" for event in pub.terminal_events)
     ):

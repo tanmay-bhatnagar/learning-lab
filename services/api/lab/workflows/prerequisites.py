@@ -610,6 +610,7 @@ async def prerequisite_terminal_events(
     publish_once: PublishOnce[PrerequisitePublicationOutcome],
 ) -> AsyncIterator[Mapping[str, object]]:
     del outcome
+    published_before_reconciliation = context.artifacts.publication is not None
 
     async def finalize() -> PrerequisitePublicationOutcome:
         art = context.artifacts
@@ -627,7 +628,8 @@ async def prerequisite_terminal_events(
     if publication.terminal:
         context.artifacts.terminal = True
     if (
-        error is not None
+        published_before_reconciliation
+        and error is not None
         and not isinstance(error, asyncio.CancelledError)
         and any(event.get("type") == "done" for event in publication.terminal_events)
     ):
