@@ -373,6 +373,63 @@ async def test_late_graph_failure_after_optin_publication_emits_error_without_du
 
 
 @pytest.mark.anyio
+async def test_unconsumed_optin_response_persists_complete_cancel_metadata(tmp_path):
+    import lab.web.chat as chat_routes
+    from lab.web.schemas import ChatInput
+    from lab.query_traces import list_traces, trace_path
+
+    model = EvidenceModel()
+    app = _app(tmp_path, model)
+    app.state.deps.retriever = _retriever([])
+    client = TestClient(app)
+    topic, record = _topic_with_index(client)
+    endpoint = next(
+        route.endpoint
+        for route in chat_routes.router(app.state.deps).routes
+        if route.path == "/api/topics/{topic}/chat"
+    )
+
+    response = await endpoint(
+        topic,
+        ChatInput(
+            message="Synthetic question",
+            model="local",
+            context_limit=8192,
+            file_ids=[record["id"]],
+            extra_search=True,
+        ),
+    )
+    await response.on_close()
+
+    metadata = {
+        "schema_version": 1,
+        "requested": True,
+        "action": None,
+        "outcome": "cancelled",
+        "generation_count": 0,
+        "lookup_count": 0,
+        "initial_available_chunk_ids": [],
+        "initial_chunk_ids": [],
+        "returned_chunk_ids": [],
+        "new_chunk_ids": [],
+        "retained_new_chunk_ids": [],
+        "final_chunk_ids": [],
+        "declared_source_labels": [],
+        "search_mode": None,
+        "search_warning": None,
+        "warning": None,
+    }
+    messages = client.get(f"/api/topics/{topic}/messages").json()["messages"]
+    assistant = messages[-1]
+    assert assistant["retrieval"]["evidence_search"] == metadata
+    assert assistant["retrieval"]["citations"] == []
+    assert model.calls == []
+    assert not app.state.deps.locks[topic].locked()
+    trace = list_traces(trace_path(app.state.deps.store.topic(topic)), conversation_id="default", limit=1)[0]
+    assert trace["evidence_search"] == metadata
+
+
+@pytest.mark.anyio
 async def test_slow_consumer_bounds_optin_producer():
     from langgraph.graph import END, START, StateGraph
     from langgraph.runtime import Runtime
