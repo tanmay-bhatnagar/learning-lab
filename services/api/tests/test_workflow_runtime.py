@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
-from typing import Any, TypedDict
+from typing import Any, TypedDict, get_type_hints
 
 import pytest
 from fastapi.testclient import TestClient
@@ -90,6 +90,17 @@ def _stream_graph() -> Any:
 
 
 GRAPH = _stream_graph()
+
+
+def test_workflow_public_execution_type_hints_resolve_publication_latches() -> None:
+    from lab.workflows.prerequisites import PrerequisiteExecutionHandle, PrerequisitePublicationOutcome
+    from lab.workflows.summary import SummaryExecutionContext, SummaryPublicationOutcome
+
+    summary_hints = get_type_hints(SummaryExecutionContext)
+    prerequisite_hints = get_type_hints(PrerequisiteExecutionHandle)
+
+    assert summary_hints["publish_once"] == PublishOnce[SummaryPublicationOutcome]
+    assert prerequisite_hints["publish_once"] == PublishOnce[PrerequisitePublicationOutcome]
 
 
 def _leaked_queue_get_tasks() -> list[asyncio.Task[object]]:
