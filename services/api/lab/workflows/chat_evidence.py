@@ -41,7 +41,6 @@ from lab.evidence_result import (
 from lab import evidence_snapshot
 from lab.retrieval import evidence_messages, search
 from lab.query_traces import retrieval_fields
-from lab.workflows.chat import workflow_graph_callables
 from lab.workflows.chat_publication import (
     ChatOptInObserver,
     ChatOptInPublicationBundle,
@@ -613,7 +612,3 @@ def build_optin_execution_graph() -> Any:
     builder.add_edge("stream_final_answer", "prepare_publication")
     builder.add_edge("prepare_publication", END)
     return builder.compile()
-
-
-def optin_execution_graph_callables(compiled: Any) -> list[tuple[str, Callable[..., Any]]]:
-    return workflow_graph_callables(compiled)

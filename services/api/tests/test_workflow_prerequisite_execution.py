@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import time
 import uuid
@@ -13,15 +14,14 @@ import pytest
 from lab.prerequisite_store import get_prerequisite_state, write_prerequisite_attempt
 from lab.workflows.events import EventSink
 from lab.workflows.prerequisites import (
-    PREREQUISITE_EXECUTION_MERMAID,
     PrerequisiteAdmissionCapabilities,
     PrerequisiteExecutionBundle,
     admit_prerequisite_generation,
     build_prerequisite_graph_run,
     compile_prerequisite_admission_graph,
     compile_prerequisite_execution_graph,
-    execution_callables_are_coroutines,
 )
+from tests.workflow_graph_introspection import draw_mermaid, graph_callables, graph_edge_set
 from lab.workflows.runtime import PublishOnce
 from tests.test_web_prerequisites import (
     PrerequisiteFakeModel,
@@ -101,21 +101,42 @@ async def _run_execution(client, topic, outline, section, body, *, model: Prereq
     return events, handle, bundle
 
 
+PREREQUISITE_EXECUTION_NODE_NAMES = (
+    "generate_buffered",
+    "publish_stream_failure",
+    "check_current_inputs",
+    "validate_requirements",
+    "register_pending",
+    "publish_assessment",
+)
+
+# Documented in docs/workflows.md (conditional generate_buffered branches)
+PREREQUISITE_EXECUTION_EDGES = frozenset(
+    {
+        ("__start__", "generate_buffered", None, False),
+        ("generate_buffered", "check_current_inputs", "success", True),
+        ("generate_buffered", "publish_stream_failure", "stream_failure", True),
+        ("publish_stream_failure", "__end__", None, False),
+        ("check_current_inputs", "validate_requirements", None, False),
+        ("validate_requirements", "register_pending", None, False),
+        ("register_pending", "publish_assessment", None, False),
+        ("publish_assessment", "__end__", None, False),
+    }
+)
+
+
 @pytest.mark.anyio
-async def test_execution_mermaid_contains_node_names() -> None:
-    for name in (
-        "generate_buffered",
-        "publish_stream_failure",
-        "check_current_inputs",
-        "validate_requirements",
-        "register_pending",
-        "publish_assessment",
-    ):
-        assert name in PREREQUISITE_EXECUTION_MERMAID
+async def test_execution_compiled_graph_matches_documented_topology() -> None:
+    compiled = compile_prerequisite_execution_graph()
+    text = draw_mermaid(compiled)
+    for name in PREREQUISITE_EXECUTION_NODE_NAMES:
+        assert name in text
+    assert graph_edge_set(compiled) == PREREQUISITE_EXECUTION_EDGES
 
 
 def test_execution_callables_are_async() -> None:
-    assert execution_callables_are_coroutines()
+    compiled = compile_prerequisite_execution_graph()
+    assert all(inspect.iscoroutinefunction(fn) for _name, fn in graph_callables(compiled))
 
 
 @pytest.mark.anyio

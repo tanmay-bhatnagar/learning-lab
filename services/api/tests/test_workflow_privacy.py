@@ -98,6 +98,53 @@ def test_web_chat_does_not_own_workflow_or_evidence_orchestration() -> None:
     assert violations == [], f"lab/web/chat.py layering violations: {violations}"
 
 
+def _lab_import_violation(node: ast.Import | ast.ImportFrom) -> str | None:
+    if isinstance(node, ast.Import):
+        for alias in node.names:
+            if alias.name == "lab" or alias.name.startswith("lab."):
+                return alias.name
+        return None
+    if node.module == "lab" or (node.module and node.module.startswith("lab.")):
+        return node.module
+    return None
+
+
+def _function_level_lab_imports(tree: ast.AST) -> list[str]:
+    parents: dict[ast.AST, ast.AST] = {}
+    for parent in ast.walk(tree):
+        for child in ast.iter_child_nodes(parent):
+            parents[child] = parent
+
+    def inside_function(node: ast.AST) -> bool:
+        current = parents.get(node)
+        while current is not None:
+            if isinstance(current, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                return True
+            current = parents.get(current)
+        return False
+
+    violations: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.Import, ast.ImportFrom)):
+            continue
+        if not inside_function(node):
+            continue
+        target = _lab_import_violation(node)
+        if target is not None:
+            violations.append(target)
+    return violations
+
+
+def test_workflows_use_module_level_lab_imports_only() -> None:
+    workflows_root = LAB_ROOT / "workflows"
+    violations: list[str] = []
+    for path in sorted(workflows_root.glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for target in _function_level_lab_imports(tree):
+            violations.append(f"{path.relative_to(REPO_ROOT)}: function-level import {target}")
+    assert violations == []
+
+
 def test_workflows_do_not_import_lab_web() -> None:
     workflows_root = LAB_ROOT / "workflows"
     violations: list[str] = []

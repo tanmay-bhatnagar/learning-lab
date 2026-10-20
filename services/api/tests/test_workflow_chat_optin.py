@@ -10,7 +10,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from lab.workflows.chat import build_chat_graphs
-from lab.workflows.chat_evidence import OPTIN_EXECUTION_RECURSION_LIMIT, optin_execution_graph_callables
+from lab.workflows.chat_evidence import OPTIN_EXECUTION_RECURSION_LIMIT
+from tests.workflow_graph_introspection import graph_callables
 from lab.workflows.chat_publication import ChatPublicationOutcome, emit_late_graph_failure
 from lab.workflows.events import EventSink
 from lab.workflows.runtime import GraphRun
@@ -25,7 +26,7 @@ def _events(response) -> list[dict]:
 
 def test_optin_execution_graph_callables_are_async():
     graphs = build_chat_graphs()
-    for name, fn in optin_execution_graph_callables(graphs.optin_execution):
+    for name, fn in graph_callables(graphs.optin_execution):
         assert inspect.iscoroutinefunction(fn), name
 
 

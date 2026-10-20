@@ -16,9 +16,9 @@ from lab.workflows.summary import (
     SummaryAdmissionContext,
     compile_summary_admission_graph,
     run_summary_admission,
-    summary_admission_mermaid,
 )
 from tests.test_document_map_summaries_api import SummaryFakeModel, _client, _summary_url
+from tests.workflow_graph_introspection import draw_mermaid, graph_callables
 
 
 def _admission_context(
@@ -68,17 +68,17 @@ def admission_graph():
 
 
 def test_summary_admission_mermaid_contains_node_names(admission_graph) -> None:
-    text = summary_admission_mermaid(admission_graph)
+    text = draw_mermaid(admission_graph)
     for name in SUMMARY_ADMISSION_NODE_NAMES:
         assert name in text
 
 
 def test_summary_admission_graph_callables_are_coroutines(admission_graph) -> None:
-    graph = admission_graph.get_graph()
+    node_funcs = {
+        name.removeprefix("node:"): fn for name, fn in graph_callables(admission_graph) if name.startswith("node:")
+    }
     for name in SUMMARY_ADMISSION_NODE_NAMES:
-        node = graph.nodes[name]
-        runnable = node.data if hasattr(node, "data") else node
-        func = getattr(runnable, "afunc", None) or getattr(runnable, "func", None)
+        func = node_funcs[name]
         assert func is not None, name
         assert inspect.iscoroutinefunction(func), name
     assert SUMMARY_ADMISSION_RECURSION_LIMIT == len(SUMMARY_ADMISSION_NODE_NAMES) + 2

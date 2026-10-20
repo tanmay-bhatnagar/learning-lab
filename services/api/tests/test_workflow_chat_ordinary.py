@@ -20,7 +20,8 @@ from lab.web.chat import router as chat_router
 from lab.web.conversations import router as conversations_router
 from lab.web.deps import AppDeps
 from lab.web.topics import router as topics_router
-from lab.workflows.chat import EXECUTION_RECURSION_LIMIT, build_chat_graphs, execution_graph_callables
+from lab.workflows.chat import EXECUTION_RECURSION_LIMIT, build_chat_graphs
+from tests.workflow_graph_introspection import graph_callables
 from lab.workflows.chat_publication import ChatPublicationOutcome, emit_late_graph_failure
 from lab.workflows.events import EventSink
 from lab.workflows.runtime import GraphRun
@@ -53,7 +54,7 @@ def _events(response) -> list[dict[str, Any]]:
 
 def test_execution_graph_callables_are_async():
     graphs = build_chat_graphs()
-    for name, fn in execution_graph_callables(graphs.execution):
+    for name, fn in graph_callables(graphs.execution):
         assert inspect.iscoroutinefunction(fn), name
 
 

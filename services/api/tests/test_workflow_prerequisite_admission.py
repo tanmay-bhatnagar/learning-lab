@@ -9,14 +9,15 @@ import pytest
 
 from lab.errors import Conflict, DoesNotFit
 from lab.prerequisite_store import get_prerequisite_state, write_prerequisite_attempt
+import inspect
+
 from lab.workflows.prerequisites import (
-    PREREQUISITE_ADMISSION_MERMAID,
     PrerequisiteAdmissionCapabilities,
     admit_prerequisite_generation,
-    admission_callables_are_coroutines,
     compile_prerequisite_admission_graph,
     recover_file_state,
 )
+from tests.workflow_graph_introspection import draw_mermaid, graph_callables, graph_edge_set
 from tests.test_web_prerequisites import (
     PrerequisiteFakeModel,
     _generate_url,
@@ -79,21 +80,41 @@ async def _admit(client, topic, outline, section, body, *, model: PrerequisiteFa
     )
 
 
+PREREQUISITE_ADMISSION_NODE_NAMES = (
+    "recover_and_reconcile",
+    "resolve_map",
+    "select_cv",
+    "load_policy",
+    "plan_fit",
+    "write_generating_attempt",
+)
+
+# Linear admission chain documented in docs/workflows.md
+PREREQUISITE_ADMISSION_EDGES = frozenset(
+    {
+        ("__start__", "recover_and_reconcile", None, False),
+        ("recover_and_reconcile", "resolve_map", None, False),
+        ("resolve_map", "select_cv", None, False),
+        ("select_cv", "load_policy", None, False),
+        ("load_policy", "plan_fit", None, False),
+        ("plan_fit", "write_generating_attempt", None, False),
+        ("write_generating_attempt", "__end__", None, False),
+    }
+)
+
+
 @pytest.mark.anyio
-async def test_admission_mermaid_documents_node_names() -> None:
-    for name in (
-        "recover_and_reconcile",
-        "resolve_map",
-        "select_cv",
-        "load_policy",
-        "plan_fit",
-        "write_generating_attempt",
-    ):
-        assert name in PREREQUISITE_ADMISSION_MERMAID
+async def test_admission_compiled_graph_matches_documented_topology() -> None:
+    compiled = compile_prerequisite_admission_graph()
+    text = draw_mermaid(compiled)
+    for name in PREREQUISITE_ADMISSION_NODE_NAMES:
+        assert name in text
+    assert graph_edge_set(compiled) == PREREQUISITE_ADMISSION_EDGES
 
 
 def test_admission_graph_callables_are_async() -> None:
-    assert admission_callables_are_coroutines()
+    compiled = compile_prerequisite_admission_graph()
+    assert all(inspect.iscoroutinefunction(fn) for _name, fn in graph_callables(compiled))
 
 
 @pytest.mark.anyio

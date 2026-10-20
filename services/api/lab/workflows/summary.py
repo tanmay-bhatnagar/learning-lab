@@ -424,14 +424,6 @@ def compile_summary_execution_graph() -> CompiledStateGraph[SummaryExecutionStat
     return graph.compile()
 
 
-def summary_admission_mermaid(compiled: CompiledStateGraph[Any, Any, Any, Any]) -> str:
-    return compiled.get_graph().draw_mermaid()
-
-
-def summary_execution_mermaid(compiled: CompiledStateGraph[Any, Any, Any, Any]) -> str:
-    return compiled.get_graph().draw_mermaid()
-
-
 async def run_summary_admission(
     graph: CompiledStateGraph[Any, Any, Any, Any],
     context: SummaryAdmissionContext,

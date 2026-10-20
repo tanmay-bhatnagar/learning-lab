@@ -12,11 +12,8 @@ from fastapi.testclient import TestClient
 from lab.errors import DoesNotFit
 from lab.web.app import create_app
 from lab.web.locks import acquire_topic_lock
-from lab.workflows.chat import (
-    ADMISSION_RECURSION_LIMIT,
-    admission_graph_callables,
-    build_chat_graphs,
-)
+from lab.workflows.chat import ADMISSION_RECURSION_LIMIT, build_chat_graphs
+from tests.workflow_graph_introspection import graph_callables
 from lab.workflows.events import EventSink
 from lab.workflows.runtime import GraphRun
 from tests.fakes import FakeModel
@@ -217,7 +214,7 @@ def test_indexed_and_mixed_attachments_admit_user_once(tmp_path):
 
 def test_admission_graph_callables_are_async_coroutines():
     graphs = build_chat_graphs()
-    for name, fn in admission_graph_callables(graphs.admission):
+    for name, fn in graph_callables(graphs.admission):
         assert inspect.iscoroutinefunction(fn), f"{name} is not async"
 
 

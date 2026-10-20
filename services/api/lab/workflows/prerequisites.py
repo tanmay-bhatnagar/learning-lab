@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import inspect
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
@@ -41,17 +40,6 @@ from lab.workflows.runtime import GraphRun, PublishOnce, invoke_graph
 logger = logging.getLogger(__name__)
 
 PREREQUISITE_ADMISSION_RECURSION_LIMIT = 8
-
-PREREQUISITE_ADMISSION_MERMAID = """
-flowchart TD
-    START --> recover_and_reconcile
-    recover_and_reconcile --> resolve_map
-    resolve_map --> select_cv
-    select_cv --> load_policy
-    load_policy --> plan_fit
-    plan_fit --> write_generating_attempt
-    write_generating_attempt --> END
-""".strip()
 
 
 class PrerequisiteAdmissionState(TypedDict, total=False):
@@ -247,16 +235,6 @@ async def write_generating_attempt(
     return {"attempt_id": attempt_id, "assessment_id": assessment_id}
 
 
-ADMISSION_NODE_CALLABLES: tuple[Any, ...] = (
-    recover_and_reconcile,
-    resolve_map,
-    select_cv,
-    load_policy,
-    plan_fit,
-    write_generating_attempt,
-)
-
-
 def compile_prerequisite_admission_graph() -> CompiledStateGraph[Any, Any, Any, Any]:
     """Build the prerequisite admission graph (compile once per app router)."""
     graph = StateGraph(PrerequisiteAdmissionState, context_schema=PrerequisiteAdmissionContext)
@@ -340,11 +318,6 @@ async def admit_prerequisite_generation(
     )
 
 
-def admission_callables_are_coroutines() -> bool:
-    """Return whether every admission node callable is an async function."""
-    return all(inspect.iscoroutinefunction(callable_) for callable_ in ADMISSION_NODE_CALLABLES)
-
-
 PREREQUISITE_PROGRESS_EVENT_TYPES = frozenset({"progress"})
 
 PREREQUISITE_EXECUTION_NODE_NAMES: tuple[str, ...] = (
@@ -356,18 +329,6 @@ PREREQUISITE_EXECUTION_NODE_NAMES: tuple[str, ...] = (
     "publish_assessment",
 )
 PREREQUISITE_EXECUTION_RECURSION_LIMIT = len(PREREQUISITE_EXECUTION_NODE_NAMES) + 2
-
-PREREQUISITE_EXECUTION_MERMAID = """
-flowchart TD
-    START --> generate_buffered
-    generate_buffered -->|success| check_current_inputs
-    generate_buffered -->|stream_failure| publish_stream_failure
-    publish_stream_failure --> END
-    check_current_inputs --> validate_requirements
-    validate_requirements --> register_pending
-    register_pending --> publish_assessment
-    publish_assessment --> END
-""".strip()
 
 ProviderRoute = Literal["success", "stream_failure"]
 
@@ -620,17 +581,6 @@ async def publish_assessment(
     return {}
 
 
-EXECUTION_NODE_CALLABLES: tuple[Any, ...] = (
-    generate_buffered,
-    route_after_generate,
-    publish_stream_failure_node,
-    check_current_inputs,
-    validate_requirements,
-    register_pending,
-    publish_assessment,
-)
-
-
 def compile_prerequisite_execution_graph() -> CompiledStateGraph[Any, Any, Any, Any]:
     """Build the prerequisite execution graph (compile once per app router)."""
     graph = StateGraph(PrerequisiteExecutionState, context_schema=PrerequisiteExecutionContext)
@@ -652,10 +602,6 @@ def compile_prerequisite_execution_graph() -> CompiledStateGraph[Any, Any, Any, 
     graph.add_edge("register_pending", "publish_assessment")
     graph.add_edge("publish_assessment", END)
     return graph.compile()
-
-
-def execution_callables_are_coroutines() -> bool:
-    return all(inspect.iscoroutinefunction(callable_) for callable_ in EXECUTION_NODE_CALLABLES)
 
 
 async def prerequisite_terminal_events(

@@ -37,6 +37,7 @@ from lab.runtime_policy import load_runtime_policy
 from lab.storage import read_bytes, read_json
 from lab.summary_import import validated_summary_imports
 from lab.prerequisite_import import validated_prerequisite_imports
+from lab.workflows.chat_evidence import build_optin_execution_graph
 from lab.workflows.chat_publication import ChatPublicationBundle, ChatPublicationOutcome, prepare_ordinary_publication
 from lab.workflows.events import EventSink, text_fragments
 from lab.workflows.runtime import invoke_graph
@@ -564,8 +565,6 @@ def build_chat_graphs() -> ChatGraphs:
     execution_builder.add_edge("stream_answer", "prepare_publication")
     execution_builder.add_edge("prepare_publication", END)
 
-    from lab.workflows.chat_evidence import build_optin_execution_graph
-
     return ChatGraphs(
         admission=admission_builder.compile(),
         execution=execution_builder.compile(),
@@ -725,30 +724,3 @@ async def admit_chat(
         evidence_prompt_kwargs=context.artifacts.evidence_prompt_kwargs,
         evidence_vision=context.artifacts.vision,
     )
-
-
-def workflow_graph_callables(compiled: Any) -> list[tuple[str, Callable[..., Any]]]:
-    """Return named node and branch callables from a compiled admission graph."""
-    found: list[tuple[str, Callable[..., Any]]] = []
-    for name, spec in compiled.builder.nodes.items():
-        runnable = spec.runnable
-        fn = getattr(runnable, "afunc", None) or getattr(runnable, "func", None)
-        if fn is not None:
-            found.append((f"node:{name}", fn))
-    for branches in compiled.builder.branches.values():
-        for branch in branches.values():
-            path = branch.path
-            fn = getattr(path, "afunc", None) or getattr(path, "func", None)
-            if fn is not None:
-                found.append((f"branch:{getattr(fn, '__name__', 'router')}", fn))
-    return found
-
-
-def admission_graph_callables(compiled: Any) -> list[tuple[str, Callable[..., Any]]]:
-    """Return named node and branch callables from a compiled admission graph."""
-    return workflow_graph_callables(compiled)
-
-
-def execution_graph_callables(compiled: Any) -> list[tuple[str, Callable[..., Any]]]:
-    """Return named node and branch callables from a compiled execution graph."""
-    return workflow_graph_callables(compiled)

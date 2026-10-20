@@ -14,7 +14,6 @@ from lab.workflows.summary import (
     SUMMARY_EXECUTION_RECURSION_LIMIT,
     SummaryExecutionContext,
     compile_summary_execution_graph,
-    summary_execution_mermaid,
 )
 from lab.workflows.summary_publication import SummaryObserver, SummaryPublicationBundle
 from lab.workflows.events import EventSink
@@ -25,6 +24,7 @@ from tests.test_document_map_summaries_api import (
     _events,
     _summary_url,
 )
+from tests.workflow_graph_introspection import draw_mermaid, graph_callables, graph_edge_set
 
 
 def _patch_summary_writes(monkeypatch, replacement) -> None:
@@ -35,21 +35,32 @@ def _patch_summary_writes(monkeypatch, replacement) -> None:
     monkeypatch.setattr(summary_publication, "write_summary_attempt", replacement)
 
 
+# Documented in docs/workflows.md: stream_summary -. success .-> validate_and_publish; failure .-> publish_failure
+SUMMARY_EXECUTION_EDGES = frozenset(
+    {
+        ("__start__", "stream_summary", None, False),
+        ("stream_summary", "validate_and_publish", None, True),
+        ("stream_summary", "publish_failure", None, True),
+        ("validate_and_publish", "__end__", None, False),
+        ("publish_failure", "__end__", None, False),
+    }
+)
+
+
 def test_summary_execution_mermaid_contains_node_names() -> None:
     compiled = compile_summary_execution_graph()
-    text = summary_execution_mermaid(compiled)
+    text = draw_mermaid(compiled)
     for name in SUMMARY_EXECUTION_NODE_NAMES:
         assert name in text
+    assert graph_edge_set(compiled) == SUMMARY_EXECUTION_EDGES
     assert SUMMARY_EXECUTION_RECURSION_LIMIT == len(SUMMARY_EXECUTION_NODE_NAMES) + 2
 
 
 def test_summary_execution_graph_callables_are_coroutines() -> None:
     compiled = compile_summary_execution_graph()
-    graph = compiled.get_graph()
+    node_funcs = {name.removeprefix("node:"): fn for name, fn in graph_callables(compiled) if name.startswith("node:")}
     for name in SUMMARY_EXECUTION_NODE_NAMES:
-        node = graph.nodes[name]
-        runnable = node.data if hasattr(node, "data") else node
-        func = getattr(runnable, "afunc", None) or getattr(runnable, "func", None)
+        func = node_funcs[name]
         assert func is not None, name
         assert inspect.iscoroutinefunction(func), name
     from lab.workflows import summary as summary_module
