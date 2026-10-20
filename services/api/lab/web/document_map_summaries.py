@@ -34,6 +34,7 @@ def router(deps: AppDeps) -> APIRouter:
     @routes.post("/api/topics/{topic}/files/{file_id}/map/sections/{section_id}/summary")
     async def generate_summary(topic: str, file_id: str, section_id: str, body: SectionSummaryInput):
         lease = await acquire_topic_lock(deps.locks, topic, reject_if_busy=True)
+        registered_attempt_ids: set[str] = set()
 
         def list_active_attempt_ids() -> set[str]:
             return {
@@ -43,6 +44,7 @@ def router(deps: AppDeps) -> APIRouter:
             }
 
         def register_active(attempt_id: str) -> None:
+            registered_attempt_ids.add(attempt_id)
             deps.active_document_map_summaries[attempt_id] = ActiveSummary(
                 topic=topic,
                 file_id=file_id,
@@ -70,6 +72,8 @@ def router(deps: AppDeps) -> APIRouter:
             admitted = await run_summary_admission(summary_admission_graph, admission_context)
             lease.hand_off()
         except BaseException:
+            for attempt_id in registered_attempt_ids:
+                unregister_active(attempt_id)
             lease.release()
             raise
 

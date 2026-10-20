@@ -112,6 +112,7 @@ def router(deps: AppDeps) -> APIRouter:
     @routes.post("/api/topics/{topic}/files/{file_id}/map/sections/{section_id}/prerequisites")
     async def generate_prerequisites(topic: str, file_id: str, section_id: str, body: PrerequisiteInput):
         lease = await acquire_topic_lock(deps.locks, topic, reject_if_busy=True)
+        registered_attempt_ids: set[str] = set()
         try:
             active_ids = {
                 attempt_id
@@ -120,6 +121,7 @@ def router(deps: AppDeps) -> APIRouter:
             }
 
             def register_active(attempt_id: str) -> None:
+                registered_attempt_ids.add(attempt_id)
                 deps.active_prerequisite_attempts[attempt_id] = ActivePrerequisite(
                     topic=topic,
                     file_id=file_id,
@@ -152,6 +154,8 @@ def router(deps: AppDeps) -> APIRouter:
             attempt = admitted.attempt
             lease.hand_off()
         except BaseException:
+            for registered_id in registered_attempt_ids:
+                deps.active_prerequisite_attempts.pop(registered_id, None)
             lease.release()
             raise
 

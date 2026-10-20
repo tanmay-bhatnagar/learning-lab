@@ -680,19 +680,21 @@ async def finalize_prerequisite_run(
     unregister_active: Callable[[str], None],
     attempt_id: str,
 ) -> None:
-    await handle.run.cancel_and_wait()
-    stream = handle.context.artifacts.stream
-    if stream is not None:
-        await stream.aclose()
-    if not handle.context.artifacts.terminal:
+    try:
+        await handle.run.cancel_and_wait()
+        stream = handle.context.artifacts.stream
+        if stream is not None:
+            await stream.aclose()
+        if not handle.context.artifacts.terminal:
 
-        async def cancel_publish() -> PrerequisitePublicationOutcome:
-            return await publish_cancelled(
-                publication_request_from_bundle(handle.context.bundle),
-                already_terminal=handle.context.artifacts.terminal,
-            )
+            async def cancel_publish() -> PrerequisitePublicationOutcome:
+                return await publish_cancelled(
+                    publication_request_from_bundle(handle.context.bundle),
+                    already_terminal=handle.context.artifacts.terminal,
+                )
 
-        publication = await handle.publish_once.run(cancel_publish)
-        if publication.terminal:
-            handle.context.artifacts.terminal = True
-    unregister_active(attempt_id)
+            publication = await handle.publish_once.run(cancel_publish)
+            if publication.terminal:
+                handle.context.artifacts.terminal = True
+    finally:
+        unregister_active(attempt_id)
