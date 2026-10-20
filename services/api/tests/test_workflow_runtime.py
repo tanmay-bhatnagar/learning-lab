@@ -14,7 +14,7 @@ from langgraph.runtime import Runtime
 
 from lab.web.app import create_app
 from lab.workflows.events import EventSink
-from lab.workflows.runtime import ActiveRuns, GraphRun, PublishOnce, invoke_graph
+from lab.workflows.runtime import GraphRun, PublishOnce, invoke_graph
 
 _CHAT_TYPES = frozenset({"token"})
 

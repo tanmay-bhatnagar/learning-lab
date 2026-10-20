@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
-from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
+from collections.abc import AsyncIterator, Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, TypedDict
@@ -16,7 +16,7 @@ from langgraph.runtime import Runtime
 
 from lab.contracts import CloseableAsyncStream, ModelGateway
 from lab.document_map_store import get_document_map
-from lab.errors import Conflict, InvalidInput
+from lab.errors import Conflict
 from lab.prerequisite_store import write_prerequisite_attempt
 from lab.prerequisites import MAX_RESPONSE_BYTES, build_prerequisite_plan, validate_prerequisite_response
 from lab.profile_store import ProfileStore
@@ -31,7 +31,6 @@ from lab.workflows.prerequisite_publication import (
     publish_cancelled,
     publish_stream_failure,
     publication_request_from_bundle,
-    published_assessment,
     recover_file_state,
     terminal_attempt_record,
 )

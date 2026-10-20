@@ -149,7 +149,6 @@ def test_cv_on_includes_canonical_cv_text_in_admitted_plan(tmp_path):
         f"/api/topics/{topic}/conversations/{conversation}/learner-context",
         json={"expected_revision": 0, "include_cv": True},
     )
-    model = _NoStreamChatModel()
 
     class _RecordingModel(FakeModel):
         def __init__(self):

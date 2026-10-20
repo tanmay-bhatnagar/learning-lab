@@ -398,7 +398,6 @@ def test_revalidation_receives_accumulated_initial_images_even_when_final_plan_t
     assert revalidated[0] == (("initial-image",), expected_image)
     assert revalidated[1] == (("initial-image",), expected_image)
     assert revalidated[-1] == (("initial-image", "follow-up"), expected_image)
-    metadata = ctx.evidence_state
     plan = ctx.final_plan or ctx.initial_plan
     assert plan["citations"][0]["chunk_id"] == "follow-up"
     assert plan["supplied_images"] == ()
@@ -427,7 +426,6 @@ def test_search_is_allowed_with_empty_initial_manifest_and_explicit_indexed_scop
 
     assert len(gateway.calls) == 2
     assert looked_up == [("specific detail", FILE_IDS)]
-    metadata = ctx.evidence_state
     plan = ctx.final_plan or ctx.initial_plan
     assert [citation["chunk_id"] for citation in plan["citations"]] == ["follow-up-only"]
 
@@ -465,7 +463,6 @@ def test_first_stream_falls_back_only_after_completed_invalid_action(first_strea
         assert ctx.observer.workflow_error is not None
     else:
         metadata = ctx.evidence_state
-        plan = ctx.final_plan or ctx.initial_plan
         assert metadata["generation_count"] == 2
         assert metadata.get("warning")
         assert "private search text" not in str(metadata)
@@ -569,7 +566,6 @@ def test_search_reports_new_but_trimmed_ids_separately_from_retained_ids():
     )
 
     metadata = ctx.evidence_state
-    plan = ctx.final_plan or ctx.initial_plan
     assert metadata["initial_chunk_ids"] == ["initial-1"]
     assert metadata["new_chunk_ids"] == ["new-1"]
     assert metadata["retained_new_chunk_ids"] == []
@@ -615,7 +611,6 @@ def test_direct_answer_declares_only_its_noncontiguous_retained_sources():
     ctx, ndjson_events = _run(gateway, initial_chunks=chunks)
 
     metadata = ctx.evidence_state
-    plan = ctx.final_plan or ctx.initial_plan
     assert metadata["declared_source_labels"] == ["E1", "E3"]
     assert metadata["initial_chunk_ids"] == ["source-1", "source-2", "source-3"]
     assert metadata["final_chunk_ids"] == ["source-1", "source-2", "source-3"]
@@ -645,7 +640,6 @@ def test_duplicate_only_lookup_does_not_claim_new_or_retained_new_evidence():
     ctx, ndjson_events = _run(gateway, initial_chunks=[initial], lookup=lookup)
 
     metadata = ctx.evidence_state
-    plan = ctx.final_plan or ctx.initial_plan
     assert metadata["returned_chunk_ids"] == ["initial-1"]
     assert metadata["new_chunk_ids"] == []
     assert metadata["retained_new_chunk_ids"] == []
@@ -663,6 +657,7 @@ def test_initial_snapshot_conflict_does_not_claim_prepared_sources_were_supplied
     ctx, ndjson_events = _run(gateway, initial_chunks=[initial], revalidate=revalidate)
 
     error_code = _workflow_error_code(ctx)
+    assert error_code == "snapshot_changed"
     assert revalidated == [("initial-1",)]
     assert gateway.calls == []
     assert ctx.evidence_state["generation_count"] == 0
@@ -685,6 +680,7 @@ def test_initial_gateway_factory_failure_counts_attempt_without_claiming_sources
     ctx, ndjson_events = _run(gateway, initial_chunks=[initial])
 
     error_code = _workflow_error_code(ctx)
+    assert error_code == "provider_failed"
     assert gateway.calls == 1
     assert ctx.evidence_state["generation_count"] == 1
     assert ctx.evidence_state["initial_available_chunk_ids"] == ["initial-1"]
@@ -717,6 +713,7 @@ def test_final_gateway_factory_failure_does_not_claim_prepared_sources_were_supp
     ctx, ndjson_events = _run(Gateway(), initial_chunks=[initial], lookup=lookup)
 
     error_code = _workflow_error_code(ctx)
+    assert error_code == "provider_failed"
     assert ctx.evidence_state["generation_count"] == 2
     assert ctx.evidence_state["initial_chunk_ids"] == ["initial-1"]
     assert ctx.evidence_state["final_chunk_ids"] == ["initial-1"]

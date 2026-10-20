@@ -8,7 +8,7 @@ import json
 import pytest
 
 from lab.errors import Conflict, DoesNotFit
-from lab.prerequisite_store import get_prerequisite_state, write_prerequisite_attempt
+from lab.prerequisite_store import get_prerequisite_state
 import inspect
 
 from lab.workflows.prerequisites import (
