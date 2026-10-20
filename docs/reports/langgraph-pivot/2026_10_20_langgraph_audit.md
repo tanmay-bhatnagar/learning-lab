@@ -69,3 +69,31 @@ Tester rebased all original probes byte-for-byte onto exact `31ad439`; all 15 no
 Coordinator final `make test` at repaired code: 862 backend tests plus 21 subtests (74.77s), 238 browser tests across 42 files. Engineering, global Ruff, Python format (149 files), web ESLint/Prettier, TypeScript/production build and workflow unused-import/variable checks pass. Public OpenAPI exactly equals the pre-pivot baseline (37 paths); captured `final-openapi.json` is ignored. Existing three Python dependency warnings, Zod/Rollup annotations and large-bundle warning remain. Logs: ignored `final-tests.log` and `final-build.log`. Initial pip check also passed; no dependency changes were made.
 
 Final actual run: `.local/verification/20261020-192453-ad9b1d78/`, owned launcher session 76411, web5173/API59470, fixture runtime policy. Usage tester2 independently checked empty topics/profile and correct roots before setup. CUA Chrome file upload is unavailable without changing extension file access; permissions remain untouched. Synthetic fixtures will be uploaded through the isolated API, followed by actual browser verification. This is an explicit upload-interaction coverage limit, not a product failure. No further production repair is pending from the automated audit, but actual-use results and teardown remain to be recorded.
+
+## Actual isolated product verification and teardown
+
+Usage tester2 completed browser/API verification against repaired code `31ad439` with existing `qwen3.5:4b-q8_0`, Thinking Off, context8192, top-k1 and installed Docling/embedding assets. No provider/model substitution or download. Uploaded only the supplied synthetic research/control/CV fixtures through the isolated API; CUA's Chrome file permission prevented upload interaction and was not changed. Document parsing produced a three-page research paper and one-page unselected control with ready hybrid indexes; the outline exposed 15/15 units. Root independently hash-compared stored research/control/CV originals against the supplied fixtures: all byte-identical.
+
+| Actual action | Observed outcome |
+| --- | --- |
+| Summary generation/import | Generated source-linked summary succeeded and was explicitly imported to Default. |
+| Summary regeneration Stop | Stopping preserved the previous completed summary. |
+| Ordinary Default chat | Used the saved manual Python-fundamentals note and selected-paper citation. |
+| Stop before confirmation | One UI send, then Stop before tokens. Exactly one saved user and one empty incomplete assistant; one cancelled trace with user/assistant saved; composer recovered, no duplicate submission. A later same-topic chat succeeded. |
+| Prerequisites | Three broad requirements, each independently asking familiarity; no autofilled self-report. Saved New / Refresher / Comfortable answers and imported the assessment snapshot. |
+| Proficiency in chat | Later chat reported saved mean-error/standard-deviation familiarity and used notes. |
+| CV on | Default's enabled preference supplied CV text; response quoted the exact synthetic marker. |
+| CV off/isolation | Separate named conversation began with CV off and did not reveal that marker; earlier CV-on output was not in its history. This behavioral contrast complements the independent code-level no-read tests, rather than proving no-read by self-report alone. |
+| Named chat/reload | Named conversation and its history survived full reload. |
+| Opt-in autonomous decision | Request was opted in, selected only the paper, but model returned a direct answer from page2 with zero extra lookups; it incorrectly claimed absent values that exist elsewhere. |
+| Explicit lookup compatibility | One additional bounded probe in a fresh named conversation requested a lookup. Actual action `search_selected`, outcome `searched`, lookup_count1; page3 was added and UI reported one new passage. Answer correctly gave A12/B18, difference6/50%, and no significance/CI claim. |
+
+Evidence: ignored final run `usage-evidence-final.json`, `query-traces-explicit-search.json`, setup artifacts and server logs. Screenshots were inspected through CUA but no local export mechanism was available; no nonexistent screenshot file is claimed. Narrow/keyboard and real concurrent-topic behavior were not rerun; bounded automated lifecycle/serialization coverage is separate. Invalid-action fallback and injected crash/save failures remain automated proofs, not forced model outputs.
+
+### Remaining quality limitations
+
+The autonomous direct-answer sample demonstrates a real limitation: protocol-valid action selection does not guarantee useful evidence gathering or a truthful whole-paper absence claim. The explicit-search sample establishes working retrieval orchestration, not reliable judgment of when it is needed. Another answer interpreted the reference constant as a target without explicit source support; prerequisite wording mentioned clinical trials despite the simulation-only source. These are observed answer/requirement-quality concerns, not erased by citation labels or passing framework tests.
+
+No semantic guarantee or model-quality improvement is claimed. Forcing every opt-in request to search would change the agreed conditional behavior/cost; changing prompts or selection policy needs its own measured comparison. This audit preserves the accepted call budget and reports the limitation rather than silently adding inference, switching models or treating every valid JSON answer as supported. Further decision-quality work remains distinct from the closed code/architecture repairs.
+
+Root stopped only owned launcher76411 after usage finished. Ports5173/59470 are closed and launcher metadata says `stopped_by_user`; synthetic data/logs remain retained. The earlier owned baseline launcher64118 was also stopped. No personal topics/CVs were accessed. All confirmed software findings in the audited scope are repaired, independently rechecked and checkpointed; no claim that every model answer or possible failure timing is correct. Changes remain local on `dev`; this audit request did not authorize a new remote push or release.

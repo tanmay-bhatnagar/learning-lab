@@ -144,3 +144,7 @@ This first pass declared the pivot complete at `4f5ae29`. The audit in the next 
 **Out-of-repository roadmap follow-up.** `learning_lab/R1.md` sits outside this repository. Its item 7 is unchecked and still says "No LangGraph or LangChain dependency exists". This pass did not edit it. Tanmay should decide whether to mark the LangGraph part of item 7 done and leave retrieval tools, tool-call validation and approvals open.
 
 **Final checks after the reopen.** Recorded in the commit for this record.
+
+## Subsequent independent audit
+
+The separate [independent audit and repairs](2026_10_20_langgraph_audit.md) preserves findings after this implementation record. It resolves the earlier Stop issue and additional metadata, exception disclosure, admission/constructor cleanup, cancellation/publication and generic-typing defects in small red/WIP/repair checkpoints. Final automated evidence is 862 backend tests plus 21 subtests, 238 web tests, all static/build gates and 24 independent closure checks. Actual synthetic local-model/browser verification covers all three workflow families; autonomous search choice and semantic answer/requirement quality remain explicitly limited. Earlier completion/validation entries above remain historical rather than being relabeled with these later counts.
