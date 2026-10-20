@@ -119,6 +119,16 @@ export function useChat(
         if (topicRef.current !== target || conversationRef.current !== targetConversation) return;
         const stopRequested = aborted(e);
         if (!accepted) {
+          if (controller.signal.aborted) {
+            setError(
+              'Response stopped before headers. The server may have saved your message; reload history to confirm.',
+            );
+            session.dispatch({
+              type: 'messagesChanged',
+              value: (previous) => failTurn(previous, true).messages,
+            });
+            return;
+          }
           session.dispatch({ type: 'inputChanged', value: originalDraft });
           session.dispatch({ type: 'messagesChanged', value: rejectTurn });
           setError(errorText(e));

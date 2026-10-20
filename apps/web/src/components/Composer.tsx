@@ -118,11 +118,22 @@ export function Composer({
             <ThinkingControl model={activeModel} busy={busy} thinkValue={thinkValue} onThinkChange={onThinkChange} />
           </div>
           {sending ? (
-            <button type="button" className="send-button stop" aria-label="Stop response" onClick={onStop}>
+            <button
+              key="stop"
+              type="button"
+              className="send-button stop"
+              aria-label="Stop response"
+              onClick={(event) => {
+                event.preventDefault();
+                onStop();
+              }}
+            >
               <Square size={16} />
             </button>
           ) : (
             <button
+              key="send"
+              type="submit"
               className="send-button"
               aria-label="Send message"
               disabled={!input.trim() || !activeModel || busy || !topicReady}
