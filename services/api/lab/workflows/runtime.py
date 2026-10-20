@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
-from typing import Any, TypeVar
+from typing import Any, Generic, TypeVar
 
 import langsmith
 from langgraph.graph.state import CompiledStateGraph
@@ -31,7 +31,7 @@ async def invoke_graph(
         )
 
 
-class PublishOnce:
+class PublishOnce(Generic[OutcomeT]):
     """Run a publication coroutine once; shield callers and finish on cancellation."""
 
     def __init__(self) -> None:
