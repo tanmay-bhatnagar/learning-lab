@@ -23,7 +23,7 @@ Order 6 (inferred prerequisites) is complete. The LangGraph part of orders 7–8
 | Order | Work |
 | --- | --- |
 | 7–8 | Retrieval tools, tool-call validation and scoped approvals on the LangGraph workflows. |
-| 9–10 | Understanding checks, topic progress memory and restart recovery. |
+| 9–10 | Conversational understanding questions via runtime policy; topic progress memory and restart recovery remain pending. |
 | 11–12 | Full R1 acceptance demonstration, then context compaction. |
 
 The ingestion and retrieval refactor and the subsequent functional-design refactor are implemented. The 1 October [architecture review](../../docs/reports/architecture/architecture-review.md) records their findings and design; current ownership and conventions are in [architecture](../../docs/architecture.md) and [engineering](../../docs/engineering.md). Completed handoff and task-brief files were removed on 3 October at Tanmay's request. Coding experiments, web research, full multimodal support and Jetson hosting belong to later releases. The 107-PDF parser comparison remains deferred until Tanmay explicitly requests it.
@@ -61,3 +61,7 @@ The approved five-slice on-demand increment is complete locally on `dev`:341 bac
 ## Independent pivot audit — 20 October 2026
 
 The [post-implementation audit](../../docs/reports/langgraph-pivot/2026_10_20_langgraph_audit.md) repaired concrete Stop, metadata, error-disclosure and lifecycle/typing defects while independently confirming graph/domain/HTTP layering. Final checks pass: 862 backend tests plus 21 subtests, 238 web tests, static/build gates and 24 independent closure cases. Actual isolated Docling/Ollama/browser checks exercised chat, summaries, prerequisites, CV modes, imports, Stop and reload. The model sometimes answers prematurely instead of searching; explicit lookup works, while semantic completeness remains unproven. This does not complete understanding checks, progress memory, durable restart, approvals or compaction. Prior dated validation above remains historical.
+
+### Conversational learning — 20 October 2026
+
+Tanmay replaced the proposed separate understanding-check mode with ordinary conversational teaching: explanations end with one short relevant question, subsequent answers receive constructive corrections, and skipped answers never block progress. There are no grades or automatic My proficiency changes. See the [runtime policy and dated decision record](../../docs/runtime_policy.md#ordinary-conversational-explanations). The older audit above records the earlier roadmap; durable progress memory and restart recovery remain pending, and compaction is deferred.

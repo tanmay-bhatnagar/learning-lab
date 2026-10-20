@@ -2,7 +2,7 @@
 
 Chat, section summaries and personalized prerequisites run as LangGraph graphs. The public HTTP and NDJSON contracts did not change: the OpenAPI schema is identical to the pre-pivot baseline, and HTTP characterization tests pin event order, saved records and traces. The [pivot plan](reports/langgraph-pivot/pivot_to_langgraph.md), [validation research](reports/langgraph-pivot/2026_10_20_langgraph_validation_research.md), [validation design](reports/langgraph-pivot/2026_10_20_langgraph_validation_design.md) and [implementation record](reports/langgraph-pivot/2026_10_20_langgraph_implementation.md) hold the decisions, deviations and verification evidence.
 
-Graphs are request-scoped: `checkpointer=None`, no LangGraph Store, no interrupts, no tools. Topic files, sessions, attempts and traces remain the only durable records. Restart/resume, approvals, retrieval tools, understanding checks, progress memory and compaction are still R1 roadmap items; this pivot provides their seam, not the features.
+Graphs are request-scoped: `checkpointer=None`, no LangGraph Store, no interrupts, no tools. Topic files, sessions, attempts and traces remain the only durable records. Restart/resume, approvals, retrieval tools, progress memory and compaction remain roadmap work. Conversational understanding questions are now part of the [runtime learning policy](runtime_policy.md#ordinary-conversational-explanations), using normal chat without a separate mode or grading workflow.
 
 ## Read these modules in order
 
