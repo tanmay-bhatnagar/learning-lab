@@ -121,7 +121,7 @@ export function useChat(
         if (!accepted) {
           if (controller.signal.aborted) {
             setError(
-              'Response stopped before headers. The server may have saved your message; reload history to confirm.',
+              'Response stopped before confirmation. Your message may have been saved; reload history to check.',
             );
             session.dispatch({
               type: 'messagesChanged',
