@@ -84,6 +84,32 @@ def test_execution_success_sequence_and_persistence(tmp_path) -> None:
     assert saved["last_summary"]["content"] == "A synthetic statement [S1]."
 
 
+def test_late_graph_failure_after_summary_publication_does_not_emit_done(tmp_path, monkeypatch) -> None:
+    import lab.workflows.summary as summary_workflow
+
+    original = summary_workflow.validate_and_publish
+
+    async def fail_after_publication(state, runtime):
+        await original(state, runtime)
+        raise RuntimeError("synthetic late graph failure")
+
+    monkeypatch.setattr(summary_workflow, "validate_and_publish", fail_after_publication)
+    client, store, topic, outline, _ = _client(tmp_path)
+    section = outline["sections"][0]
+    response = client.post(
+        _summary_url(topic, outline["revision"], section["id"]),
+        json={"revision": outline["revision"], "model": "fake", "context_limit": 8192, "think": None},
+    )
+
+    events = _events(response)
+    saved = json.loads(store.file_path(topic, "paper-1.map.json").read_text())["sections"][0]
+
+    assert saved["last_summary"]["content"] == "A synthetic statement [S1]."
+    assert events[-1]["type"] == "error"
+    assert all(event["type"] != "done" for event in events)
+    assert "synthetic late graph failure" not in events[-1].get("message", "")
+
+
 @pytest.mark.parametrize(
     ("behavior", "output", "terminal_message"),
     [

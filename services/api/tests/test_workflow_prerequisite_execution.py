@@ -156,6 +156,30 @@ async def test_success_registers_pending_then_publishes_assessment(tmp_path) -> 
 
 
 @pytest.mark.anyio
+async def test_late_graph_failure_after_assessment_publication_does_not_emit_done(tmp_path, monkeypatch) -> None:
+    import lab.workflows.prerequisites as prerequisite_workflow
+
+    original = prerequisite_workflow.publish_assessment
+
+    async def fail_after_publication(state, runtime):
+        await original(state, runtime)
+        raise RuntimeError("synthetic late graph failure")
+
+    monkeypatch.setattr(prerequisite_workflow, "publish_assessment", fail_after_publication)
+    client, topic, outline, model, _cv = _prepared(tmp_path)
+    section = outline["sections"][0]
+    events, _handle, bundle = await _run_execution(client, topic, outline, section, _request(outline), model=model)
+    durable = get_prerequisite_state(client.app.state.deps.store, topic, "paper-1")
+
+    assert len(durable["assessments"]) == 1
+    assert durable["attempts"][-1]["status"] == "completed"
+    assert events[-1]["type"] == "error"
+    assert all(event["type"] != "done" for event in events)
+    assert bundle.attempt_id not in events[-1].get("message", "")
+    assert "synthetic late graph failure" not in events[-1].get("message", "")
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize("behavior", ["error", "eof"], ids=["provider-error", "early-eof"])
 async def test_provider_error_or_eof_terminal_without_assessment(tmp_path, behavior: str) -> None:
     model = PrerequisiteFakeModel(behavior=behavior)
