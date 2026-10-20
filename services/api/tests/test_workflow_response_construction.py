@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -77,7 +79,7 @@ async def test_response_constructor_failure_releases_owned_resources(tmp_path, m
         assert messages[-1]["incomplete"] is True
     elif family == "summary":
         assert model.summary_requests == []
-        section = store.document_map(topic, "paper-1")["sections"][0]
+        section = json.loads(store.file_path(topic, "paper-1.map.json").read_text())["sections"][0]
         assert section["latest_attempt"]["status"] == "cancelled"
         assert section["last_summary"] is None
     else:
@@ -87,3 +89,32 @@ async def test_response_constructor_failure_releases_owned_resources(tmp_path, m
         state = get_prerequisite_state(store, topic, "paper-1")
         assert state["attempts"][-1]["status"] == "cancelled"
         assert not state["assessments"]
+
+
+@pytest.mark.anyio
+async def test_constructor_error_survives_cleanup_failure_without_private_logging(tmp_path, monkeypatch, caplog):
+    routes, client, _store, topic, _model, endpoint, args = _setup_case(tmp_path, "ordinary")
+    original_builder = routes.build_ordinary_chat_stream_handle
+    canary = "SYNTHETIC_PRIVATE_CLEANUP_PATH"
+
+    def build_handle(**kwargs):
+        handle = original_builder(**kwargs)
+        original_finish = handle.finish
+
+        async def failed_finish():
+            await original_finish()
+            raise OSError(canary)
+
+        handle.finish = failed_finish
+        return handle
+
+    def fail_response(*_args, **_kwargs):
+        raise RuntimeError("original constructor error")
+
+    monkeypatch.setattr(routes, "build_ordinary_chat_stream_handle", build_handle)
+    monkeypatch.setattr(routes, "FinalizedStreamingResponse", fail_response)
+    with pytest.raises(RuntimeError, match="original constructor error"):
+        await endpoint(*args)
+    assert not client.app.state.deps.locks[topic].locked()
+    assert "OSError" in caplog.text
+    assert canary not in caplog.text

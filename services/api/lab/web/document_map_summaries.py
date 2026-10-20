@@ -125,7 +125,7 @@ def router(deps: AppDeps) -> APIRouter:
         except BaseException as construction_error:
             try:
                 await handle.finish()
-            except BaseException as cleanup_error:
+            except BaseException as cleanup_error:  # noqa: BLE001 - preserve original failure and report cleanup type
                 logger.error(
                     "Summary response cleanup failed (%s after %s)",
                     type(cleanup_error).__name__,
