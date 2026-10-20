@@ -279,6 +279,9 @@ def test_optin_graph_failure_does_not_publish_exception_details(tmp_path, monkey
 
     events = _events(response)
     assert events[-1]["type"] == "error"
+    assert events[-1]["message"] == (
+        "Chat failed (OSError). Check the local model service and retry; your message is saved."
+    )
     assert canary not in response.text
 
     messages = client.get(f"/api/topics/{topic}/messages").json()["messages"]

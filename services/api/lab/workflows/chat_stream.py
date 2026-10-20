@@ -242,7 +242,10 @@ def _optin_before_commit(
 
 def _optin_mark_failure(observer: ChatOptInObserver) -> MarkFailureFn:
     def mark(error: BaseException) -> None:
-        observer.set_workflow_error("generation_failed", str(error))
+        message = (
+            f"Chat failed ({type(error).__name__}). Check the local model service and retry; your message is saved."
+        )
+        observer.set_workflow_error("generation_failed", message)
 
     return mark
 
