@@ -23,10 +23,13 @@ Date started: 20 October 2026. Consolidated, coordinator-maintained checkpoint r
 | 15b. Evidence helpers, mechanical | `db965b3` | 18 pure helpers/constants moved verbatim from `lab/evidence_turn.py` to `lab/evidence_result.py`; private names used across modules became public. No other change. | AST proof (local `gate15_ast_proof.py`): 18/18 definitions equivalent after renaming; full suite 844 + 21. |
 | 15c. Legacy orchestration removed | gate-15c commit | Deleted `lab/evidence_turn.py` and `tests/test_evidence_turn.py`. Each old test is migrated to `test_workflow_chat_evidence_graph.py` or HTTP opt-in tests; the per-test map is in the coordinator review. Chat prompt-builder and trace-finalizer seams removed: workflows call the owning modules, and a new engineering check plus an AST test forbid any `lab.web` import under `lab/workflows`, including function-level imports. **Review caught a second opt-in regression in the migration:** a final provider stream ending without `done` was recorded as `cancelled` with no client error. Restored to the baseline (`error` event, outcome `error`, trace `incomplete_answer`), and the migrated test was restored to the legacy expectation. Lookup errors again skip the merge; the final chunk IDs are applied only after the final stream opens. **Characterization file:** two approved wiring-only edits (an import path for two message constants; one monkeypatch target, `lab.query_traces.finalize`), with no assertion changed. | Differential HTTP harness (local `optin_parity_harness.py`), 18 opt-in scenarios × baseline `3136086` vs new: 18/18 identical after normalizing timings and random IDs. Full suite 845 + 21. |
 | 16. Verification and docs | `d2a6d95`, gate-16 commit | Summary router now declares its destinations, so the compiled topology draws both branches. New [workflow study path](../../workflows.md), with Mermaid transcribed from the compiled graphs; architecture, extra-search, proficiency, R1 snapshot and system map reconciled. | See the completion summary below. |
+| 16r1. Chat sequencing out of HTTP | `2abf4e3` | Audit reopen. Extra-search lookup, final source merge/prompt and snapshot revalidation move from closures in `web/chat.py` into `chat_evidence` nodes. New `workflows/chat_stream.py` owns one run handle for both chat modes; the opt-in cancelled-outcome decision moves to `chat_publication`. `web/chat.py` falls from 553 to 138 lines. **Regression fixed:** since gate 10 the search path's trace omitted the lookup's elapsed time from `retrieval_ms`; baseline `63d0e84` included it. | New HTTP test: a slow lookup must appear in `retrieval_ms`; the direct path must not include it. Differential harness 18/18. Backend 847 + 21. |
+| 16r2. Test-only helpers removed | `9e8e4d5` | Graph-introspection helpers, forwarding aliases, summary Mermaid wrappers and hand-written prerequisite Mermaid strings leave production code. Topology tests now assert the exact compiled edge sets. The chat ↔ chat_evidence import cycle is gone; an AST test forbids function-level `lab.*` imports in workflows. | Backend 848 + 21. |
+| 16r3. Typed boundaries | `9e3c358` | Lines mentioning `Any` in workflows fall from 90 to 22. Boundaries now use `ModelGateway`, `StoreProtocol`, `ProfileStore`, `TopicSettings` and `CloseableAsyncStream`. What remains is imports and `CompiledStateGraph` type parameters, fully open only in the generic graph runners. Review reverted an intermediate change that silenced prerequisite close errors and narrowed summary cleanup handling. | Backend 848 + 21. |
 
-## Completion summary
+## First completion summary (superseded by the gate-16 reopen below)
 
-The pivot is complete on `dev`. Chat (ordinary and opt-in extra search), section summaries and prerequisites run as request-scoped LangGraph admission and execution graphs. `lab/evidence_turn.py` and the legacy orchestration seams are deleted. Nothing under `lab/workflows` imports `lab.web`.
+This first pass declared the pivot complete at `4f5ae29`. The audit in the next section found that declaration premature. Chat (ordinary and opt-in extra search), section summaries and prerequisites run as request-scoped LangGraph admission and execution graphs. `lab/evidence_turn.py` and the legacy orchestration seams are deleted. Nothing under `lab/workflows` imports `lab.web`.
 
 **Verification (coordinator, gate 16).**
 
@@ -71,3 +74,72 @@ The pivot is complete on `dev`. Chat (ordinary and opt-in extra search), section
 - What the user sees: "signal is aborted without reason", and the turn disappears from the UI. The server, meanwhile, has saved the user message and records the turn as cancelled.
 - The Vite dev proxy delays headers until about the first token, which widens the window.
 - This is left for a separate fix.
+
+## Gate 16 reopened: audit, fixes and acceptance
+
+**Trigger.** Tanmay asked whether the pivot was complete against the plan and the repository's architecture rules. The coordinator compared the code with plan §§2–12, `docs/engineering.md` and Code `AGENTS.md`. That comparison stands in for the gate-16 independent architecture review, which the first pass had not done.
+
+**What already held.** All five model-generation call sites are inside `lab/workflows`, and the old engine is deleted. There is no fallback, switch, checkpointer or tracing. Dependencies are pinned. Summary and prerequisite adapters were already thin. The OpenAPI schema matched.
+
+**Findings that kept the pivot incomplete.**
+
+1. Chat sequencing still lived in `web/chat.py`:
+   - opt-in lookup, final-plan building and snapshot revalidation were injected as callbacks;
+   - the cancelled-outcome decision was made in HTTP;
+   - run and teardown wiring was duplicated.
+   This contradicts plan §3 ("nodes own decision, lookup, plan…") and the gate-15 removal of superseded closures.
+2. Engineering-rule violations:
+   - pervasive `Any` at typed boundaries;
+   - test-only helpers and forwarding aliases in production modules;
+   - a chat ↔ chat_evidence import cycle hidden behind a lazy import;
+   - search warnings defined three times;
+   - dead code.
+3. Gate-16 acceptance was partial. The browser run missed:
+   - named conversations;
+   - CV-on/off modes and use of saved proficiency on the next turn;
+   - prerequisite familiarity, import and follow-up;
+   - reload;
+   - Stop during a summary regeneration;
+   - concurrent-topic serialization;
+   - the plan's synthetic paper and canary CV.
+4. The out-of-repository roadmap follow-up required by plan §12 was not recorded (see below).
+
+**Alternatives considered.**
+
+- Correct only the documentation, which leaves the layering wrong.
+- Fix the code but skip acceptance.
+- Fix everything (chosen by Tanmay): code slices by a sub-agent; review, harness, gates, browser use and docs by the coordinator.
+
+**Fixes.** Slices 16r1–16r3 in the checkpoint table. Each slice was reviewed, tested, committed and pushed separately. Review sent back three problems:
+
+- the circular import and `isinstance` mode dispatch in the first draft of 16r1;
+- the summary/prerequisite Mermaid helpers in 16r2;
+- the cleanup-semantics changes in 16r3.
+
+**Acceptance, second browser journey** (isolated launcher, headless Chromium, Docling, `qwen3.5:4b-q8_0`). Inputs: the synthetic paper, an unselected control document and a canary CV, generated locally. Evidence is under ignored `gate16b_*` in the local verification folder.
+
+| Check | Observed |
+| --- | --- |
+| Upload | Both PDFs parsed by Docling with a hybrid index; the paper has 3 pages and 1 visual. |
+| Default ordinary chat | "37.4 kelvin … RS-9", quoted and cited to Method p. 1. All 6 sources are from the paper; the control document is absent. The source link returns `application/pdf` at the cited page. |
+| Opt-in direct answer | Combined Results (18%) with Method (six-hour baseline), with separate citations. "No follow-up search was made." |
+| Named conversation route | Created through the UI; posts to `/conversations/{id}/chat`. Unsupported question (cost): the answer declines. With no document selected, the model invented a description of evidence. Model quality, not pivot. |
+| Stop and reload | Partial answer saved and "Response incomplete" shown after reload. Trace `cancelled`, `assistant_saved: true`. |
+| Summary Stop | Regeneration stopped after about 1.5 s. Attempt recorded `cancelled` with empty content; the earlier summary is preserved and displayed. |
+| Summary import | Snapshot added to the named conversation. |
+| CV on | Model returned `CANARY-ZEBRA-4471`. |
+| CV off | Model answered "NO CV". This is model self-report only: traces do not record CV inclusion, and the code-level guarantee comes from the existing protected-context and learner-context tests. |
+| Prerequisites | Two requirements grounded in Method and in the CV's "No cryogenics or metrology experience". Familiarity answers and a note saved; imported into the named conversation; "Draft a follow-up" filled the composer. |
+| Next-turn proficiency | The chat answer matched the saved comfort levels exactly. |
+| Concurrent topics, legacy `/chat` route | Topic A streamed 6.3–16.8 s. Topic B's first token came at 20.5 s, after A finished. Both ended with `done`. |
+| Server log | 89 successful responses. No 5xx responses, tracebacks or LangSmith traffic. 404s were port probes and one wrong-URL manual request. |
+
+**Not exercised with a real model** (the existing tests use injected faults or saved fixtures):
+
+- the completed-invalid-action fallback, which this model could not be made to produce on demand;
+- long-history context fit;
+- older stored histories and imports.
+
+**Out-of-repository roadmap follow-up.** `learning_lab/R1.md` sits outside this repository. Its item 7 is unchecked and still says "No LangGraph or LangChain dependency exists". This pass did not edit it. Tanmay should decide whether to mark the LangGraph part of item 7 done and leave retrieval tools, tool-call validation and approvals open.
+
+**Final checks after the reopen.** Recorded in the commit for this record.

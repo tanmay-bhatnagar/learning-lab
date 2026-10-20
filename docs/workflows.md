@@ -8,9 +8,9 @@ Graphs are request-scoped: `checkpointer=None`, no LangGraph Store, no interrupt
 
 1. [workflows/runtime.py](../services/api/lab/workflows/runtime.py) is the only place a graph is invoked. `invoke_graph` runs `ainvoke` with an explicit recursion limit and LangSmith tracing forced off, so inherited `LANGSMITH_*` settings cannot upload prompts or documents. `GraphRun` owns the execution task: the HTTP consumer waits on either the next queued event or graph completion, always cancels its pending queue read, and emits terminal events only after the graph finishes. `PublishOnce` shields a single publication task, because LangGraph cancels node tasks directly and an AnyIO shield inside a node does not stop that. `ActiveRuns` lets app shutdown cancel and await every live run.
 2. [workflows/events.py](../services/api/lab/workflows/events.py) is the bounded channel from nodes to the response. `EventSink` accepts only an allowlist of event types and blocks when full; `text_fragments` splits large text into 8 KiB pieces without breaking a code point.
-3. [workflows/chat.py](../services/api/lab/workflows/chat.py): chat admission and ordinary execution. [workflows/chat_evidence.py](../services/api/lab/workflows/chat_evidence.py): opt-in answer-or-search execution, with pure decision and merge helpers in [evidence_result.py](../services/api/lab/evidence_result.py). [workflows/chat_publication.py](../services/api/lab/workflows/chat_publication.py): preparing and committing the saved answer and trace.
+3. [workflows/chat.py](../services/api/lab/workflows/chat.py): chat admission and ordinary execution. [workflows/chat_evidence.py](../services/api/lab/workflows/chat_evidence.py): opt-in answer-or-search execution; its nodes run the selected-document lookup, final source merge and snapshot revalidation themselves, with pure decision and merge helpers in [evidence_result.py](../services/api/lab/evidence_result.py). [workflows/chat_publication.py](../services/api/lab/workflows/chat_publication.py): preparing and committing the saved answer and trace. [workflows/chat_stream.py](../services/api/lab/workflows/chat_stream.py): one run handle for both chat modes (NDJSON events, the single publication latch, shielded teardown).
 4. [workflows/summary.py](../services/api/lab/workflows/summary.py) with [summary_publication.py](../services/api/lab/workflows/summary_publication.py), and [workflows/prerequisites.py](../services/api/lab/workflows/prerequisites.py) with [prerequisite_publication.py](../services/api/lab/workflows/prerequisite_publication.py).
-5. The HTTP adapters [web/chat.py](../services/api/lab/web/chat.py), [web/document_map_summaries.py](../services/api/lab/web/document_map_summaries.py) and [web/prerequisites.py](../services/api/lab/web/prerequisites.py) acquire the topic lease, run admission, build the `GraphRun`, translate events to NDJSON and finalize on close. Nothing under `lab/workflows` imports `lab.web`; an engineering check and an AST test enforce this.
+5. The HTTP adapters [web/chat.py](../services/api/lab/web/chat.py), [web/document_map_summaries.py](../services/api/lab/web/document_map_summaries.py) and [web/prerequisites.py](../services/api/lab/web/prerequisites.py) acquire the topic lease, await admission, build the family's run handle from app capabilities and return it as a finalized streaming response. Tests in `test_workflow_privacy.py` enforce the boundary: nothing under `lab/workflows` imports `lab.web` (also an engineering check), `web/chat.py` imports no evidence modules or runtime primitives, and workflow modules import `lab` modules only at module level.
 
 ## Two phases per request
 
@@ -110,6 +110,22 @@ None of these gates establishes semantic support for a claim. Source labels and 
 
 ## Verification and limits
 
-HTTP characterization tests, a differential harness comparing 18 opt-in scenarios with the pre-pivot code, a final-token disconnect matrix across ASGI 2.3/2.4 with and without middleware, and an isolated browser journey (Docling upload, ordinary and opt-in chat including a real search branch, Stop, summary, import, prerequisites with a synthetic CV on a local Qwen model) are recorded in the implementation record. Measured on that run, header latency, first-token latency and streaming throughput matched the pre-pivot server within run-to-run noise. Real answer quality and full parser fidelity remain unassessed.
+The implementation record holds the full verification evidence:
+
+- HTTP characterization tests.
+- A differential harness comparing 18 opt-in scenarios with the pre-pivot code.
+- A final-token disconnect matrix across ASGI 2.3/2.4, with and without middleware.
+- Two isolated browser journeys on a local Qwen model. Between them they covered:
+  - Docling upload;
+  - Default and named conversations, ordinary and opt-in chat, including a real search branch;
+  - source links;
+  - Stop and reload;
+  - summary Stop that preserves the earlier summary, and summary import;
+  - CV on and off, checked with a canary;
+  - prerequisites with familiarity answers, import and a drafted follow-up;
+  - use of the saved answers on the next turn;
+  - serialized generation across two topics.
+
+On the first run, header latency, first-token latency and streaming throughput matched the pre-pivot server within run-to-run noise. Real answer quality and full parser fidelity remain unassessed.
 
 To regenerate the topology text: `PYTHONPATH=services/api .venv/bin/python -c "from lab.workflows.chat import build_chat_graphs; print(build_chat_graphs().optin_execution.get_graph().draw_mermaid())"`. Do not use `draw_mermaid_png`; it calls a network renderer, and a privacy test rejects it.
