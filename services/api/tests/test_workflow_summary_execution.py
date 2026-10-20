@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import json
 
 import pytest
 from lab.errors import CorruptData
@@ -231,6 +232,46 @@ async def test_execution_cancel_during_running_stream_preserves_prior_success(tm
     saved = client.get(f"/api/topics/{topic}/files/paper-1/map").json()["map"]["sections"][0]
     assert saved["last_summary"]["content"] == "A synthetic statement [S1]."
     assert saved["latest_attempt"]["status"] == "cancelled"
+
+
+@pytest.mark.anyio
+async def test_cancel_after_provider_done_finishes_summary_attempt(tmp_path, monkeypatch) -> None:
+    import lab.web.document_map_summaries as summary_routes
+    import lab.workflows.summary as summary_workflow
+    from lab.web.schemas import SectionSummaryInput
+
+    route_arrived = asyncio.Event()
+
+    async def blocked_route(_state):
+        route_arrived.set()
+        await asyncio.Event().wait()
+        return "validate_and_publish"
+
+    monkeypatch.setattr(summary_workflow, "_route_after_stream", blocked_route)
+    client, store, topic, outline, _ = _client(tmp_path)
+    deps = client.app.state.deps
+    endpoint = summary_routes.router(deps).routes[0].endpoint
+    section = outline["sections"][0]
+    response = await endpoint(
+        topic,
+        "paper-1",
+        section["id"],
+        SectionSummaryInput(revision=outline["revision"], model="fake", context_limit=8192),
+    )
+
+    async def consume_response():
+        return [line async for line in response.body_iterator]
+
+    consumer = asyncio.create_task(consume_response())
+    await asyncio.wait_for(route_arrived.wait(), timeout=1)
+    consumer.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(consumer, timeout=1)
+
+    saved = json.loads(store.file_path(topic, "paper-1.map.json").read_text())["sections"][0]
+    assert not deps.locks[topic].locked()
+    assert not deps.active_document_map_summaries
+    assert saved["latest_attempt"]["status"] != "generating", saved["latest_attempt"]
 
 
 @pytest.mark.anyio
